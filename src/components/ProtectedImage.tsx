@@ -19,6 +19,8 @@ interface ProtectedImageProps {
   isAdmin?: boolean;
   aspectRatioClass?: string;
   badge?: React.ReactNode;
+  objectFit?: 'cover' | 'contain' | 'fill' | 'none' | 'scale-down';
+  imgStyle?: React.CSSProperties;
 }
 
 export const ProtectedImage: React.FC<ProtectedImageProps> = ({
@@ -36,6 +38,8 @@ export const ProtectedImage: React.FC<ProtectedImageProps> = ({
   isAdmin = false,
   aspectRatioClass = '',
   badge,
+  objectFit,
+  imgStyle,
 }) => {
   const [imgSrc, setImgSrc] = useState(src || fallbackSrc);
   const [hasError, setHasError] = useState(false);
@@ -95,10 +99,19 @@ export const ProtectedImage: React.FC<ProtectedImageProps> = ({
     }
   };
 
+  const isContain = objectFit === 'contain' || className.includes('object-contain');
+  const fitClass = isContain
+    ? 'object-contain'
+    : (objectFit === 'fill' ? 'object-fill' : (className.includes('object-') ? '' : 'object-cover'));
+  const hasCustomHeight = className.includes('h-auto') || className.includes('max-h-') || className.includes('h-[');
+  const defaultHeightClass = hasCustomHeight ? '' : 'h-full';
+  const defaultWidthClass = className.includes('w-') ? '' : 'w-full';
+  const overflowClass = containerClassName.includes('overflow-') ? '' : 'overflow-hidden';
+
   return (
     <div
       data-protected={isProtected ? 'true' : 'false'}
-      className={`relative overflow-hidden select-none protected-media-container protected-media-shield ${aspectRatioClass} ${containerClassName}`}
+      className={`relative ${overflowClass} select-none protected-media-container protected-media-shield ${aspectRatioClass} ${containerClassName}`}
       onClick={onClick}
     >
       {/* Underlying Responsive Image */}
@@ -116,7 +129,8 @@ export const ProtectedImage: React.FC<ProtectedImageProps> = ({
           e.stopPropagation();
         }}
         onError={handleError}
-        className={`w-full h-full object-cover select-none pointer-events-none ${className}`}
+        style={imgStyle}
+        className={`${defaultWidthClass} ${defaultHeightClass} ${fitClass} select-none pointer-events-none ${className}`}
       />
 
       {/* Dynamic Watermark Layer */}

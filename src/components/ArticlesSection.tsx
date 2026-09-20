@@ -99,6 +99,16 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
   const [relatedArticles, setRelatedArticles] = useState<Article[]>([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
+  // Close article and reset URL
+  const handleCloseArticle = () => {
+    setSelectedArticle(null);
+    if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+      if (window.location.pathname.startsWith('/article/')) {
+        window.history.pushState({}, '', '/articles');
+      }
+    }
+  };
+
   // User Like states: map of articleId -> boolean
   const [userLikedMap, setUserLikedMap] = useState<Record<string, boolean>>({});
 
@@ -218,6 +228,15 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
     setCommentErrorMsg(null);
     setCommentContent('');
 
+    // Sync canonical deep-link URL
+    if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+      const targetSlug = article.slug || article.id;
+      const targetUrl = `/article/${encodeURIComponent(targetSlug)}`;
+      if (window.location.pathname !== targetUrl) {
+        window.history.pushState({}, '', targetUrl);
+      }
+    }
+
     // Automatically count article view with deduplicated hash
     const viewerHash = getViewerHash();
     registerArticleView(article.id, viewerHash)
@@ -245,6 +264,31 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
       setLoadingDetails(false);
     }
   };
+
+  // Sync URL deep-link to article if on /article/:slug or ?id=
+  useEffect(() => {
+    if (articles.length === 0 || selectedArticle) return;
+    const path = window.location.pathname;
+    let targetSlugOrId: string | null = null;
+    if (path.toLowerCase().startsWith('/article/')) {
+      const seg = path.split('/').filter(Boolean)[1];
+      if (seg) targetSlugOrId = decodeURIComponent(seg);
+    } else {
+      const urlParams = new URLSearchParams(window.location.search);
+      targetSlugOrId = urlParams.get('id') || urlParams.get('article');
+    }
+
+    if (targetSlugOrId) {
+      const found = articles.find(
+        a =>
+          (a.slug && a.slug.toLowerCase() === targetSlugOrId!.toLowerCase()) ||
+          a.id.toLowerCase() === targetSlugOrId!.toLowerCase()
+      );
+      if (found) {
+        handleOpenArticle(found);
+      }
+    }
+  }, [articles]);
 
   // Toggle Like Handler
   const handleToggleLike = async (e: React.MouseEvent, articleId: string) => {
@@ -748,7 +792,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                 {/* Close modal button */}
                 <button
                   id="close-article-modal-btn"
-                  onClick={() => setSelectedArticle(null)}
+                  onClick={handleCloseArticle}
                   className="p-1.5 rounded-xl text-stone-400 hover:text-stone-100 hover:bg-stone-800 transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -990,7 +1034,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                           </span>
                           <button
                             onClick={() => {
-                              setSelectedArticle(null);
+                              handleCloseArticle();
                               if (onOpenCalculator) onOpenCalculator(door);
                             }}
                             className="text-[11px] font-bold text-amber-500 hover:text-amber-400 flex items-center gap-1"
@@ -1024,7 +1068,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
                     <button
                       onClick={() => {
-                        setSelectedArticle(null);
+                        handleCloseArticle();
                         if (onOpenCalculator) {
                           onOpenCalculator();
                         }
@@ -1249,7 +1293,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
               </span>
 
               <button
-                onClick={() => setSelectedArticle(null)}
+                onClick={handleCloseArticle}
                 className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs"
               >
                 Close Guide

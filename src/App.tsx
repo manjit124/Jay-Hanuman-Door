@@ -118,7 +118,7 @@ export const App: React.FC = () => {
   const [favoriteDoorIds, setFavoriteDoorIds] = useState<string[]>(getGuestFavorites);
   const [loadedCalcRecord, setLoadedCalcRecord] = useState<UserCalculationRecord | null>(null);
 
-  // Sync /admin URL routing
+  // Sync URL routing for SEO canonical routes and deep-links
   useEffect(() => {
     const syncRouteFromPath = () => {
       const path = window.location.pathname.toLowerCase();
@@ -139,6 +139,18 @@ export const App: React.FC = () => {
         setActiveView('contact');
       } else if (path === '/disclaimer') {
         setActiveView('disclaimer');
+      } else if (path === '/catalog' || path === '/doors' || path === '/gallery') {
+        setActiveView('gallery');
+      } else if (path === '/calculator' || path === '/price-calculator') {
+        setActiveView('calculator');
+      } else if (path === '/articles' || path === '/guides' || path === '/blog') {
+        setActiveView('articles');
+      } else if (path.startsWith('/door/')) {
+        setActiveView('gallery');
+      } else if (path.startsWith('/article/')) {
+        setActiveView('articles');
+      } else if (path === '/') {
+        setActiveView('home');
       } else if (
         path === '/visualizer' ||
         path.startsWith('/visualizer') ||
@@ -188,6 +200,22 @@ export const App: React.FC = () => {
       setFinishes(calcData.finishes || []);
       setFrames(calcData.frames || []);
       setHardware(calcData.hardware || []);
+
+      // Check if deep-linked to a door directly
+      if (typeof window !== 'undefined') {
+        const currentPath = window.location.pathname;
+        if (currentPath.toLowerCase().startsWith('/door/')) {
+          const seg = currentPath.split('/').filter(Boolean)[1];
+          if (seg && catalogData.doors) {
+            const matchedDoor = catalogData.doors.find(
+              d => d.id.toLowerCase() === decodeURIComponent(seg).toLowerCase()
+            );
+            if (matchedDoor) {
+              setSelectedDoorForDetail(matchedDoor);
+            }
+          }
+        }
+      }
     } catch (err) {
       console.error('Failed to load application data:', err);
     } finally {
@@ -247,12 +275,53 @@ export const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Canonical route navigation
+  const navigateToView = (view: string) => {
+    setActiveView(view);
+    const viewToPathMap: Record<string, string> = {
+      home: '/',
+      gallery: '/catalog',
+      calculator: '/calculator',
+      articles: '/articles',
+      about: '/about',
+      contact: '/contact',
+      privacy: '/privacy-policy',
+      disclaimer: '/disclaimer',
+    };
+    const targetPath = viewToPathMap[view] || '/';
+    if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({}, '', targetPath);
+      }
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenDoorDetail = (door: Door) => {
+    setSelectedDoorForDetail(door);
+    if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+      const targetUrl = `/door/${encodeURIComponent(door.id)}`;
+      if (window.location.pathname !== targetUrl) {
+        window.history.pushState({}, '', targetUrl);
+      }
+    }
+  };
+
+  const handleCloseDoorDetail = () => {
+    setSelectedDoorForDetail(null);
+    if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+      if (window.location.pathname.startsWith('/door/')) {
+        const backUrl = activeView === 'gallery' ? '/catalog' : '/';
+        window.history.pushState({}, '', backUrl);
+      }
+    }
+  };
+
   // Handlers for cross-component workflows
   const handleCalculateDoor = (door: Door) => {
     setCalculatorDoor(door);
-    setSelectedDoorForDetail(null);
-    setActiveView('calculator');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    handleCloseDoorDetail();
+    navigateToView('calculator');
   };
 
   const handleOpenQuotationModal = (calcResult: CalculationResult, door?: Door | null) => {
@@ -273,10 +342,7 @@ export const App: React.FC = () => {
         tagline={settings.tagline}
         whatsappNumber={settings.whatsappNumber}
         activeView={activeView}
-        onNavigate={view => {
-          setActiveView(view);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
+        onNavigate={navigateToView}
         onOpenAdmin={() => setShowAdminPanel(true)}
         onTriggerAdminAccess={() => setShowAdminPanel(true)}
         isAdminLoggedIn={isAdminLoggedIn}
@@ -423,10 +489,7 @@ export const App: React.FC = () => {
                   </h2>
                 </div>
                 <button
-                  onClick={() => {
-                    setActiveView('gallery');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
+                  onClick={() => navigateToView('gallery')}
                   className="text-amber-700 hover:text-amber-800 font-semibold text-xs sm:text-sm flex items-center gap-1 group"
                 >
                   <span>Explore Full Catalog ({doors.length})</span>
@@ -443,7 +506,7 @@ export const App: React.FC = () => {
                   >
                     <div
                       className="relative aspect-[3/4] bg-stone-100 overflow-hidden cursor-pointer"
-                      onClick={() => setSelectedDoorForDetail(door)}
+                      onClick={() => handleOpenDoorDetail(door)}
                     >
                       <img
                         src={door.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80'}
@@ -477,7 +540,7 @@ export const App: React.FC = () => {
                     <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
                       <div>
                         <h3
-                          onClick={() => setSelectedDoorForDetail(door)}
+                          onClick={() => handleOpenDoorDetail(door)}
                           className="font-serif text-base sm:text-lg font-bold text-stone-900 group-hover:text-amber-700 cursor-pointer transition-colors line-clamp-1"
                         >
                           {door.name}
@@ -497,7 +560,7 @@ export const App: React.FC = () => {
 
                         <div className="grid grid-cols-2 gap-2">
                           <button
-                            onClick={() => setSelectedDoorForDetail(door)}
+                            onClick={() => handleOpenDoorDetail(door)}
                             className="py-2 px-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
                           >
                             <Eye className="w-3.5 h-3.5 text-stone-600" />
@@ -662,7 +725,7 @@ export const App: React.FC = () => {
           <DoorGallery
             doors={doors}
             categories={categories}
-            onSelectDoor={door => setSelectedDoorForDetail(door)}
+            onSelectDoor={door => handleOpenDoorDetail(door)}
             onCalculateDoor={handleCalculateDoor}
             settings={settings}
             favoriteDoorIds={favoriteDoorIds}
@@ -694,7 +757,7 @@ export const App: React.FC = () => {
             doors={doors}
             settings={settings}
             onOpenCalculator={door => handleCalculateDoor(door)}
-            onOpenDoorDetail={door => setSelectedDoorForDetail(door)}
+            onOpenDoorDetail={door => handleOpenDoorDetail(door)}
           />
         )}
 
@@ -798,7 +861,7 @@ export const App: React.FC = () => {
               <ul className="space-y-2 text-xs">
                 <li>
                   <button
-                    onClick={() => { setActiveView('calculator'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    onClick={() => navigateToView('calculator')}
                     className="text-stone-400 hover:text-amber-400 transition-colors"
                   >
                     Door Price Calculator
@@ -806,7 +869,7 @@ export const App: React.FC = () => {
                 </li>
                 <li>
                   <button
-                    onClick={() => { setActiveView('gallery'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    onClick={() => navigateToView('gallery')}
                     className="text-stone-400 hover:text-amber-400 transition-colors"
                   >
                     Door Catalog Gallery
@@ -814,7 +877,7 @@ export const App: React.FC = () => {
                 </li>
                 <li>
                   <button
-                    onClick={() => { setActiveView('articles'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    onClick={() => navigateToView('articles')}
                     className="text-stone-400 hover:text-amber-400 transition-colors"
                   >
                     Wood Care & Dimension Guides
@@ -832,7 +895,7 @@ export const App: React.FC = () => {
                 <li>
                   <button
                     id="footer-link-about"
-                    onClick={() => { setActiveView('about'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    onClick={() => navigateToView('about')}
                     className="text-stone-400 hover:text-amber-400 transition-colors text-left"
                   >
                     About Us &amp; Heritage
@@ -841,7 +904,7 @@ export const App: React.FC = () => {
                 <li>
                   <button
                     id="footer-link-contact"
-                    onClick={() => { setActiveView('contact'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    onClick={() => navigateToView('contact')}
                     className="text-stone-400 hover:text-amber-400 transition-colors text-left"
                   >
                     Contact Us &amp; Inquiries
@@ -850,7 +913,7 @@ export const App: React.FC = () => {
                 <li>
                   <button
                     id="footer-link-privacy"
-                    onClick={() => { setActiveView('privacy'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    onClick={() => navigateToView('privacy')}
                     className="text-stone-400 hover:text-amber-400 transition-colors text-left"
                   >
                     Privacy Policy
@@ -859,7 +922,7 @@ export const App: React.FC = () => {
                 <li>
                   <button
                     id="footer-link-disclaimer"
-                    onClick={() => { setActiveView('disclaimer'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    onClick={() => navigateToView('disclaimer')}
                     className="text-stone-400 hover:text-amber-400 transition-colors text-left"
                   >
                     Disclaimer &amp; Terms
@@ -935,28 +998,28 @@ export const App: React.FC = () => {
             {/* Quick Inline Legal Links */}
             <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
               <button
-                onClick={() => { setActiveView('privacy'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                onClick={() => navigateToView('privacy')}
                 className="text-stone-400 hover:text-amber-400 transition-colors"
               >
                 Privacy Policy
               </button>
               <span className="text-stone-700">•</span>
               <button
-                onClick={() => { setActiveView('about'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                onClick={() => navigateToView('about')}
                 className="text-stone-400 hover:text-amber-400 transition-colors"
               >
                 About Us
               </button>
               <span className="text-stone-700">•</span>
               <button
-                onClick={() => { setActiveView('contact'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                onClick={() => navigateToView('contact')}
                 className="text-stone-400 hover:text-amber-400 transition-colors"
               >
                 Contact Us
               </button>
               <span className="text-stone-700">•</span>
               <button
-                onClick={() => { setActiveView('disclaimer'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                onClick={() => navigateToView('disclaimer')}
                 className="text-stone-400 hover:text-amber-400 transition-colors"
               >
                 Disclaimer
@@ -973,10 +1036,7 @@ export const App: React.FC = () => {
       {/* Mobile Bottom Navigation Bar (Section 2 & 27) */}
       <BottomNav
         activeView={activeView}
-        onNavigate={view => {
-          setActiveView(view);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
+        onNavigate={navigateToView}
         onOpenFavorites={() => handleOpenProfileModal('favorites')}
         onOpenProfile={handleOpenProfileModal}
         favoritesCount={favoriteDoorIds.length}
@@ -986,10 +1046,10 @@ export const App: React.FC = () => {
       {selectedDoorForDetail && (
         <DoorDetailModal
           door={selectedDoorForDetail}
-          onClose={() => setSelectedDoorForDetail(null)}
+          onClose={handleCloseDoorDetail}
           onCalculateThisDoor={handleCalculateDoor}
           allDoors={doors}
-          onSelectDoor={d => setSelectedDoorForDetail(d)}
+          onSelectDoor={d => handleOpenDoorDetail(d)}
           settings={settings}
           favoriteDoorIds={favoriteDoorIds}
           onToggleFavorite={handleToggleFavorite}
@@ -1028,7 +1088,7 @@ export const App: React.FC = () => {
           initialTab={profileActiveTab}
           onSelectDoor={door => {
             setShowProfileModal(false);
-            setSelectedDoorForDetail(door);
+            handleOpenDoorDetail(door);
           }}
           onCalculateDoor={door => {
             setShowProfileModal(false);

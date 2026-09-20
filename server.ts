@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import multer from 'multer';
 import { createServer as createViteServer } from 'vite';
 import { getDb, saveDb, UPLOAD_DIR, INITIAL_DATA } from './server/db.ts';
+import { generateSitemapXml, generateRobotsTxt } from './server/sitemap.ts';
 import { CalculationInput, CalculationResult, Quotation, Door, NotificationCampaign, TeamMember, CustomerEnquiry } from './src/types.ts';
 import {
   isFcmConfigured,
@@ -2179,6 +2180,60 @@ app.delete('/api/admin/notifications/campaign/:id', verifyAdminToken, (req, res)
   res.json({ success: true, message: 'Campaign deleted successfully' });
 });
 
+// ---------------- SEO & SEARCH ENGINE INDEXING ----------------
+// Dedicated XML Sitemap and Robots Handlers
+// (Registered with priority before static assets and SPA fallback)
+const handleSitemapRequest = (_req: express.Request, res: express.Response) => {
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=3600, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Robots-Tag', 'all');
+
+  try {
+    const xml = generateSitemapXml();
+    return res.status(200).send(xml);
+  } catch (err) {
+    console.error('❌ Error dynamically generating /sitemap.xml:', err);
+    // Fallback to static file on disk if dynamic generator throws
+    const staticCandidates = [
+      path.join(process.cwd(), 'dist', 'sitemap.xml'),
+      path.join(process.cwd(), 'public', 'sitemap.xml'),
+      path.join(__dirname, 'dist', 'sitemap.xml'),
+      path.join(__dirname, 'public', 'sitemap.xml'),
+    ];
+    for (const p of staticCandidates) {
+      if (fs.existsSync(p)) {
+        try {
+          const staticXml = fs.readFileSync(p, 'utf8');
+          return res.status(200).send(staticXml);
+        } catch {}
+      }
+    }
+    return res.status(200).send(
+      '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>https://jaihanumandoor.com/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n</urlset>'
+    );
+  }
+};
+
+const handleRobotsRequest = (_req: express.Request, res: express.Response) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  try {
+    const robotsTxt = generateRobotsTxt();
+    return res.status(200).send(robotsTxt);
+  } catch (err) {
+    console.error('❌ Error generating /robots.txt:', err);
+    return res.status(200).send(
+      'User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /admin/\nDisallow: /api/\nSitemap: https://jaihanumandoor.com/sitemap.xml\n'
+    );
+  }
+};
+
+app.get(['/sitemap.xml', '/sitemap.xml/', '/sitemap'], handleSitemapRequest);
+app.get(['/robots.txt', '/robots.txt/'], handleRobotsRequest);
+
 // ---------------- SERVER BOOTSTRAP ----------------
 
 function findDistDirectory(): string | null {
@@ -2246,7 +2301,30 @@ async function startServer() {
     });
 
     // SPA fallback route for all standard client routes (e.g. /catalog, /calculator, /articles)
-    app.get('*', (_req, res) => {
+    // STRICT GUARD: /sitemap.xml and /robots.txt MUST NEVER return index.html
+    app.get('*', (req, res) => {
+      const url = (req.path || '').toLowerCase();
+
+      // Guard: Sitemap requests
+      if (url === '/sitemap.xml' || url === '/sitemap' || url.endsWith('/sitemap.xml')) {
+        return handleSitemapRequest(req, res);
+      }
+
+      // Guard: Robots requests
+      if (url === '/robots.txt' || url.endsWith('/robots.txt')) {
+        return handleRobotsRequest(req, res);
+      }
+
+      // Guard: API requests
+      if (url.startsWith('/api/')) {
+        return res.status(404).json({ error: 'API endpoint not found', path: req.originalUrl });
+      }
+
+      // Guard: Missing static assets on disk should return 404, never index.html
+      if (/\.(xml|txt|json|js|css|map|png|jpg|jpeg|svg|webp|ico|woff|woff2|ttf|eot)$/i.test(url)) {
+        return res.status(404).type('text/plain').send('Resource not found');
+      }
+
       res.sendFile(path.join(distPath, 'index.html'));
     });
   } else if (!isProduction) {
@@ -2265,7 +2343,14 @@ async function startServer() {
     app.all('/api/*', (req, res) => {
       res.status(404).json({ error: 'API endpoint not found', path: req.originalUrl });
     });
-    app.get('*', (_req, res) => {
+    app.get('*', (req, res) => {
+      const url = (req.path || '').toLowerCase();
+      if (url === '/sitemap.xml' || url === '/sitemap' || url.endsWith('/sitemap.xml')) {
+        return handleSitemapRequest(req, res);
+      }
+      if (url === '/robots.txt' || url.endsWith('/robots.txt')) {
+        return handleRobotsRequest(req, res);
+      }
       res.status(503).send('Application build not found. Please run "npm run build" and restart.');
     });
   }

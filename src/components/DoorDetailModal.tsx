@@ -85,39 +85,55 @@ export const DoorDetailModal: React.FC<DoorDetailModalProps> = ({
         </div>
 
         {/* Scrollable Modal Content */}
-        <div className="overflow-y-auto p-5 sm:p-7 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+        <div className="overflow-y-auto p-4 sm:p-7 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 items-start">
             
             {/* Left: Images */}
-            <div className="space-y-3">
-              <div className="relative aspect-[3/4] sm:aspect-[4/5] rounded-xl overflow-hidden bg-stone-950 border border-stone-800 shadow-inner">
+            <div className="space-y-3 w-full flex flex-col items-center">
+              {/* Main Product Image Container - Adapts to image aspect ratio, NO cropping, pure dark background */}
+              <div
+                id="door-detail-image-wrapper"
+                className="relative w-full rounded-2xl bg-black border border-stone-800/80 shadow-2xl p-2 sm:p-4 flex items-center justify-center overflow-hidden min-h-[300px] sm:min-h-[400px] md:min-h-[480px]"
+              >
                 <ProtectedImage
                   src={currentImage}
                   alt={door.name}
                   watermarkSettings={settings?.contentProtection}
-                  className="w-full h-full object-cover transition-all duration-300"
-                  containerClassName="w-full h-full"
+                  objectFit="contain"
+                  className="w-full h-auto max-h-[55vh] sm:max-h-[65vh] md:max-h-[72vh] object-contain mx-auto block transition-all duration-300"
+                  containerClassName="w-full flex items-center justify-center bg-transparent"
+                  imgStyle={{
+                    width: '100%',
+                    height: 'auto',
+                    maxHeight: '72vh',
+                    objectFit: 'contain',
+                  }}
                 />
               </div>
 
               {/* Thumbnails */}
               {images.length > 1 && (
-                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                <div className="flex items-center gap-2.5 overflow-x-auto pb-1 pt-1 w-full max-w-full scrollbar-thin">
                   {images.map((img, i) => (
                     <button
                       key={i}
                       onClick={() => setActiveImageIndex(i)}
-                      className={`relative w-16 h-20 rounded-lg overflow-hidden flex-shrink-0 border-2 transition-all ${
-                        activeImageIndex === i ? 'border-amber-500 scale-95 ring-2 ring-amber-500/30' : 'border-stone-800 opacity-70 hover:opacity-100'
+                      className={`relative w-16 h-20 sm:w-20 sm:h-24 rounded-xl overflow-hidden flex-shrink-0 border-2 transition-all bg-black flex items-center justify-center p-1 ${
+                        activeImageIndex === i
+                          ? 'border-amber-500 scale-95 ring-2 ring-amber-500/30 shadow-md'
+                          : 'border-stone-800 opacity-70 hover:opacity-100 hover:border-stone-700'
                       }`}
+                      title={`Select view ${i + 1}`}
                     >
                       <ProtectedImage
                         src={img}
-                        alt=""
+                        alt={`${door.name} angle ${i + 1}`}
                         showWatermark={false}
                         watermarkSettings={settings?.contentProtection}
-                        className="w-full h-full object-cover"
-                        containerClassName="w-full h-full"
+                        objectFit="contain"
+                        className="w-full h-full object-contain"
+                        containerClassName="w-full h-full bg-black flex items-center justify-center"
+                        imgStyle={{ objectFit: 'contain' }}
                       />
                     </button>
                   ))}
@@ -224,13 +240,15 @@ export const DoorDetailModal: React.FC<DoorDetailModalProps> = ({
                     }}
                     className="cursor-pointer group p-2 rounded-xl bg-stone-800/50 hover:bg-stone-800 border border-stone-700/50 transition-all"
                   >
-                    <div className="aspect-[4/5] rounded-lg overflow-hidden bg-stone-950 mb-2 relative">
+                    <div className="aspect-[3/4] sm:aspect-[4/5] rounded-xl overflow-hidden bg-black mb-2 relative flex items-center justify-center p-1.5 border border-stone-800/60">
                       <ProtectedImage
                         src={rd.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=600&q=80'}
                         alt={rd.name}
                         watermarkSettings={settings?.contentProtection}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        containerClassName="w-full h-full"
+                        objectFit="contain"
+                        className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                        containerClassName="w-full h-full bg-black flex items-center justify-center"
+                        imgStyle={{ objectFit: 'contain' }}
                       />
                     </div>
                     <div className="text-xs font-semibold text-stone-200 line-clamp-1 group-hover:text-amber-400">
