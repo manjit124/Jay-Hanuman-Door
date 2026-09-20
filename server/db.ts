@@ -70,12 +70,21 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
 export const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads');
 
-// Ensure directories exist
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+// Ensure directories exist safely without crashing in restricted environments
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.warn('⚠️ Warning: Could not create DATA_DIR, will use in-memory fallback if needed:', err);
 }
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+try {
+  if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.warn('⚠️ Warning: Could not create UPLOAD_DIR:', err);
 }
 
 export const INITIAL_DATA: DatabaseSchema = {

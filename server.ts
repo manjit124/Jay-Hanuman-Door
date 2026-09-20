@@ -18,7 +18,7 @@ import {
 } from './server/notifications.ts';
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Increase request size limit for base64/images
 app.use(express.json({ limit: '50mb' }));
@@ -98,9 +98,15 @@ app.post('/api/upload-multiple', upload.array('files', 10), (req, res) => {
   res.json({ success: true, urls: files });
 });
 
-// Health check endpoint for container and deployment monitors
+// Health check endpoint for Hostinger container and deployment monitors
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime() });
+  res.status(200).json({
+    status: 'ok',
+    service: 'Jai Hanuman Door',
+    uptime: Math.round(process.uptime()),
+    environment: process.env.NODE_ENV || 'production',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Content Protection & Secure Media Serving Layer
@@ -2175,7 +2181,31 @@ app.delete('/api/admin/notifications/campaign/:id', verifyAdminToken, (req, res)
 
 // ---------------- SERVER BOOTSTRAP ----------------
 
+function findDistDirectory(): string | null {
+  const candidatePaths = [
+    path.join(process.cwd(), 'dist'),
+    path.resolve(__dirname),
+    path.join(__dirname, 'dist'),
+    path.join(__dirname, '..', 'dist'),
+  ];
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(path.join(candidate, 'index.html'))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 async function startServer() {
+  // Process-level safety handlers to prevent unhandled crashes
+  process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught Exception in server process:', err);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Promise Rejection at:', promise, 'reason:', reason);
+  });
+
   // Legacy Visualizer redirect routes (Redirects old visualizer URLs to Home)
   app.get(
     [
@@ -2195,25 +2225,72 @@ async function startServer() {
     }
   );
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
+  const distPath = findDistDirectory();
+  const isProduction = process.env.NODE_ENV === 'production' || !!distPath;
+
+  if (isProduction && distPath) {
+    console.log(`📁 Static files found at: ${distPath}. Serving in PRODUCTION mode.`);
+    app.use(express.static(distPath, { maxAge: '1d', index: false }));
+
+    // Explicit Root route
+    app.get('/', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
     });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+
+    // Dedicated API 404 handler - never return HTML for missing API routes
+    app.all('/api/*', (req, res) => {
+      res.status(404).json({
+        error: 'API endpoint not found',
+        path: req.originalUrl,
+      });
+    });
+
+    // SPA fallback route for all standard client routes (e.g. /catalog, /calculator, /articles)
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
+  } else if (!isProduction) {
+    try {
+      console.log('⚡ Development mode active without build output. Starting Vite development middleware...');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr) {
+      console.error('❌ Failed to initialize Vite middleware:', viteErr);
+    }
+  } else {
+    console.error('❌ Production mode active but dist/index.html was not found! Please run "npm run build".');
+    app.all('/api/*', (req, res) => {
+      res.status(404).json({ error: 'API endpoint not found', path: req.originalUrl });
+    });
+    app.get('*', (_req, res) => {
+      res.status(503).send('Application build not found. Please run "npm run build" and restart.');
+    });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚪 Shivshahi Door Price Calculator server running at http://0.0.0.0:${PORT}`);
-    startScheduledNotificationWorker();
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log('----------------------------------------------------');
+    console.log('🚀 Jai Hanuman Door server started successfully');
+    console.log(`📡 Listening on: http://0.0.0.0:${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
+    console.log(`📁 Static files directory: ${distPath || 'Vite dev middleware'}`);
+    console.log('----------------------------------------------------');
+
+    try {
+      startScheduledNotificationWorker();
+    } catch (workerErr) {
+      console.warn('⚠️ Scheduled notification worker error (non-fatal):', workerErr);
+    }
+  });
+
+  server.on('error', (err: any) => {
+    console.error('❌ Server listen error on port ' + PORT + ':', err);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('❌ Fatal error during server startup:', err);
+  process.exit(1);
+});
