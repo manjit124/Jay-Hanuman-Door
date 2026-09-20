@@ -1,0 +1,17 @@
+{
+  "name": "Jai Hanuman Door - Door Price Calculator & Catalog",
+  "short_name": "Jai Hanuman Door",
+  "description": "Jai Hanuman Door - Custom Sagwan & Teak Door Price Calculator, Design Catalog & Instant Estimates",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1c1917",
+  "theme_color": "#d97706",
+  "icons": [
+    {
+      "src": "/assets/app-icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
