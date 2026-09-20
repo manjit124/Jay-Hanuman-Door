@@ -18,7 +18,7 @@ import {
 } from './server/notifications.ts';
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Increase request size limit for base64/images
 app.use(express.json({ limit: '50mb' }));
@@ -96,6 +96,11 @@ app.post('/api/upload-multiple', upload.array('files', 10), (req, res) => {
   }
   const files = (req.files as Express.Multer.File[]).map(f => `/uploads/${f.filename}`);
   res.json({ success: true, urls: files });
+});
+
+// Health check endpoint for container and deployment monitors
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
 });
 
 // Content Protection & Secure Media Serving Layer
