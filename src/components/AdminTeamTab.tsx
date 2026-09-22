@@ -132,7 +132,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
     setFormData({
       name: '',
       designation: '',
-      photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+      photo: '',
       shortBio: '',
       fullBio: '',
       experience: '',
@@ -178,13 +178,19 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
     setIsModalOpen(true);
   };
 
-  // Photo Upload Handler (JPG, JPEG, PNG, WEBP)
+  // Photo Upload Handler (JPG, JPEG, PNG, WEBP, Max 15MB)
   const handleFileUpload = async (file: File) => {
     if (!file) return;
 
     // Validate image type
     if (!file.type.match(/^image\/(jpeg|jpg|png|webp)$/i)) {
       setErrorMessage('Please upload a valid image file (JPG, JPEG, PNG, or WEBP).');
+      return;
+    }
+
+    // Validate 15MB limit
+    if (file.size > 15 * 1024 * 1024) {
+      setErrorMessage('Image size exceeds 15MB limit. Please upload a smaller photo.');
       return;
     }
 
@@ -209,6 +215,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
     if (e.target.files && e.target.files[0]) {
       handleFileUpload(e.target.files[0]);
     }
+    e.target.value = '';
   };
 
   const onDropPhoto = (e: React.DragEvent<HTMLDivElement>) => {
@@ -242,7 +249,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
       const payload: Partial<TeamMember> = {
         name: formData.name.trim(),
         designation: formData.designation.trim(),
-        photo: formData.photo.trim() || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+        photo: formData.photo.trim(),
         shortBio: formData.shortBio.trim(),
         fullBio: formData.fullBio.trim(),
         experience: formData.experience.trim() || undefined,
@@ -625,15 +632,23 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
-              {/* Profile Photo Direct Upload Section (Section 7) */}
+              {/* Profile Photo Section (Direct File Upload Only) */}
               <div className="space-y-3 bg-stone-950/60 p-4 rounded-2xl border border-stone-800">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-amber-400">
-                  Profile Photo (Direct File Upload)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-amber-400">
+                    Profile Photo
+                  </label>
+                  {uploadingPhoto && (
+                    <span className="text-[11px] text-amber-400 flex items-center gap-1.5 font-medium">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Uploading photo...
+                    </span>
+                  )}
+                </div>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                  {/* Photo Preview */}
-                  <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-stone-800 border-2 border-amber-500/30 shrink-0">
+                  {/* 1. Current Profile Photo Preview */}
+                  <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-stone-800 border-2 border-amber-500/30 shrink-0 shadow-md">
                     {formData.photo ? (
                       <img
                         src={formData.photo}
@@ -641,19 +656,19 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                         className="w-full h-full object-cover object-top"
                       />
                     ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-stone-500">
-                        <ImageIcon className="w-6 h-6 mb-1" />
+                      <div className="w-full h-full flex flex-col items-center justify-center text-stone-500 p-2 text-center">
+                        <ImageIcon className="w-6 h-6 mb-1 text-stone-600" />
                         <span className="text-[10px]">No Photo</span>
                       </div>
                     )}
                     {uploadingPhoto && (
-                      <div className="absolute inset-0 bg-stone-950/80 flex items-center justify-center text-amber-400">
-                        <Loader2 className="w-5 h-5 animate-spin" />
+                      <div className="absolute inset-0 bg-stone-950/80 flex items-center justify-center text-amber-400 backdrop-blur-xs">
+                        <Loader2 className="w-6 h-6 animate-spin" />
                       </div>
                     )}
                   </div>
 
-                  {/* Drop zone & file picker */}
+                  {/* 2. Upload / Browse Files, 3. Replace Photo, 4. Remove Photo */}
                   <div
                     onDragOver={(e) => {
                       e.preventDefault();
@@ -681,7 +696,8 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="text-amber-400 underline hover:text-amber-300 font-semibold"
+                        disabled={uploadingPhoto}
+                        className="text-amber-400 underline hover:text-amber-300 font-semibold cursor-pointer disabled:opacity-50"
                       >
                         browse files
                       </button>
@@ -690,40 +706,30 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                       Supported: JPG, JPEG, PNG, WEBP (Max 15MB)
                     </p>
 
-                    {/* Quick remove photo button */}
+                    {/* Action buttons: Replace Photo & Remove Photo */}
                     {formData.photo && (
-                      <div className="mt-2 flex items-center justify-center gap-2">
+                      <div className="mt-3 flex items-center justify-center gap-2">
                         <button
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
-                          className="text-[11px] px-2.5 py-1 rounded bg-stone-800 hover:bg-stone-700 text-stone-300"
+                          disabled={uploadingPhoto}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                         >
+                          <RefreshCw className="w-3.5 h-3.5 text-stone-400" />
                           Replace Photo
                         </button>
                         <button
                           type="button"
                           onClick={() => setFormData(p => ({ ...p, photo: '' }))}
-                          className="text-[11px] px-2.5 py-1 rounded bg-red-950/60 hover:bg-red-900 text-red-300"
+                          disabled={uploadingPhoto}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/80 text-red-300 font-medium transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                         >
+                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
                           Remove Photo
                         </button>
                       </div>
                     )}
                   </div>
-                </div>
-
-                {/* Optional Photo URL direct input fallback */}
-                <div className="pt-2">
-                  <span className="text-[11px] text-stone-400 block mb-1">
-                    Or specify direct Image URL:
-                  </span>
-                  <input
-                    type="url"
-                    value={formData.photo}
-                    onChange={(e) => setFormData(p => ({ ...p, photo: e.target.value }))}
-                    placeholder="https://..."
-                    className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-1.5 text-xs text-stone-200 focus:border-amber-500 focus:outline-none"
-                  />
                 </div>
               </div>
 
