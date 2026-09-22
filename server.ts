@@ -4,7 +4,18 @@ import fs from 'fs';
 import crypto from 'crypto';
 import multer from 'multer';
 import { createServer as createViteServer } from 'vite';
-import { getDb, saveDb, UPLOAD_DIR, INITIAL_DATA } from './server/db.ts';
+import {
+  getDb,
+  saveDb,
+  UPLOAD_DIR,
+  UPLOAD_BACKUP_DIR,
+  syncUploadedImages,
+  exportDatabaseBackup,
+  importDatabaseBackup,
+  listAvailableBackups,
+  restoreBackupFile,
+  INITIAL_DATA,
+} from './server/db.ts';
 import { generateSitemapXml, generateRobotsTxt } from './server/sitemap.ts';
 import { CalculationInput, CalculationResult, Quotation, Door, NotificationCampaign, TeamMember, CustomerEnquiry } from './src/types.ts';
 import {
@@ -25,8 +36,9 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Static uploads serving
+// Static uploads serving with fallback to persistent backup directory
 app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/uploads', express.static(UPLOAD_BACKUP_DIR));
 
 // Configure Multer for direct file uploads
 const storage = multer.diskStorage({
@@ -81,6 +93,15 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image file uploaded' });
   }
+
+  // Mirror uploaded file to persistent backup directory immediately
+  try {
+    const backupPath = path.join(UPLOAD_BACKUP_DIR, req.file.filename);
+    fs.copyFileSync(req.file.path, backupPath);
+  } catch (err) {
+    console.warn('⚠️ Could not mirror uploaded file to persistent backup dir:', err);
+  }
+
   const fileUrl = `/uploads/${req.file.filename}`;
   res.json({
     success: true,
@@ -95,7 +116,16 @@ app.post('/api/upload-multiple', upload.array('files', 10), (req, res) => {
   if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
     return res.status(400).json({ error: 'No files uploaded' });
   }
-  const files = (req.files as Express.Multer.File[]).map(f => `/uploads/${f.filename}`);
+
+  const multerFiles = req.files as Express.Multer.File[];
+  multerFiles.forEach(f => {
+    try {
+      const backupPath = path.join(UPLOAD_BACKUP_DIR, f.filename);
+      fs.copyFileSync(f.path, backupPath);
+    } catch {}
+  });
+
+  const files = multerFiles.map(f => `/uploads/${f.filename}`);
   res.json({ success: true, urls: files });
 });
 
@@ -1731,10 +1761,62 @@ app.delete('/api/admin/quotes/:id', verifyAdminToken, (req, res) => {
   res.json({ success: true });
 });
 
-// Admin: Reset to Factory Defaults
+// =========================================================================
+// PRODUCTION DATA PERSISTENCE, BACKUP & RESTORE API ENDPOINTS
+// =========================================================================
+
+// Admin: Export production database backup
+app.get('/api/admin/backup/export', verifyAdminToken, (_req, res) => {
+  try {
+    const backup = exportDatabaseBackup();
+    const filename = `jaihanuman-production-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(backup, null, 2));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to export backup' });
+  }
+});
+
+// Admin: Import / Restore production database backup
+app.post('/api/admin/backup/import', verifyAdminToken, (req, res) => {
+  try {
+    const result = importDatabaseBackup(req.body);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to restore backup' });
+  }
+});
+
+// Admin: List available local rolling backups
+app.get('/api/admin/backup/list', verifyAdminToken, (_req, res) => {
+  try {
+    const backups = listAvailableBackups();
+    res.json({ backups });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to list backups' });
+  }
+});
+
+// Admin: Restore a specific local backup snapshot
+app.post('/api/admin/backup/restore-local', verifyAdminToken, (req, res) => {
+  try {
+    const { filename } = req.body;
+    if (!filename) {
+      return res.status(400).json({ error: 'Filename is required' });
+    }
+    const result = restoreBackupFile(filename);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to restore local backup' });
+  }
+});
+
+// Admin: Protected reset-defaults endpoint (prevents accidental production data loss)
 app.post('/api/admin/reset-defaults', verifyAdminToken, (_req, res) => {
-  saveDb(INITIAL_DATA);
-  res.json({ success: true, message: 'Database reset to initial factory configuration' });
+  res.status(403).json({
+    error: 'Direct factory reset is disabled to protect your live business data. Use Admin Backup & Restore to manage your catalogue versions safely.'
+  });
 });
 
 // =========================================================================
@@ -2195,11 +2277,12 @@ const handleSitemapRequest = (_req: express.Request, res: express.Response) => {
   } catch (err) {
     console.error('❌ Error dynamically generating /sitemap.xml:', err);
     // Fallback to static file on disk if dynamic generator throws
+    const appDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
     const staticCandidates = [
       path.join(process.cwd(), 'dist', 'sitemap.xml'),
       path.join(process.cwd(), 'public', 'sitemap.xml'),
-      path.join(__dirname, 'dist', 'sitemap.xml'),
-      path.join(__dirname, 'public', 'sitemap.xml'),
+      path.join(appDir, 'dist', 'sitemap.xml'),
+      path.join(appDir, 'public', 'sitemap.xml'),
     ];
     for (const p of staticCandidates) {
       if (fs.existsSync(p)) {
@@ -2237,11 +2320,11 @@ app.get(['/robots.txt', '/robots.txt/'], handleRobotsRequest);
 // ---------------- SERVER BOOTSTRAP ----------------
 
 function findDistDirectory(): string | null {
+  const appDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
   const candidatePaths = [
     path.join(process.cwd(), 'dist'),
-    path.resolve(__dirname),
-    path.join(__dirname, 'dist'),
-    path.join(__dirname, '..', 'dist'),
+    path.join(appDir, 'dist'),
+    path.resolve(appDir),
   ];
   for (const candidate of candidatePaths) {
     if (fs.existsSync(path.join(candidate, 'index.html'))) {
@@ -2280,10 +2363,21 @@ async function startServer() {
     }
   );
 
+  const isProduction = process.env.NODE_ENV === 'production';
   const distPath = findDistDirectory();
-  const isProduction = process.env.NODE_ENV === 'production' || !!distPath;
 
-  if (isProduction && distPath) {
+  if (!isProduction) {
+    try {
+      console.log('⚡ Development mode active. Starting Vite development middleware...');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr) {
+      console.error('❌ Failed to initialize Vite middleware:', viteErr);
+    }
+  } else if (distPath) {
     console.log(`📁 Static files found at: ${distPath}. Serving in PRODUCTION mode.`);
     app.use(express.static(distPath, { maxAge: '1d', index: false }));
 
@@ -2327,17 +2421,6 @@ async function startServer() {
 
       res.sendFile(path.join(distPath, 'index.html'));
     });
-  } else if (!isProduction) {
-    try {
-      console.log('⚡ Development mode active without build output. Starting Vite development middleware...');
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: 'spa',
-      });
-      app.use(vite.middlewares);
-    } catch (viteErr) {
-      console.error('❌ Failed to initialize Vite middleware:', viteErr);
-    }
   } else {
     console.error('❌ Production mode active but dist/index.html was not found! Please run "npm run build".');
     app.all('/api/*', (req, res) => {
@@ -2362,6 +2445,13 @@ async function startServer() {
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
     console.log(`📁 Static files directory: ${distPath || 'Vite dev middleware'}`);
     console.log('----------------------------------------------------');
+
+    try {
+      syncUploadedImages();
+      console.log('🛡️ Production data persistence verified & image storage synchronized');
+    } catch (syncErr) {
+      console.warn('⚠️ Image storage sync warning (non-fatal):', syncErr);
+    }
 
     try {
       startScheduledNotificationWorker();

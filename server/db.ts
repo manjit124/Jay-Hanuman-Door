@@ -66,25 +66,56 @@ export interface DatabaseSchema {
   articleShares: { articleId: string; platform: string; timestamp: string }[];
 }
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'database.json');
-export const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads');
+export const DATA_DIR = process.env.PERSISTENT_DATA_DIR || process.env.DATA_DIR || path.join(process.cwd(), 'data');
+export const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+export const DB_FILE = path.join(DATA_DIR, 'database.json');
+export const MIRROR_FILE = path.join(DATA_DIR, 'production_data_store.json');
+export const UPLOAD_DIR = process.env.PERSISTENT_UPLOADS_DIR || path.join(process.cwd(), 'public', 'uploads');
+export const UPLOAD_BACKUP_DIR = path.join(DATA_DIR, 'uploads');
 
-// Ensure directories exist safely without crashing in restricted environments
-try {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+// Ensure all persistent and backup directories exist safely
+[DATA_DIR, BACKUPS_DIR, UPLOAD_DIR, UPLOAD_BACKUP_DIR].forEach(dir => {
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch (err) {
+    console.warn(`⚠️ Warning: Could not create directory ${dir}:`, err);
   }
-} catch (err) {
-  console.warn('⚠️ Warning: Could not create DATA_DIR, will use in-memory fallback if needed:', err);
-}
+});
 
-try {
-  if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// Synchronize uploaded images between live public/uploads and persistent data/uploads
+export function syncUploadedImages(): void {
+  try {
+    if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    if (!fs.existsSync(UPLOAD_BACKUP_DIR)) fs.mkdirSync(UPLOAD_BACKUP_DIR, { recursive: true });
+
+    // Sync from persistent backup to live public uploads (ensures images survive rebuilds/re-deploys)
+    const backupFiles = fs.readdirSync(UPLOAD_BACKUP_DIR);
+    for (const file of backupFiles) {
+      const src = path.join(UPLOAD_BACKUP_DIR, file);
+      const dest = path.join(UPLOAD_DIR, file);
+      if (fs.existsSync(src) && !fs.existsSync(dest)) {
+        try {
+          fs.copyFileSync(src, dest);
+        } catch {}
+      }
+    }
+
+    // Mirror newly uploaded live files into persistent data/uploads backup
+    const liveFiles = fs.readdirSync(UPLOAD_DIR);
+    for (const file of liveFiles) {
+      const src = path.join(UPLOAD_DIR, file);
+      const dest = path.join(UPLOAD_BACKUP_DIR, file);
+      if (fs.existsSync(src) && !fs.existsSync(dest)) {
+        try {
+          fs.copyFileSync(src, dest);
+        } catch {}
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ Could not sync uploads:', err);
   }
-} catch (err) {
-  console.warn('⚠️ Warning: Could not create UPLOAD_DIR:', err);
 }
 
 export const INITIAL_DATA: DatabaseSchema = {
@@ -620,71 +651,318 @@ Multiply Width in inches by Height in inches, then divide by 144:
   articleShares: [],
 };
 
-// Database helper functions
-export function getDb(): DatabaseSchema {
+// ---------------- PERSISTENT PRODUCTION DATA ENGINE ----------------
+
+let inMemoryDb: DatabaseSchema | null = null;
+let lastBackupTime = 0;
+
+/**
+ * Atomically writes data to disk using a temporary file and atomic rename.
+ * This guarantees zero file corruption even during unexpected crashes or restarts.
+ */
+function writeAtomicJson(filePath: string, data: any): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tempPath = `${filePath}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const jsonStr = JSON.stringify(data, null, 2);
+  fs.writeFileSync(tempPath, jsonStr, 'utf-8');
+  fs.renameSync(tempPath, filePath);
+}
+
+function parseDatabaseJson(rawContent: string): DatabaseSchema | null {
   try {
-    if (!fs.existsSync(DB_FILE)) {
-      saveDb(INITIAL_DATA);
-      return INITIAL_DATA;
-    }
-    const raw = fs.readFileSync(DB_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    return {
-      ...INITIAL_DATA,
-      ...parsed,
-      users: Array.isArray(parsed.users) ? parsed.users : INITIAL_DATA.users,
-      notificationTokens: Array.isArray(parsed.notificationTokens) ? parsed.notificationTokens : [],
-      notificationCampaigns: Array.isArray(parsed.notificationCampaigns) ? parsed.notificationCampaigns : [],
-      teamMembers: Array.isArray(parsed.teamMembers) ? parsed.teamMembers : INITIAL_DATA.teamMembers,
-      articleComments: Array.isArray(parsed.articleComments) ? parsed.articleComments : INITIAL_DATA.articleComments,
-      articleCategories: Array.isArray(parsed.articleCategories) ? parsed.articleCategories : INITIAL_DATA.articleCategories,
-      articleViews: Array.isArray(parsed.articleViews) ? parsed.articleViews : [],
-      articleLikes: Array.isArray(parsed.articleLikes) ? parsed.articleLikes : [],
-      articleShares: Array.isArray(parsed.articleShares) ? parsed.articleShares : [],
-      enquiries: Array.isArray(parsed.enquiries) ? parsed.enquiries : [],
-      articles: Array.isArray(parsed.articles)
-        ? parsed.articles.map((art: any, i: number) => {
-            const initMatch = INITIAL_DATA.articles.find(a => a.id === art.id) || INITIAL_DATA.articles[i];
-            return {
-              ...initMatch,
-              ...art,
-              views: typeof art.views === 'number' ? art.views : (initMatch?.views ?? 250),
-              likes: typeof art.likes === 'number' ? art.likes : (initMatch?.likes ?? 18),
-              shares: typeof art.shares === 'number' ? art.shares : (initMatch?.shares ?? 9),
-              commentCount: typeof art.commentCount === 'number' ? art.commentCount : (initMatch?.commentCount ?? 0),
-              status: art.status || (art.published !== false ? 'published' : 'draft'),
-              category: art.category || initMatch?.category || 'Door Guide',
-              tags: Array.isArray(art.tags) && art.tags.length > 0 ? art.tags : (initMatch?.tags || ['Sagwan Door', 'Door Guide']),
-            };
-          })
-        : INITIAL_DATA.articles,
-      settings: {
-        ...INITIAL_DATA.settings,
-        ...(parsed.settings || {}),
-        legalSettings: {
-          ...INITIAL_DATA.settings.legalSettings,
-          ...(parsed.settings?.legalSettings || {}),
-          socialLinks: {
-            ...INITIAL_DATA.settings.legalSettings?.socialLinks,
-            ...(parsed.settings?.legalSettings?.socialLinks || {}),
-          },
-        },
-        contentProtection: {
-          ...INITIAL_DATA.settings.contentProtection,
-          ...(parsed.settings?.contentProtection || {}),
-        },
-      },
-    };
-  } catch (err) {
-    console.error('Error reading database file:', err);
-    return INITIAL_DATA;
+    const parsed = JSON.parse(rawContent);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const hasDoors = Array.isArray(parsed.doors) && parsed.doors.length > 0;
+    const hasSettings = parsed.settings && typeof parsed.settings === 'object';
+    if (!hasDoors && !hasSettings) return null;
+    return parsed;
+  } catch {
+    return null;
   }
 }
 
+/**
+ * Scans multi-tier persistent storage:
+ * 1. Primary DB_FILE (database.json)
+ * 2. Secondary Mirror (production_data_store.json)
+ * 3. Most recent automated snapshot in backups/
+ */
+function findBestAvailableData(): DatabaseSchema | null {
+  // Tier 1: Primary database.json
+  if (fs.existsSync(DB_FILE)) {
+    try {
+      const content = fs.readFileSync(DB_FILE, 'utf-8');
+      const parsed = parseDatabaseJson(content);
+      if (parsed) return parsed;
+    } catch (err) {
+      console.warn('⚠️ Warning: Primary database.json unreadable, checking mirror:', err);
+    }
+  }
+
+  // Tier 2: Secondary Mirror
+  if (fs.existsSync(MIRROR_FILE)) {
+    try {
+      const content = fs.readFileSync(MIRROR_FILE, 'utf-8');
+      const parsed = parseDatabaseJson(content);
+      if (parsed) {
+        console.log('🛡️ Restoring active database from secondary mirror (production_data_store.json)');
+        return parsed;
+      }
+    } catch (err) {
+      console.warn('⚠️ Warning: Secondary mirror unreadable:', err);
+    }
+  }
+
+  // Tier 3: Automated Backups
+  if (fs.existsSync(BACKUPS_DIR)) {
+    try {
+      const backupFiles = fs.readdirSync(BACKUPS_DIR)
+        .filter(f => f.endsWith('.json'))
+        .sort()
+        .reverse();
+
+      for (const bf of backupFiles) {
+        try {
+          const content = fs.readFileSync(path.join(BACKUPS_DIR, bf), 'utf-8');
+          const parsed = parseDatabaseJson(content);
+          if (parsed) {
+            console.log(`🛡️ Restoring active database from automated backup snapshot: ${bf}`);
+            return parsed;
+          }
+        } catch {}
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not inspect backups dir:', err);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Returns current production database.
+ * NEVER overwrites existing data with defaults on server start or restarts.
+ */
+export function getDb(): DatabaseSchema {
+  if (inMemoryDb) {
+    return inMemoryDb;
+  }
+
+  const existingData = findBestAvailableData();
+
+  if (existingData) {
+    // Non-destructive schema normalization - NEVER replace customized data
+    inMemoryDb = {
+      ...existingData,
+      doors: Array.isArray(existingData.doors) ? existingData.doors : INITIAL_DATA.doors,
+      categories: Array.isArray(existingData.categories) ? existingData.categories : INITIAL_DATA.categories,
+      materials: Array.isArray(existingData.materials) ? existingData.materials : INITIAL_DATA.materials,
+      finishes: Array.isArray(existingData.finishes) ? existingData.finishes : INITIAL_DATA.finishes,
+      frames: Array.isArray(existingData.frames) ? existingData.frames : INITIAL_DATA.frames,
+      hardware: Array.isArray(existingData.hardware) ? existingData.hardware : INITIAL_DATA.hardware,
+      banners: Array.isArray(existingData.banners) ? existingData.banners : INITIAL_DATA.banners,
+      articles: Array.isArray(existingData.articles) ? existingData.articles : INITIAL_DATA.articles,
+      teamMembers: Array.isArray(existingData.teamMembers) ? existingData.teamMembers : INITIAL_DATA.teamMembers,
+      quotes: Array.isArray(existingData.quotes) ? existingData.quotes : [],
+      enquiries: Array.isArray(existingData.enquiries) ? existingData.enquiries : [],
+      settings: existingData.settings || INITIAL_DATA.settings,
+      adminPasswordHash: existingData.adminPasswordHash || INITIAL_DATA.adminPasswordHash,
+      users: Array.isArray(existingData.users) ? existingData.users : [],
+      notificationTokens: Array.isArray(existingData.notificationTokens) ? existingData.notificationTokens : [],
+      notificationCampaigns: Array.isArray(existingData.notificationCampaigns) ? existingData.notificationCampaigns : [],
+      articleCategories: Array.isArray(existingData.articleCategories) ? existingData.articleCategories : INITIAL_DATA.articleCategories,
+      articleComments: Array.isArray(existingData.articleComments) ? existingData.articleComments : [],
+      articleViews: Array.isArray(existingData.articleViews) ? existingData.articleViews : [],
+      articleLikes: Array.isArray(existingData.articleLikes) ? existingData.articleLikes : [],
+      articleShares: Array.isArray(existingData.articleShares) ? existingData.articleShares : [],
+    };
+
+    // Ensure disk files are synced with the valid in-memory representation
+    try {
+      if (!fs.existsSync(DB_FILE)) {
+        writeAtomicJson(DB_FILE, inMemoryDb);
+      }
+      if (!fs.existsSync(MIRROR_FILE)) {
+        writeAtomicJson(MIRROR_FILE, inMemoryDb);
+      }
+    } catch {}
+
+    return inMemoryDb;
+  }
+
+  // First-time initialization only when no existing store or backup exists
+  console.log('🆕 First-time initialization: No existing production data or backup found. Initializing seed structure.');
+  inMemoryDb = { ...INITIAL_DATA };
+  saveDb(inMemoryDb);
+  return inMemoryDb;
+}
+
+/**
+ * Saves database state using atomic operations across primary, mirror, and rolling backups.
+ */
 export function saveDb(data: DatabaseSchema): void {
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    inMemoryDb = data;
+
+    // 1. Primary write (atomic rename)
+    writeAtomicJson(DB_FILE, data);
+
+    // 2. Mirror write (atomic rename)
+    writeAtomicJson(MIRROR_FILE, data);
+
+    // 3. Automated Rolling Backup (throttle to at most one snapshot per 5 seconds)
+    const now = Date.now();
+    if (now - lastBackupTime > 5000) {
+      lastBackupTime = now;
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupFile = path.join(BACKUPS_DIR, `snapshot-${ts}.json`);
+      writeAtomicJson(backupFile, data);
+
+      // Rotate backups: retain newest 30
+      try {
+        const files = fs.readdirSync(BACKUPS_DIR)
+          .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
+          .sort();
+        if (files.length > 30) {
+          const toRemove = files.slice(0, files.length - 30);
+          for (const f of toRemove) {
+            try { fs.unlinkSync(path.join(BACKUPS_DIR, f)); } catch {}
+          }
+        }
+      } catch {}
+    }
   } catch (err) {
-    console.error('Error writing database file:', err);
+    console.error('❌ Error saving database atomically:', err);
   }
+}
+
+// ---------------- BACKUP & RESTORE UTILITIES ----------------
+
+export interface DatabaseBackupSummary {
+  filename: string;
+  timestamp: string;
+  sizeBytes: number;
+  doorCount: number;
+  articleCount: number;
+  teamCount: number;
+}
+
+export function exportDatabaseBackup(): { meta: any; data: DatabaseSchema } {
+  const db = getDb();
+  return {
+    meta: {
+      exportedAt: new Date().toISOString(),
+      businessName: db.settings?.businessName || 'Jai Hanuman Door',
+      schemaVersion: '1.0.0',
+      doorCount: db.doors?.length || 0,
+      articleCount: db.articles?.length || 0,
+      teamCount: db.teamMembers?.length || 0,
+      quotesCount: db.quotes?.length || 0,
+    },
+    data: db,
+  };
+}
+
+export function importDatabaseBackup(backupPayload: any): { success: boolean; message: string; doorCount: number } {
+  if (!backupPayload || typeof backupPayload !== 'object') {
+    throw new Error('Invalid backup format: Expected JSON object');
+  }
+
+  const incomingData = backupPayload.data || backupPayload;
+
+  if (!incomingData || !Array.isArray(incomingData.doors)) {
+    throw new Error('Invalid backup format: Missing required "doors" collection');
+  }
+
+  // Pre-restore safety snapshot of current data before overwriting
+  const currentDb = getDb();
+  const preRestoreTs = new Date().toISOString().replace(/[:.]/g, '-');
+  const preRestorePath = path.join(BACKUPS_DIR, `pre-restore-${preRestoreTs}.json`);
+  writeAtomicJson(preRestorePath, currentDb);
+
+  // Restore data safely
+  const restoredDb: DatabaseSchema = {
+    ...incomingData,
+    doors: Array.isArray(incomingData.doors) ? incomingData.doors : currentDb.doors,
+    categories: Array.isArray(incomingData.categories) ? incomingData.categories : currentDb.categories,
+    materials: Array.isArray(incomingData.materials) ? incomingData.materials : currentDb.materials,
+    finishes: Array.isArray(incomingData.finishes) ? incomingData.finishes : currentDb.finishes,
+    frames: Array.isArray(incomingData.frames) ? incomingData.frames : currentDb.frames,
+    hardware: Array.isArray(incomingData.hardware) ? incomingData.hardware : currentDb.hardware,
+    banners: Array.isArray(incomingData.banners) ? incomingData.banners : currentDb.banners,
+    articles: Array.isArray(incomingData.articles) ? incomingData.articles : currentDb.articles,
+    teamMembers: Array.isArray(incomingData.teamMembers) ? incomingData.teamMembers : currentDb.teamMembers,
+    quotes: Array.isArray(incomingData.quotes) ? incomingData.quotes : currentDb.quotes,
+    enquiries: Array.isArray(incomingData.enquiries) ? incomingData.enquiries : currentDb.enquiries,
+    settings: incomingData.settings || currentDb.settings,
+    adminPasswordHash: incomingData.adminPasswordHash || currentDb.adminPasswordHash,
+    users: Array.isArray(incomingData.users) ? incomingData.users : currentDb.users,
+    notificationTokens: Array.isArray(incomingData.notificationTokens) ? incomingData.notificationTokens : currentDb.notificationTokens,
+    notificationCampaigns: Array.isArray(incomingData.notificationCampaigns) ? incomingData.notificationCampaigns : currentDb.notificationCampaigns,
+    articleCategories: Array.isArray(incomingData.articleCategories) ? incomingData.articleCategories : currentDb.articleCategories,
+    articleComments: Array.isArray(incomingData.articleComments) ? incomingData.articleComments : currentDb.articleComments,
+    articleViews: Array.isArray(incomingData.articleViews) ? incomingData.articleViews : currentDb.articleViews,
+    articleLikes: Array.isArray(incomingData.articleLikes) ? incomingData.articleLikes : currentDb.articleLikes,
+    articleShares: Array.isArray(incomingData.articleShares) ? incomingData.articleShares : currentDb.articleShares,
+  };
+
+  saveDb(restoredDb);
+
+  return {
+    success: true,
+    message: `Database successfully restored (${restoredDb.doors.length} doors, ${restoredDb.articles.length} articles)`,
+    doorCount: restoredDb.doors.length,
+  };
+}
+
+export function listAvailableBackups(): DatabaseBackupSummary[] {
+  if (!fs.existsSync(BACKUPS_DIR)) return [];
+  try {
+    const files = fs.readdirSync(BACKUPS_DIR)
+      .filter(f => f.endsWith('.json'))
+      .sort()
+      .reverse();
+
+    return files.slice(0, 25).map(filename => {
+      const fullPath = path.join(BACKUPS_DIR, filename);
+      const stat = fs.statSync(fullPath);
+      let doorCount = 0;
+      let articleCount = 0;
+      let teamCount = 0;
+      try {
+        const raw = fs.readFileSync(fullPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        const data = parsed.data || parsed;
+        doorCount = Array.isArray(data.doors) ? data.doors.length : 0;
+        articleCount = Array.isArray(data.articles) ? data.articles.length : 0;
+        teamCount = Array.isArray(data.teamMembers) ? data.teamMembers.length : 0;
+      } catch {}
+
+      return {
+        filename,
+        timestamp: stat.mtime.toISOString(),
+        sizeBytes: stat.size,
+        doorCount,
+        articleCount,
+        teamCount,
+      };
+    });
+  } catch (err) {
+    console.error('Error listing backups:', err);
+    return [];
+  }
+}
+
+export function restoreBackupFile(filename: string): { success: boolean; message: string; doorCount: number } {
+  const safeFilename = path.basename(filename);
+  const filePath = path.join(BACKUPS_DIR, safeFilename);
+  if (!fs.existsSync(filePath)) {
+    throw new Error('Backup file not found: ' + safeFilename);
+  }
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const parsed = JSON.parse(content);
+  return importDatabaseBackup(parsed);
 }

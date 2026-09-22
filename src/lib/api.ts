@@ -807,13 +807,82 @@ export async function deleteQuote(id: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to delete quote');
 }
 
-// Reset defaults
+// ---------------- Database Backup & Restore Endpoints ----------------
+
+export interface BackupSummary {
+  filename: string;
+  timestamp: string;
+  sizeBytes: number;
+  doorCount: number;
+  articleCount: number;
+  teamCount: number;
+}
+
+export async function exportDatabaseBackup(): Promise<Blob> {
+  const res = await fetch('/api/admin/backup/export', {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to export backup');
+  }
+  return res.blob();
+}
+
+export async function importDatabaseBackup(backupData: any): Promise<{ success: boolean; message: string; doorCount: number }> {
+  const res = await fetch('/api/admin/backup/import', {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(backupData),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to restore backup');
+  }
+  return res.json();
+}
+
+export async function fetchBackupsList(): Promise<BackupSummary[]> {
+  const res = await fetch('/api/admin/backup/list', {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch backups list');
+  }
+  const data = await res.json();
+  return data.backups || [];
+}
+
+export async function restoreLocalBackup(filename: string): Promise<{ success: boolean; message: string; doorCount: number }> {
+  const res = await fetch('/api/admin/backup/restore-local', {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ filename }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to restore snapshot');
+  }
+  return res.json();
+}
+
+// Protected reset defaults (deprecated - protected on server)
 export async function resetDatabase(): Promise<void> {
   const res = await fetch('/api/admin/reset-defaults', {
     method: 'POST',
     headers: authHeaders(),
   });
-  if (!res.ok) throw new Error('Failed to reset database');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Direct factory reset is disabled in production to protect data');
+  }
 }
 
 // ---------------- Push Notification Endpoints ----------------

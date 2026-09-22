@@ -42,6 +42,7 @@ import {
   AlertTriangle,
   Inbox,
   MapPin,
+  HardDrive,
 } from 'lucide-react';
 import { ProtectedImage } from './ProtectedImage.tsx';
 import { DEFAULT_CONTENT_PROTECTION } from '../lib/contentProtection.ts';
@@ -50,6 +51,7 @@ import { AdminTeamTab } from './AdminTeamTab.tsx';
 import { AdminArticlesTab } from './AdminArticlesTab.tsx';
 import { AdminLegalTab } from './admin/AdminLegalTab.tsx';
 import { AdminEnquiriesTab } from './admin/AdminEnquiriesTab.tsx';
+import { AdminBackupRestore } from './admin/AdminBackupRestore.tsx';
 import {
   Door,
   Category,
@@ -147,6 +149,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     | 'team'
     | 'enquiries'
     | 'legal'
+    | 'backup'
   >('dashboard');
 
   // Loaded DB data in Admin
@@ -849,6 +852,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <SettingsIcon className="w-4 h-4" />
                   Business & WhatsApp
                 </button>
+
+                <button
+                  id="admin-tab-backup"
+                  onClick={() => handleTabSelect('backup')}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
+                    activeTab === 'backup' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  }`}
+                >
+                  <HardDrive className="w-4 h-4 text-emerald-400" />
+                  Backup &amp; Persistence
+                </button>
               </div>
 
               {/* Main Content Area */}
@@ -862,18 +876,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         Overview & Metrics
                       </h3>
                       <button
-                        onClick={async () => {
-                          if (confirm('Reset database to default factory catalog values? All custom additions will be restored.')) {
-                            await resetDatabase();
-                            loadData();
-                            onDataUpdated();
-                            showToast('Database reset to defaults');
-                          }
-                        }}
-                        className="text-xs text-stone-400 hover:text-stone-200 flex items-center gap-1.5"
+                        onClick={() => handleTabSelect('backup')}
+                        className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-800/90 border border-stone-700/60 hover:bg-stone-750 transition"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        Reset Factory Defaults
+                        <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+                        Backup &amp; Export Data
                       </button>
                     </div>
 
@@ -3582,6 +3589,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onDataUpdated();
                     }}
                     onShowToast={showToast}
+                  />
+                )}
+
+                {/* Data Backup & Persistence Tab */}
+                {activeTab === 'backup' && (
+                  <AdminBackupRestore
+                    onDataRestored={async () => {
+                      await loadData();
+                      onDataUpdated();
+                    }}
+                    showToast={showToast}
                   />
                 )}
 
