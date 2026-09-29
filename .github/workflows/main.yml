@@ -1,3 +1,4 @@
+
 name: Build Android APK & AAB
 
 on:
@@ -24,7 +25,7 @@ permissions:
 env:
   ANDROID_HOME: /usr/local/lib/android/sdk
   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-  GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g"
 
 jobs:
   build:
@@ -33,33 +34,23 @@ jobs:
     timeout-minutes: 45
 
     steps:
-
-      # --------------------------------------------------
-      # 1. Checkout
-      # --------------------------------------------------
+      # 1. Checkout source code
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # --------------------------------------------------
-      # 2. Node.js
-      # --------------------------------------------------
+      # 2. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
-      # --------------------------------------------------
-      # 3. Bun
-      # --------------------------------------------------
+      # 3. Setup Bun
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # --------------------------------------------------
-      # 4. Java
-      # --------------------------------------------------
+      # 4. Setup Java
       - name: Setup Java JDK 17
         uses: actions/setup-java@v5
         with:
@@ -67,43 +58,29 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      # --------------------------------------------------
-      # 5. Android SDK
-      # IMPORTANT:
-      # Do NOT use android-actions/setup-android@v3 here.
-      # It is causing the obsolete "tools" package error.
-      # --------------------------------------------------
+      # 5. Setup Android SDK using the runner SDK manager
       - name: Setup Android SDK
         shell: bash
         run: |
           set -e
 
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
-          mkdir -p "$ANDROID_HOME"
-
-          SDKMANAGER=""
-
-          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          elif [ -x "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" ]; then
-            SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
-          elif [ -x "$ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager" ]; then
-            SDKMANAGER="$ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager"
-          else
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1)"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+              -type f -name sdkmanager 2>/dev/null | head -n 1)"
           fi
 
           if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager was not found."
-            find "$ANDROID_HOME" -maxdepth 5 -type f -name sdkmanager -print || true
+            echo "ERROR: Android sdkmanager not found on runner."
+            find "$ANDROID_HOME" -maxdepth 5 -type f \
+              -name sdkmanager -print || true
             exit 1
           fi
 
-          echo "Using sdkmanager: $SDKMANAGER"
+          echo "Using $SDKMANAGER"
 
-          yes | "$SDKMANAGER" --licenses || true
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
 
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
@@ -112,15 +89,11 @@ jobs:
 
           echo "Android SDK setup completed."
 
-      # --------------------------------------------------
-      # 6. Verify Android SDK
-      # --------------------------------------------------
+      # 6. Verify SDK
       - name: Verify Android SDK
         shell: bash
         run: |
           set -e
-
-          echo "ANDROID_HOME=$ANDROID_HOME"
 
           test -d "$ANDROID_HOME/platform-tools"
           test -d "$ANDROID_HOME/platforms/android-35"
@@ -128,96 +101,85 @@ jobs:
 
           echo "Android SDK verification successful."
 
-      # --------------------------------------------------
-      # 7. Install Dependencies
-      # --------------------------------------------------
+      # 7. Install dependencies
       - name: Install Dependencies
         shell: bash
         run: |
           set -e
 
           if [ -f "bun.lock" ]; then
-            echo "bun.lock found."
-            bun install --frozen-lockfile || bun install
+            echo "Installing with Bun"
+            bun install --frozen-lockfile
+          elif [ -f "bun.lockb" ]; then
+            echo "Installing with Bun"
+            bun install
           elif [ -f "package-lock.json" ]; then
-            echo "package-lock.json found."
+            echo "Installing with npm ci"
             npm ci
           else
-            echo "No lock file found. Installing with npm."
+            echo "Installing with npm"
             npm install
           fi
 
-      # --------------------------------------------------
-      # 8. Build Web Application
-      # --------------------------------------------------
+      # 8. Build web application
       - name: Build Web Application
         shell: bash
         run: |
           set -e
 
-          if [ -f "bun.lock" ]; then
+          if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
             bun run build
           else
             npm run build
           fi
 
-      # --------------------------------------------------
-      # 9. Verify Android Project
-      # --------------------------------------------------
+      # 9. Check Android project
       - name: Check Android Project
         shell: bash
         run: |
           set -e
 
           if [ ! -d "android" ]; then
-            echo "ERROR: android directory does not exist."
+            echo "ERROR: android directory is missing."
             exit 1
           fi
 
-          if [ ! -f "android/settings.gradle" ] && [ ! -f "android/settings.gradle.kts" ]; then
-            echo "ERROR: Android Gradle project is missing."
+          if [ ! -f "android/settings.gradle" ] && \
+             [ ! -f "android/settings.gradle.kts" ]; then
+            echo "ERROR: Android Gradle settings file is missing."
             exit 1
           fi
 
           echo "Android project found."
 
-      # --------------------------------------------------
-      # 10. Capacitor Sync
-      # --------------------------------------------------
+      # 10. Sync Capacitor
       - name: Sync Capacitor Android
         shell: bash
         run: |
           set -e
           npx cap sync android
 
-      # --------------------------------------------------
-      # 11. Setup Gradle Wrapper
-      # --------------------------------------------------
+      # 11. Prepare Gradle wrapper
       - name: Prepare Gradle Wrapper
         working-directory: android
         shell: bash
         run: |
           set -e
 
-          if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Gradle wrapper missing. Creating Gradle 8.11.1 wrapper."
-
+          if [ ! -f "gradlew" ] || \
+             [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
             if command -v gradle >/dev/null 2>&1; then
               gradle wrapper --gradle-version 8.11.1
             else
-              echo "Gradle command not found."
+              echo "ERROR: Gradle wrapper is missing and Gradle is unavailable."
               exit 1
             fi
           fi
 
           chmod +x gradlew
-
-          echo "Gradle wrapper ready."
           ./gradlew --version
 
-      # --------------------------------------------------
       # 12. Build Debug APK
-      # --------------------------------------------------
       - name: Build Debug APK
         if: ${{ github.event_name == 'push' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' }}
         working-directory: android
@@ -226,9 +188,7 @@ jobs:
           set -e
           ./gradlew assembleDebug --stacktrace
 
-      # --------------------------------------------------
       # 13. Build Release AAB
-      # --------------------------------------------------
       - name: Build Release AAB
         if: ${{ github.event_name == 'push' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'aab' }}
         working-directory: android
@@ -237,9 +197,7 @@ jobs:
           set -e
           ./gradlew bundleRelease --stacktrace
 
-      # --------------------------------------------------
       # 14. Build Release APK
-      # --------------------------------------------------
       - name: Build Release APK
         if: ${{ github.event_name == 'push' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' }}
         working-directory: android
@@ -248,30 +206,28 @@ jobs:
           set -e
           ./gradlew assembleRelease --stacktrace
 
-      # --------------------------------------------------
-      # 15. Decode Keystore if configured
-      # --------------------------------------------------
+      # 15. Prepare signing keystore if secrets exist
       - name: Prepare Release Keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         shell: bash
         run: |
           set -e
 
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "No keystore configured. Signing will be skipped."
+            exit 0
+          fi
+
           mkdir -p android/app
+          echo "$KEYSTORE_BASE64" | base64 --decode \
+            > android/app/release.keystore
 
-          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+          test -s android/app/release.keystore
+          echo "Keystore prepared."
 
-          test -f android/app/release.keystore
-
-          echo "Release keystore prepared."
-
-      # --------------------------------------------------
-      # 16. Sign Release AAB
-      # --------------------------------------------------
+      # 16. Sign AAB if signing secrets are configured
       - name: Sign Release AAB
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -279,31 +235,36 @@ jobs:
         shell: bash
         run: |
           set -e
+
+          if [ -z "$KEYSTORE_PASSWORD" ] || \
+             [ -z "$KEY_ALIAS" ] || \
+             [ -z "$KEY_PASSWORD" ] || \
+             [ ! -s android/app/release.keystore ]; then
+            echo "Signing secrets or keystore missing. Skipping AAB signing."
+            exit 0
+          fi
 
           AAB="android/app/build/outputs/bundle/release/app-release.aab"
 
-          if [ -f "$AAB" ]; then
-            jarsigner \
-              -verbose \
-              -sigalg SHA256withRSA \
-              -digestalg SHA-256 \
-              -keystore android/app/release.keystore \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -keypass "$KEY_PASSWORD" \
-              -signedjar android/app/build/outputs/bundle/release/app-release-signed.aab \
-              "$AAB" \
-              "$KEY_ALIAS"
-
-            echo "Signed AAB created successfully."
-          else
-            echo "Release AAB not found."
+          if [ ! -f "$AAB" ]; then
+            echo "AAB not found. Skipping signing."
+            exit 0
           fi
 
-      # --------------------------------------------------
-      # 17. Sign Release APK
-      # --------------------------------------------------
+          jarsigner \
+            -sigalg SHA256withRSA \
+            -digestalg SHA-256 \
+            -keystore android/app/release.keystore \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            -signedjar android/app/build/outputs/bundle/release/app-release-signed.aab \
+            "$AAB" \
+            "$KEY_ALIAS"
+
+          echo "Signed AAB created."
+
+      # 17. Sign APK if signing secrets are configured
       - name: Sign Release APK
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -312,35 +273,42 @@ jobs:
         run: |
           set -e
 
-          APK="android/app/build/outputs/apk/release/app-release-unsigned.apk"
-
-          if [ -f "$APK" ]; then
-
-            APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-
-            if [ -z "$APKSIGNER" ]; then
-              echo "ERROR: apksigner not found."
-              exit 1
-            fi
-
-            "$APKSIGNER" sign \
-              --ks android/app/release.keystore \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass pass:"$KEYSTORE_PASSWORD" \
-              --key-pass pass:"$KEY_PASSWORD" \
-              --out android/app/build/outputs/apk/release/app-release-signed.apk \
-              "$APK"
-
-            echo "Signed APK created successfully."
-
-          else
-            echo "Unsigned release APK not found."
+          if [ -z "$KEYSTORE_PASSWORD" ] || \
+             [ -z "$KEY_ALIAS" ] || \
+             [ -z "$KEY_PASSWORD" ] || \
+             [ ! -s android/app/release.keystore ]; then
+            echo "Signing secrets or keystore missing. Skipping APK signing."
+            exit 0
           fi
 
-      # --------------------------------------------------
+          APK="android/app/build/outputs/apk/release/app-release-unsigned.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "Unsigned APK not found. Skipping signing."
+            exit 0
+          fi
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" \
+            -type f -name apksigner | sort -V | tail -n 1)"
+
+          if [ -z "$APKSIGNER" ]; then
+            echo "ERROR: apksigner not found."
+            exit 1
+          fi
+
+          "$APKSIGNER" sign \
+            --ks android/app/release.keystore \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out android/app/build/outputs/apk/release/app-release-signed.apk \
+            "$APK"
+
+          echo "Signed APK created."
+
       # 18. Upload Debug APK
-      # --------------------------------------------------
       - name: Upload Debug APK Artifact
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
@@ -348,10 +316,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # --------------------------------------------------
       # 19. Upload Release AAB
-      # --------------------------------------------------
       - name: Upload Release AAB Artifact
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: app-release-aab
@@ -359,10 +326,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # --------------------------------------------------
       # 20. Upload Release APK
-      # --------------------------------------------------
       - name: Upload Release APK Artifact
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
@@ -370,28 +336,23 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # --------------------------------------------------
-      # 21. Build Summary
-      # --------------------------------------------------
+      # 21. Build summary
       - name: Build Summary
         if: always()
         shell: bash
         run: |
-          echo "======================================"
+          echo "=================================="
           echo "JAI HANUMAN DOOR - ANDROID BUILD"
-          echo "======================================"
+          echo "=================================="
 
-          echo ""
           echo "Debug APK:"
-          find android/app/build/outputs/apk/debug -name "*.apk" -print 2>/dev/null || true
+          find android/app/build/outputs/apk/debug \
+            -name "*.apk" -print 2>/dev/null || true
 
-          echo ""
           echo "Release APK:"
-          find android/app/build/outputs/apk/release -name "*.apk" -print 2>/dev/null || true
+          find android/app/build/outputs/apk/release \
+            -name "*.apk" -print 2>/dev/null || true
 
-          echo ""
           echo "Release AAB:"
-          find android/app/build/outputs/bundle/release -name "*.aab" -print 2>/dev/null || true
-
-          echo ""
-          echo "Build workflow finished."
+          find android/app/build/outputs/bundle/release \
+            -name "*.aab" -print 2>/dev/null || true
