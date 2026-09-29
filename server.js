@@ -2,6 +2,7 @@
  * Production server entry point for Hostinger / cloud deployments.
  * This wrapper loads the production server bundle built in dist/server.cjs.
  */
+import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -21,11 +21,86 @@ import {
   ArticleCategory,
   ArticleAnalyticsSummary,
   CustomerEnquiry,
+  AIWoodAnalysisResult,
+  AIWoodDetectorStats,
+  AIWoodDetectorSettings,
+  WoodReferenceSample,
+  WoodAccuracyBenchmarkResult,
 } from '../types.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
 const GUEST_FAVORITES_KEY = 'shivshahi_guest_favorites';
 const GUEST_CALCULATIONS_KEY = 'shivshahi_guest_calculations';
+const CATALOG_CACHE_KEY = 'shivshahi_cached_catalog_v2';
+const CALCULATOR_CACHE_KEY = 'shivshahi_cached_calculator_v2';
+
+/**
+ * Returns the resolved API base URL (defaults to same-origin relative path).
+ * Never hardcodes localhost or external dev URLs in production.
+ */
+export function getApiBaseUrl(): string {
+  const envUrl = (import.meta as any).env?.VITE_API_BASE_URL;
+  if (typeof envUrl === 'string' && envUrl.trim()) {
+    return envUrl.trim().replace(/\/$/, '');
+  }
+  // If running inside Capacitor native Android environment, route relative API calls to the production domain
+  if (typeof window !== 'undefined') {
+    const isCapacitorNative = Boolean(
+      (window as any).Capacitor?.isNativePlatform?.() ||
+      window.location.protocol === 'capacitor:' ||
+      (window.location.hostname === 'localhost' && Boolean((window as any).Capacitor))
+    );
+    if (isCapacitorNative) {
+      return 'https://jaihanumandoor.com';
+    }
+  }
+  return '';
+}
+
+/**
+ * Resilient fetch wrapper with automatic timeout and retries with backoff.
+ * Prevents "Failed to fetch" on container wakeups or momentary network drops.
+ */
+export async function fetchWithRetry(
+  url: string,
+  options: RequestInit = {},
+  retries = 3,
+  backoffMs = 350
+): Promise<Response> {
+  const baseUrl = getApiBaseUrl();
+  const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+
+  let lastError: any = null;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const signal = options.signal || controller.signal;
+
+    try {
+      const response = await fetch(fullUrl, {
+        ...options,
+        signal,
+      });
+      clearTimeout(timeoutId);
+
+      // Retry on 502/503/504 (transient server/proxy gateway errors)
+      if ((response.status === 502 || response.status === 503 || response.status === 504) && attempt < retries - 1) {
+        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, attempt)));
+        continue;
+      }
+
+      return response;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      lastError = err;
+      if (attempt < retries - 1) {
+        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, attempt)));
+      }
+    }
+  }
+
+  throw lastError || new Error(`Network request failed for ${url}`);
+}
 
 export function getAdminToken(): string | null {
   return localStorage.getItem(ADMIN_TOKEN_KEY);
@@ -143,9 +218,32 @@ export async function fetchCatalog(): Promise<{
   teamMembers?: TeamMember[];
   settings: BusinessSettings;
 }> {
-  const res = await fetch('/api/catalog');
-  if (!res.ok) throw new Error('Failed to fetch catalog');
-  return res.json();
+  try {
+    const res = await fetchWithRetry('/api/catalog', {}, 3, 350);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch catalog`);
+    const data = await res.json();
+    try {
+      localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(data));
+    } catch {
+      // ignore storage errors
+    }
+    return data;
+  } catch (err: any) {
+    console.warn('Network request for catalog failed, checking client cache...', err.message || err);
+    try {
+      const cached = localStorage.getItem(CATALOG_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
+          console.info('Restored catalog data from client cache.');
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    throw err;
+  }
 }
 
 export async function fetchCalculatorData(): Promise<{
@@ -155,17 +253,40 @@ export async function fetchCalculatorData(): Promise<{
   hardware: HardwareItem[];
   settings: BusinessSettings;
 }> {
-  const res = await fetch('/api/calculator-data');
-  if (!res.ok) throw new Error('Failed to fetch calculator data');
-  return res.json();
+  try {
+    const res = await fetchWithRetry('/api/calculator-data', {}, 3, 350);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch calculator data`);
+    const data = await res.json();
+    try {
+      localStorage.setItem(CALCULATOR_CACHE_KEY, JSON.stringify(data));
+    } catch {
+      // ignore storage errors
+    }
+    return data;
+  } catch (err: any) {
+    console.warn('Network request for calculator data failed, checking client cache...', err.message || err);
+    try {
+      const cached = localStorage.getItem(CALCULATOR_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.materials) && parsed.materials.length > 0) {
+          console.info('Restored calculator data from client cache.');
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    throw err;
+  }
 }
 
 export async function calculatePrice(input: CalculationInput): Promise<CalculationResult> {
-  const res = await fetch('/api/calculate', {
+  const res = await fetchWithRetry('/api/calculate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
-  });
+  }, 2, 300);
   if (!res.ok) throw new Error('Calculation failed');
   return res.json();
 }
@@ -186,13 +307,13 @@ export async function createQuotation(data: {
   hardwareId: string;
   hardwareQty: number;
 }): Promise<{ quotation: Quotation; settings: BusinessSettings }> {
-  const res = await fetch('/api/quotes', {
+  const res = await fetchWithRetry('/api/quotes', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(data),
-  });
+  }, 2, 400);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to create quotation' }));
     throw new Error(err.error || 'Failed to create quotation');
@@ -1149,6 +1270,269 @@ export async function deleteAdminEnquiry(id: string): Promise<void> {
     throw new Error(err.error || 'Failed to delete enquiry');
   }
 }
+
+// =========================================================================
+// AI WOOD DETECTOR API CLIENT
+// =========================================================================
+
+/**
+ * Sends one or more door photos to server-side Gemini AI for wood identification.
+ * Supports multi-image analysis: Full Door, Grain Close-up, Unpolished Edge, and End-Grain.
+ * Privacy safe: Image is processed in memory and never stored on disk.
+ * Supports primary same-origin /api/wood-analysis with /api/ai/detect-wood fallback.
+ */
+export async function detectWoodFromImage(
+  data:
+    | {
+        image?: string;
+        additionalImages?: string[];
+        slots?: {
+          fullDoor?: string;
+          grainCloseup?: string;
+          unpolishedEdge?: string;
+          endGrain?: string;
+        };
+        imageRoles?: string[];
+      }
+    | FormData,
+  signal?: AbortSignal
+): Promise<AIWoodAnalysisResult> {
+  const baseUrl = getApiBaseUrl();
+  const endpoints = [`${baseUrl}/api/wood-analysis`, `${baseUrl}/api/ai/detect-wood`];
+
+  let lastError: Error | null = null;
+
+  for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s safety timeout
+
+    // Combine caller signal with timeout controller
+    const combinedSignal = signal || controller.signal;
+
+    try {
+      let response: Response;
+
+      if (data instanceof FormData) {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          body: data,
+          signal: combinedSignal,
+        });
+      } else {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(data),
+          signal: combinedSignal,
+        });
+      }
+
+      clearTimeout(timeoutId);
+
+      // If this endpoint returned 404, try the next endpoint in the fallback list
+      if (response.status === 404 && endpoint !== endpoints[endpoints.length - 1]) {
+        console.warn(`Route ${endpoint} returned 404, trying next endpoint...`);
+        continue;
+      }
+
+      if (!response.ok) {
+        let errMessage = 'Lakdi pehchanne mein samasya aayi. Kripya punah prayas karein.';
+        try {
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const errJson = await response.json();
+            errMessage = errJson.error || errJson.message || errMessage;
+          } else if (response.status === 413) {
+            errMessage = 'Photo size bohot bada hai. Kripya compressed ya normal camera photo use karein.';
+          } else if (response.status === 502 || response.status === 504) {
+            errMessage = 'Server par temporary load hai. Kripya kuch second baad Retry karein.';
+          }
+        } catch {
+          // ignore parsing error
+        }
+        throw new Error(errMessage);
+      }
+
+      const json = await response.json();
+      if (!json.success || !json.result) {
+        throw new Error(json.error || 'Asafal response: Lakdi ka vishleshan poora nahi ho saka.');
+      }
+
+      return json.result;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      lastError = err;
+
+      // If aborted or timeout
+      if (err.name === 'AbortError') {
+        throw new Error('Analysis request timed out. Kripya dobara Retry karein.');
+      }
+
+      // If network failure (e.g. Failed to fetch), try next endpoint or report clearly
+      console.warn(`Fetch error for ${endpoint}:`, err.message || err);
+    }
+  }
+
+  // If both endpoints failed
+  const originalMessage = lastError?.message || '';
+  if (originalMessage.toLowerCase().includes('failed to fetch') || originalMessage.toLowerCase().includes('networkerror')) {
+    throw new Error(
+      'Server se connect nahi ho saka (Network / Server Unreachable). Kripya apna internet connection check karein aur Retry dabayein.'
+    );
+  }
+
+  throw lastError || new Error('Lakdi pehchanne mein samasya aayi. Kripya punah prayas karein.');
+}
+
+/**
+ * Fetch AI Wood Detector usage stats and activity logs (Admin only)
+ */
+export async function fetchWoodDetectorStats(): Promise<AIWoodDetectorStats> {
+  const res = await fetch('/api/ai/wood-detector/stats', {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch AI Wood Detector stats');
+  }
+  const json = await res.json();
+  return json.stats;
+}
+
+/**
+ * Update AI Wood Detector configuration (Admin only)
+ */
+export async function updateWoodDetectorConfig(
+  settings: Partial<AIWoodDetectorSettings>
+): Promise<AIWoodDetectorSettings> {
+  const res = await fetch('/api/ai/wood-detector/settings', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update AI Wood Detector settings');
+  }
+  const json = await res.json();
+  return json.settings;
+}
+
+/**
+ * Fetch botanical timber comparison guide profiles
+ */
+export async function fetchWoodSpeciesGuide(): Promise<Record<string, any>> {
+  const res = await fetch('/api/wood-species-guide');
+  if (!res.ok) {
+    throw new Error('Failed to load wood species guide');
+  }
+  const json = await res.json();
+  return json.profiles || {};
+}
+
+/**
+ * Fetch verified wood reference library samples
+ */
+export async function fetchWoodReferences(verifiedOnly: boolean = false): Promise<WoodReferenceSample[]> {
+  const res = await fetch(`/api/ai/wood-detector/references?verified=${verifiedOnly ? 'true' : 'false'}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch wood references');
+  }
+  const json = await res.json();
+  return json.references || [];
+}
+
+/**
+ * Add a new Wood Reference Sample (Admin only)
+ */
+export async function createWoodReference(
+  sample: Omit<WoodReferenceSample, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<WoodReferenceSample> {
+  const res = await fetch('/api/ai/wood-detector/references', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(sample),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to add wood reference sample');
+  }
+  const json = await res.json();
+  return json.reference;
+}
+
+/**
+ * Update a Wood Reference Sample (Admin only)
+ */
+export async function updateWoodReferenceAPI(
+  id: string,
+  updates: Partial<WoodReferenceSample>
+): Promise<WoodReferenceSample> {
+  const res = await fetch(`/api/ai/wood-detector/references/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update reference sample');
+  }
+  const json = await res.json();
+  return json.reference;
+}
+
+/**
+ * Delete a Wood Reference Sample (Admin only)
+ */
+export async function deleteWoodReferenceAPI(id: string): Promise<boolean> {
+  const res = await fetch(`/api/ai/wood-detector/references/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete reference sample');
+  }
+  const json = await res.json();
+  return Boolean(json.deleted);
+}
+
+/**
+ * Toggle verification status of a sample (Admin only)
+ */
+export async function toggleVerifyWoodReferenceAPI(id: string): Promise<WoodReferenceSample> {
+  const res = await fetch(`/api/ai/wood-detector/references/${id}/toggle-verify`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to toggle reference verification status');
+  }
+  const json = await res.json();
+  return json.reference;
+}
+
+/**
+ * Run isolated Wood Accuracy Benchmark test against documented specimens (Admin only)
+ */
+export async function runWoodBenchmarkAPI(): Promise<WoodAccuracyBenchmarkResult> {
+  const res = await fetch('/api/ai/wood-detector/evaluate', {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Benchmark evaluation failed');
+  }
+  const json = await res.json();
+  return json.benchmark;
+}
+
+
 
 
 

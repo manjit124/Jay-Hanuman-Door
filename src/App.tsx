@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Send,
   Heart,
+  Sparkles,
 } from 'lucide-react';
 import {
   Door,
@@ -47,23 +48,27 @@ import { QuotationModal } from './components/QuotationModal.tsx';
 import { ArticlesSection } from './components/ArticlesSection.tsx';
 import { AdminPanel } from './components/AdminPanel.tsx';
 import { UserProfileModal } from './components/UserProfileModal.tsx';
+import { App as CapApp } from '@capacitor/app';
+import { StatusBar, Style } from '@capacitor/status-bar';
 import { TeamSection } from './components/TeamSection.tsx';
 import { useAdminGesture } from './hooks/useAdminGesture.ts';
 import { PrivacyPolicyPage } from './components/legal/PrivacyPolicyPage.tsx';
 import { AboutUsPage } from './components/legal/AboutUsPage.tsx';
 import { ContactUsPage } from './components/legal/ContactUsPage.tsx';
 import { DisclaimerPage } from './components/legal/DisclaimerPage.tsx';
+import { AIWoodDetector } from './components/AIWoodDetector.tsx';
 import {
   getCleanWhatsAppDigits,
   formatWhatsAppDisplay,
   getWhatsAppUrl,
   getGoogleMapsUrl,
 } from './lib/contactUtils.ts';
+import { initSpaAnalytics } from './lib/analytics.ts';
 
 export const App: React.FC = () => {
-  // Navigation View State: 'home' | 'gallery' | 'calculator' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer'
+  // Navigation View State: 'home' | 'gallery' | 'calculator' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer' | 'wood-detector'
   const [activeView, setActiveView] = useState<
-    'home' | 'gallery' | 'calculator' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer'
+    'home' | 'gallery' | 'calculator' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer' | 'wood-detector'
   >('home');
 
   // Application Data States
@@ -143,6 +148,14 @@ export const App: React.FC = () => {
         setActiveView('gallery');
       } else if (path === '/calculator' || path === '/price-calculator') {
         setActiveView('calculator');
+      } else if (
+        path === '/wood-detector' ||
+        path === '/ai-wood-detector' ||
+        path === '/lakdi-ki-pehchan' ||
+        path === '/wood-scan' ||
+        path === '/detect-wood'
+      ) {
+        setActiveView('wood-detector');
       } else if (path === '/articles' || path === '/guides' || path === '/blog') {
         setActiveView('articles');
       } else if (path.startsWith('/door/')) {
@@ -177,6 +190,34 @@ export const App: React.FC = () => {
     window.addEventListener('popstate', syncRouteFromPath);
     return () => window.removeEventListener('popstate', syncRouteFromPath);
   }, []);
+
+  // Google Analytics 4: Initialize SPA route change tracking without duplicate events
+  useEffect(() => {
+    const cleanupAnalytics = initSpaAnalytics();
+    return cleanupAnalytics;
+  }, []);
+
+  // Update document.title on route & modal changes to enrich GA4 analytics reports
+  useEffect(() => {
+    if (selectedDoorForDetail) {
+      document.title = `${selectedDoorForDetail.name} | Jai Hanuman Door`;
+      return;
+    }
+    const viewTitles: Record<string, string> = {
+      home: 'Jai Hanuman Door | Door Price Calculator & Handcrafted Door Catalog',
+      gallery: 'Wooden Door Catalog & Designs | Jai Hanuman Door',
+      calculator: 'Instant Door Price Calculator | Jai Hanuman Door',
+      articles: 'Woodcraft Guides & Buying Tips | Jai Hanuman Door',
+      contact: 'Contact Us | Jai Hanuman Door',
+      about: 'About Us | Jai Hanuman Door',
+      privacy: 'Privacy Policy | Jai Hanuman Door',
+      disclaimer: 'Disclaimer | Jai Hanuman Door',
+      'wood-detector': 'AI Wood Detector – Lakdi Ki Pehchan | Jai Hanuman Door',
+    };
+    if (viewTitles[activeView]) {
+      document.title = viewTitles[activeView];
+    }
+  }, [activeView, selectedDoorForDetail]);
 
   // Load Catalog & Calculator master data
   const loadAppData = async () => {
@@ -227,6 +268,75 @@ export const App: React.FC = () => {
     loadAppData();
     setFavoriteDoorIds(getGuestFavorites());
   }, []);
+
+  useEffect(() => {
+    // Configure native Android dark status bar only on native platforms
+    const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.());
+    if (isNative) {
+      try {
+        StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
+        StatusBar.setBackgroundColor({ color: '#0c0a09' }).catch(() => {});
+      } catch {
+        // Fallback
+      }
+    }
+
+    // Android Hardware Back Button navigation listener
+    let listenerHandle: { remove: () => Promise<void> } | null = null;
+    let isCancelled = false;
+
+    if (isNative) {
+      CapApp.addListener('backButton', () => {
+        if (isCancelled) return;
+        // 1. If any modal is open, close the modal first
+        if (selectedDoorForDetail) {
+          setSelectedDoorForDetail(null);
+          return;
+        }
+        if (showAdminPanel) {
+          setShowAdminPanel(false);
+          return;
+        }
+        if (showProfileModal) {
+          setShowProfileModal(false);
+          return;
+        }
+        if (quotationCalcResult || quotationDoor) {
+          setQuotationCalcResult(null);
+          setQuotationDoor(null);
+          return;
+        }
+        // 2. If on sub-view, return to home view
+        if (activeView !== 'home') {
+          setActiveView('home');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+        // 3. Otherwise, exit native app
+        CapApp.exitApp().catch(() => {});
+      }).then((handle) => {
+        if (isCancelled) {
+          handle?.remove?.();
+        } else {
+          listenerHandle = handle;
+        }
+      }).catch(() => {});
+    }
+
+    return () => {
+      isCancelled = true;
+      if (listenerHandle && typeof listenerHandle.remove === 'function') {
+        listenerHandle.remove().catch(() => {});
+      }
+    };
+  }, [
+    selectedDoorForDetail,
+    showAdminPanel,
+    showProfileModal,
+    quotationCalcResult,
+    quotationDoor,
+    activeView,
+  ]);
 
   const handleCloseAdminPanel = () => {
     setShowAdminPanel(false);
@@ -415,6 +525,38 @@ export const App: React.FC = () => {
                   >
                     <Layers className="w-4 h-4 text-amber-400" />
                     Explore Catalog
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Wood Detector Feature Banner on Home Screen */}
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="bg-gradient-to-r from-stone-900 via-stone-850 to-stone-900 border border-amber-500/40 rounded-2xl p-6 sm:p-8 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+                <div className="space-y-2 text-center md:text-left z-10">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase tracking-wide">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>New AI Feature • AI Wood Detector</span>
+                  </div>
+                  <h3 className="font-serif text-2xl sm:text-3xl font-extrabold text-white">
+                    Aapke Darwaze Ki Lakdi Kaun Si Hai?
+                  </h3>
+                  <p className="text-stone-300 text-xs sm:text-sm max-w-xl leading-relaxed">
+                    Darwaze ki photo upload karein aur AI se lakdi ke baare mein jaanein. Grains, texture aur color tone ka instant AI visual estimate paayein.
+                  </p>
+                </div>
+
+                <div className="z-10 flex-shrink-0 w-full md:w-auto">
+                  <button
+                    id="home-open-wood-detector-cta"
+                    onClick={() => {
+                      navigateToView('wood-detector');
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="w-full md:w-auto py-3.5 px-6 rounded-xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition-all active:scale-[0.98]"
+                  >
+                    <Sparkles className="w-5 h-5 text-stone-950" />
+                    <span>AI Wood Detector Kholein</span>
                   </button>
                 </div>
               </div>
@@ -800,6 +942,25 @@ export const App: React.FC = () => {
             onBack={() => { setActiveView('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             onNavigateCalculator={() => { setActiveView('calculator'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             onNavigateContact={() => { setActiveView('contact'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+          />
+        )}
+
+        {/* VIEW 9: AI WOOD DETECTOR (LAKDI KI PEHCHAN) */}
+        {activeView === 'wood-detector' && (
+          <AIWoodDetector
+            settings={settings}
+            onNavigateToCatalog={() => {
+              setActiveView('gallery');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onNavigateToCalculator={() => {
+              setActiveView('calculator');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onNavigateToContact={() => {
+              setActiveView('contact');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
           />
         )}
       </main>

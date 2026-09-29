@@ -52,6 +52,7 @@ import { AdminArticlesTab } from './AdminArticlesTab.tsx';
 import { AdminLegalTab } from './admin/AdminLegalTab.tsx';
 import { AdminEnquiriesTab } from './admin/AdminEnquiriesTab.tsx';
 import { AdminBackupRestore } from './admin/AdminBackupRestore.tsx';
+import { AdminWoodDetectorTab } from './admin/AdminWoodDetectorTab.tsx';
 import {
   Door,
   Category,
@@ -851,6 +852,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 >
                   <SettingsIcon className="w-4 h-4" />
                   Business & WhatsApp
+                </button>
+
+                <button
+                  id="admin-tab-wood-detector"
+                  onClick={() => handleTabSelect('wood-detector')}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
+                    activeTab === 'wood-detector' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  }`}
+                >
+                  <TreePine className="w-4 h-4 text-amber-400" />
+                  AI Wood Detector
                 </button>
 
                 <button
@@ -3600,6 +3612,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onDataUpdated();
                     }}
                     showToast={showToast}
+                  />
+                )}
+
+                {/* AI Wood Detector Management Tab */}
+                {activeTab === 'wood-detector' && (
+                  <AdminWoodDetectorTab
+                    settings={settings}
+                    onSettingsUpdated={async () => {
+                      await loadData();
+                      onDataUpdated();
+                    }}
                   />
                 )}
 

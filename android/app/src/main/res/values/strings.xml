@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Jai Hanuman Door</string>
+    <string name="title_activity_main">Jai Hanuman Door</string>
+    <string name="package_name">com.doorstudio.ai</string>
+    <string name="custom_url_scheme">com.doorstudio.ai</string>
+</resources>

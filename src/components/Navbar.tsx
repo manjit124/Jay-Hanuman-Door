@@ -7,6 +7,7 @@ import {
   Layers,
   Heart,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import { BusinessSettings } from '../types.ts';
 import { useAdminGesture } from '../hooks/useAdminGesture.ts';
@@ -162,6 +163,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               Price Calculator
+            </button>
+            <button
+              id="nav-wood-detector"
+              onClick={() => handleNav('wood-detector')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                current === 'wood-detector'
+                  ? 'bg-amber-600/20 text-amber-300 border border-amber-500/30'
+                  : 'text-stone-300 hover:text-stone-100 hover:bg-stone-800'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>AI Wood Detector</span>
             </button>
             <button
               id="nav-articles"

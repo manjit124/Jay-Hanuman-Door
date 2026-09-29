@@ -614,6 +614,11 @@
       "watermarkPattern": "diagonal",
       "enableAndroidFlagSecure": true,
       "enableAndroidScreenRecordProtection": true
+    },
+    "aiWoodDetector": {
+      "enabled": true,
+      "maxDailyScans": 150,
+      "customNotice": ""
     }
   },
   "adminPasswordHash": "admin123",
@@ -863,5 +868,128 @@
     }
   ],
   "articleLikes": [],
-  "articleShares": []
+  "articleShares": [],
+  "aiWoodDetectorLogs": [
+    {
+      "id": "scan-1790678824009-7vl51",
+      "timestamp": "2026-09-29T10:47:04.009Z",
+      "likelyWoodType": "Sagwan (Teak)",
+      "confidenceLevel": "Moderate",
+      "success": true,
+      "responseTimeMs": 14742
+    },
+    {
+      "id": "scan-1790673156357-ykqyf",
+      "timestamp": "2026-09-29T09:12:36.357Z",
+      "likelyWoodType": "Wood species could not be reliably identified from these photos.",
+      "confidenceLevel": "Low",
+      "success": true,
+      "responseTimeMs": 6868
+    },
+    {
+      "id": "scan-1790672468648-qq6xi",
+      "timestamp": "2026-09-29T09:01:08.648Z",
+      "likelyWoodType": "Sagwan (Teak)",
+      "confidenceLevel": "Moderate",
+      "success": true,
+      "responseTimeMs": 5735
+    },
+    {
+      "id": "scan-1790670773325-ynrp6",
+      "timestamp": "2026-09-29T08:32:53.325Z",
+      "likelyWoodType": "Unable to identify reliably",
+      "confidenceLevel": "Low",
+      "success": true,
+      "responseTimeMs": 8369
+    },
+    {
+      "id": "scan-1790670547767-csrbv",
+      "timestamp": "2026-09-29T08:29:07.767Z",
+      "success": false,
+      "errorMessage": "AI Wood Detector could not process image: {\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}",
+      "responseTimeMs": 4366
+    },
+    {
+      "id": "scan-1790669853800-bj7uy",
+      "timestamp": "2026-09-29T08:17:33.800Z",
+      "likelyWoodType": "Sagwan (Teak)",
+      "confidenceLevel": "Moderate",
+      "success": true,
+      "responseTimeMs": 5510
+    },
+    {
+      "id": "scan-1790669848007-6m69r",
+      "timestamp": "2026-09-29T08:17:28.007Z",
+      "success": false,
+      "errorMessage": "AI Wood Detector could not process image: {\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}",
+      "responseTimeMs": 3705
+    },
+    {
+      "id": "scan-1790669833079-7wx3g",
+      "timestamp": "2026-09-29T08:17:13.079Z",
+      "likelyWoodType": "Sagwan (Teak)",
+      "confidenceLevel": "Moderate",
+      "success": true,
+      "responseTimeMs": 7049
+    },
+    {
+      "id": "scan-1790669743746-86j54",
+      "timestamp": "2026-09-29T08:15:43.746Z",
+      "likelyWoodType": "Sagwan (Teak)",
+      "confidenceLevel": "High",
+      "success": true,
+      "responseTimeMs": 15431
+    },
+    {
+      "id": "scan-1790667241850-a5vw8",
+      "timestamp": "2026-09-29T07:34:01.851Z",
+      "likelyWoodType": "Unable to identify reliably",
+      "confidenceLevel": "Low",
+      "success": true,
+      "responseTimeMs": 12904
+    },
+    {
+      "id": "scan-1790667218985-v40pb",
+      "timestamp": "2026-09-29T07:33:38.985Z",
+      "likelyWoodType": "Unable to identify reliably",
+      "confidenceLevel": "Low",
+      "success": true,
+      "responseTimeMs": 7323
+    },
+    {
+      "id": "scan-1790666682542-5d970",
+      "timestamp": "2026-09-29T07:24:42.542Z",
+      "likelyWoodType": "Sagwan (Teak)",
+      "confidenceLevel": "High",
+      "success": true,
+      "responseTimeMs": 183673
+    },
+    {
+      "id": "scan-1790666205404-cs4g4",
+      "timestamp": "2026-09-29T07:16:45.404Z",
+      "likelyWoodType": "Unable to identify reliably",
+      "confidenceLevel": "Low",
+      "success": true,
+      "responseTimeMs": 11791
+    },
+    {
+      "id": "scan-1790666179325-twfpi",
+      "timestamp": "2026-09-29T07:16:19.325Z",
+      "likelyWoodType": "Unable to identify reliably",
+      "confidenceLevel": "Low",
+      "success": true,
+      "responseTimeMs": 12773
+    },
+    {
+      "id": "scan-1790666147741-baqzs",
+      "timestamp": "2026-09-29T07:15:47.741Z",
+      "success": false,
+      "errorMessage": "AI Wood Detector could not process image: {\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}",
+      "responseTimeMs": 23694
+    }
+  ],
+  "version": 5,
+  "lastModified": "2026-09-29T10:47:04.009Z",
+  "auditLogs": [],
+  "woodReferences": []
 }

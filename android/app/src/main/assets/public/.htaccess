@@ -1,0 +1,42 @@
+# Apache / LiteSpeed Configuration for Jai Hanuman Door
+# Ensures sitemap.xml and robots.txt are served directly as XML and plain text,
+# and never rewritten to the React SPA index.html fallback.
+
+<IfModule mod_mime.c>
+  AddType application/xml .xml
+  AddType text/plain .txt
+</IfModule>
+
+<IfModule mod_headers.c>
+  <Files "sitemap.xml">
+    Header set Content-Type "application/xml; charset=utf-8"
+    Header set Cache-Control "public, max-age=3600, must-revalidate"
+    Header set X-Robots-Tag "all"
+    Header set X-Content-Type-Options "nosniff"
+  </Files>
+  <Files "robots.txt">
+    Header set Content-Type "text/plain; charset=utf-8"
+    Header set Cache-Control "public, max-age=86400, must-revalidate"
+    Header set X-Content-Type-Options "nosniff"
+  </Files>
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # NEVER rewrite sitemap.xml or robots.txt to index.html
+  RewriteRule ^sitemap\.xml$ - [L]
+  RewriteRule ^robots\.txt$ - [L]
+
+  # Direct file or directory matches - serve directly
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Don't rewrite API routes
+  RewriteRule ^api/ - [L]
+
+  # Everything else falls back to index.html for React SPA routing
+  RewriteRule ^ index.html [L]
+</IfModule>

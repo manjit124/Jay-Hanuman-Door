@@ -1,0 +1,12 @@
+# Robots.txt for Jai Hanuman Door
+# Canonical Production: https://jaihanumandoor.com
+
+User-agent: *
+Allow: /
+
+# Disallow private and admin management sections
+Disallow: /admin
+Disallow: /admin/
+Disallow: /api/
+
+Sitemap: https://jaihanumandoor.com/sitemap.xml

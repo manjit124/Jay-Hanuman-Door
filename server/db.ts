@@ -20,6 +20,11 @@ import {
   ArticleCategory,
   CustomerEnquiry,
   LegalSettings,
+  AIWoodDetectorLogItem,
+  AIWoodDetectorStats,
+  AIWoodDetectorSettings,
+  AdminAuditLogItem,
+  WoodReferenceSample,
 } from '../src/types.ts';
 
 export interface UserRecord {
@@ -64,17 +69,58 @@ export interface DatabaseSchema {
   articleViews: { articleId: string; viewerHash: string; timestamp: number }[];
   articleLikes: { articleId: string; likerHash: string; createdAt: string }[];
   articleShares: { articleId: string; platform: string; timestamp: string }[];
+  aiWoodDetectorLogs?: AIWoodDetectorLogItem[];
+  woodReferences?: WoodReferenceSample[];
+  version?: number;
+  lastModified?: string;
+  auditLogs?: AdminAuditLogItem[];
 }
 
-export const DATA_DIR = process.env.PERSISTENT_DATA_DIR || process.env.DATA_DIR || path.join(process.cwd(), 'data');
-export const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
-export const DB_FILE = path.join(DATA_DIR, 'database.json');
-export const MIRROR_FILE = path.join(DATA_DIR, 'production_data_store.json');
-export const UPLOAD_DIR = process.env.PERSISTENT_UPLOADS_DIR || path.join(process.cwd(), 'public', 'uploads');
-export const UPLOAD_BACKUP_DIR = path.join(DATA_DIR, 'uploads');
+function findAppRoot(): string {
+  const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+  const candidates = [
+    process.cwd(),
+    path.resolve(process.cwd()),
+    path.resolve(currentDir, '..'),
+    path.resolve(currentDir),
+    '/app/applet',
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c, 'package.json')) || fs.existsSync(path.join(c, 'data'))) {
+      return c;
+    }
+  }
+  return process.cwd();
+}
 
-// Ensure all persistent and backup directories exist safely
-[DATA_DIR, BACKUPS_DIR, UPLOAD_DIR, UPLOAD_BACKUP_DIR].forEach(dir => {
+export const APP_ROOT = findAppRoot();
+export const DATA_DIR = process.env.PERSISTENT_DATA_DIR || process.env.DATA_DIR || path.join(APP_ROOT, 'data');
+export const SERVER_DATA_DIR = path.join(APP_ROOT, 'server', 'data');
+export const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+export const SERVER_BACKUPS_DIR = path.join(SERVER_DATA_DIR, 'backups');
+export const PERMANENT_BACKUPS_DIR = path.join(DATA_DIR, 'permanent_backups');
+
+export const DB_FILE = path.join(DATA_DIR, 'database.json');
+export const ADMIN_STORE_FILE = path.join(SERVER_DATA_DIR, 'admin_store.json');
+export const MIRROR_FILE = path.join(DATA_DIR, 'production_data_store.json');
+
+export const UPLOAD_DIR = process.env.PERSISTENT_UPLOADS_DIR || path.join(APP_ROOT, 'public', 'uploads');
+export const UPLOAD_BACKUP_DIR = path.join(DATA_DIR, 'uploads');
+export const SERVER_UPLOAD_DIR = path.join(SERVER_DATA_DIR, 'uploads');
+export const DIST_UPLOAD_DIR = path.join(APP_ROOT, 'dist', 'uploads');
+
+// Ensure all persistent and backup directories exist safely across primary, server, and backup tiers
+[
+  DATA_DIR,
+  SERVER_DATA_DIR,
+  BACKUPS_DIR,
+  SERVER_BACKUPS_DIR,
+  PERMANENT_BACKUPS_DIR,
+  UPLOAD_DIR,
+  UPLOAD_BACKUP_DIR,
+  SERVER_UPLOAD_DIR,
+  DIST_UPLOAD_DIR,
+].forEach(dir => {
   try {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -84,37 +130,38 @@ export const UPLOAD_BACKUP_DIR = path.join(DATA_DIR, 'uploads');
   }
 });
 
-// Synchronize uploaded images between live public/uploads and persistent data/uploads
+// Synchronize uploaded images between live public/uploads, server uploads, and persistent data/uploads
 export function syncUploadedImages(): void {
-  try {
-    if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-    if (!fs.existsSync(UPLOAD_BACKUP_DIR)) fs.mkdirSync(UPLOAD_BACKUP_DIR, { recursive: true });
+  const dirs = [UPLOAD_DIR, UPLOAD_BACKUP_DIR, SERVER_UPLOAD_DIR, DIST_UPLOAD_DIR];
+  const allFiles = new Map<string, string>(); // filename -> source path
 
-    // Sync from persistent backup to live public uploads (ensures images survive rebuilds/re-deploys)
-    const backupFiles = fs.readdirSync(UPLOAD_BACKUP_DIR);
-    for (const file of backupFiles) {
-      const src = path.join(UPLOAD_BACKUP_DIR, file);
-      const dest = path.join(UPLOAD_DIR, file);
-      if (fs.existsSync(src) && !fs.existsSync(dest)) {
+  for (const dir of dirs) {
+    try {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const files = fs.readdirSync(dir);
+      for (const f of files) {
+        if (!f.startsWith('.')) {
+          const fullPath = path.join(dir, f);
+          try {
+            if (fs.statSync(fullPath).isFile() && !allFiles.has(f)) {
+              allFiles.set(f, fullPath);
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  // Cross-copy all images to every directory so they are always accessible
+  for (const [filename, sourcePath] of allFiles.entries()) {
+    for (const targetDir of dirs) {
+      const targetPath = path.join(targetDir, filename);
+      if (!fs.existsSync(targetPath)) {
         try {
-          fs.copyFileSync(src, dest);
+          fs.copyFileSync(sourcePath, targetPath);
         } catch {}
       }
     }
-
-    // Mirror newly uploaded live files into persistent data/uploads backup
-    const liveFiles = fs.readdirSync(UPLOAD_DIR);
-    for (const file of liveFiles) {
-      const src = path.join(UPLOAD_DIR, file);
-      const dest = path.join(UPLOAD_BACKUP_DIR, file);
-      if (fs.existsSync(src) && !fs.existsSync(dest)) {
-        try {
-          fs.copyFileSync(src, dest);
-        } catch {}
-      }
-    }
-  } catch (err) {
-    console.warn('⚠️ Could not sync uploads:', err);
   }
 }
 
@@ -510,6 +557,11 @@ Multiply Width in inches by Height in inches, then divide by 144:
       enableAndroidFlagSecure: true,
       enableAndroidScreenRecordProtection: true,
     },
+    aiWoodDetector: {
+      enabled: true,
+      maxDailyScans: 150,
+      customNotice: '',
+    },
   },
   adminPasswordHash: 'admin123', // Can be customized in Settings or via ADMIN_PASSWORD env
   users: [
@@ -649,26 +701,45 @@ Multiply Width in inches by Height in inches, then divide by 144:
   articleViews: [],
   articleLikes: [],
   articleShares: [],
+  aiWoodDetectorLogs: [],
 };
 
 // ---------------- PERSISTENT PRODUCTION DATA ENGINE ----------------
 
 let inMemoryDb: DatabaseSchema | null = null;
 let lastBackupTime = 0;
+let lastLoadedMtime = 0;
 
 /**
- * Atomically writes data to disk using a temporary file and atomic rename.
- * This guarantees zero file corruption even during unexpected crashes or restarts.
+ * Atomically writes data to disk using fsync and atomic rename.
+ * Guarantees zero file corruption and confirms bytes are committed to physical storage.
  */
 function writeAtomicJson(filePath: string, data: any): void {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+
   const tempPath = `${filePath}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
   const jsonStr = JSON.stringify(data, null, 2);
-  fs.writeFileSync(tempPath, jsonStr, 'utf-8');
+
+  // Write and flush to disk
+  const fd = fs.openSync(tempPath, 'w');
+  try {
+    fs.writeFileSync(fd, jsonStr, 'utf-8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  // Atomic rename
   fs.renameSync(tempPath, filePath);
+
+  // Verify non-empty file on disk
+  const stat = fs.statSync(filePath);
+  if (stat.size === 0) {
+    throw new Error(`Write verification failed: atomic write resulted in empty file at ${filePath}`);
+  }
 }
 
 function parseDatabaseJson(rawContent: string): DatabaseSchema | null {
@@ -684,110 +755,164 @@ function parseDatabaseJson(rawContent: string): DatabaseSchema | null {
   }
 }
 
+interface CandidateSnapshot {
+  source: string;
+  data: DatabaseSchema;
+  mtimeMs: number;
+  version: number;
+  lastModifiedMs: number;
+  doorCount: number;
+}
+
 /**
- * Scans multi-tier persistent storage:
- * 1. Primary DB_FILE (database.json)
- * 2. Secondary Mirror (production_data_store.json)
- * 3. Most recent automated snapshot in backups/
+ * Scans multi-tier persistent storage across primary, server store, mirror, and rolling backups:
+ * Always loads the genuinely NEWEST and most complete dataset.
+ * NEVER overwrites customized data with older snapshots or defaults.
  */
 function findBestAvailableData(): DatabaseSchema | null {
-  // Tier 1: Primary database.json
-  if (fs.existsSync(DB_FILE)) {
-    try {
-      const content = fs.readFileSync(DB_FILE, 'utf-8');
-      const parsed = parseDatabaseJson(content);
-      if (parsed) return parsed;
-    } catch (err) {
-      console.warn('⚠️ Warning: Primary database.json unreadable, checking mirror:', err);
-    }
+  const candidates: CandidateSnapshot[] = [];
+  const candidateFilePaths = new Set<string>();
+
+  // Primary store files
+  candidateFilePaths.add(DB_FILE);
+  candidateFilePaths.add(ADMIN_STORE_FILE);
+  candidateFilePaths.add(MIRROR_FILE);
+  if (process.env.PERSISTENT_DATA_DIR) {
+    candidateFilePaths.add(path.join(process.env.PERSISTENT_DATA_DIR, 'database.json'));
+    candidateFilePaths.add(path.join(process.env.PERSISTENT_DATA_DIR, 'admin_store.json'));
   }
 
-  // Tier 2: Secondary Mirror
-  if (fs.existsSync(MIRROR_FILE)) {
-    try {
-      const content = fs.readFileSync(MIRROR_FILE, 'utf-8');
-      const parsed = parseDatabaseJson(content);
-      if (parsed) {
-        console.log('🛡️ Restoring active database from secondary mirror (production_data_store.json)');
-        return parsed;
-      }
-    } catch (err) {
-      console.warn('⚠️ Warning: Secondary mirror unreadable:', err);
+  // Backup directories
+  [BACKUPS_DIR, SERVER_BACKUPS_DIR, PERMANENT_BACKUPS_DIR].forEach(bDir => {
+    if (fs.existsSync(bDir)) {
+      try {
+        const files = fs.readdirSync(bDir).filter(f => f.endsWith('.json'));
+        files.forEach(f => candidateFilePaths.add(path.join(bDir, f)));
+      } catch {}
     }
-  }
+  });
 
-  // Tier 3: Automated Backups
-  if (fs.existsSync(BACKUPS_DIR)) {
-    try {
-      const backupFiles = fs.readdirSync(BACKUPS_DIR)
-        .filter(f => f.endsWith('.json'))
-        .sort()
-        .reverse();
-
-      for (const bf of backupFiles) {
-        try {
-          const content = fs.readFileSync(path.join(BACKUPS_DIR, bf), 'utf-8');
+  for (const filePath of candidateFilePaths) {
+    if (fs.existsSync(filePath)) {
+      try {
+        const stat = fs.statSync(filePath);
+        if (stat.size > 100) {
+          const content = fs.readFileSync(filePath, 'utf-8');
           const parsed = parseDatabaseJson(content);
-          if (parsed) {
-            console.log(`🛡️ Restoring active database from automated backup snapshot: ${bf}`);
-            return parsed;
+          if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
+            const lastModStr = parsed.lastModified || stat.mtime.toISOString();
+            const lastModifiedMs = new Date(lastModStr).getTime() || stat.mtimeMs;
+            candidates.push({
+              source: filePath,
+              data: parsed,
+              mtimeMs: stat.mtimeMs,
+              version: Number(parsed.version) || 0,
+              lastModifiedMs,
+              doorCount: parsed.doors.length,
+            });
           }
-        } catch {}
-      }
-    } catch (err) {
-      console.warn('⚠️ Could not inspect backups dir:', err);
+        }
+      } catch {}
     }
   }
 
-  return null;
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  // Sort candidates to find the genuinely newest & most complete version
+  candidates.sort((a, b) => {
+    // 1. Higher version takes priority
+    if (b.version !== a.version) {
+      return b.version - a.version;
+    }
+    // 2. Newer lastModified takes priority
+    if (Math.abs(b.lastModifiedMs - a.lastModifiedMs) > 1000) {
+      return b.lastModifiedMs - a.lastModifiedMs;
+    }
+    // 3. Newer file modification time
+    return b.mtimeMs - a.mtimeMs;
+  });
+
+  const best = candidates[0];
+  console.log(`🛡️ Loaded authoritative production database from: ${best.source} (Version: ${best.version}, Last Modified: ${new Date(best.lastModifiedMs).toISOString()}, Doors: ${best.doorCount})`);
+  return best.data;
+}
+
+function normalizeDatabaseSchema(existingData: DatabaseSchema): DatabaseSchema {
+  return {
+    ...existingData,
+    version: Number(existingData.version) || 1,
+    lastModified: existingData.lastModified || new Date().toISOString(),
+    auditLogs: Array.isArray(existingData.auditLogs) ? existingData.auditLogs : [],
+    doors: Array.isArray(existingData.doors) ? existingData.doors : INITIAL_DATA.doors,
+    categories: Array.isArray(existingData.categories) ? existingData.categories : INITIAL_DATA.categories,
+    materials: Array.isArray(existingData.materials) ? existingData.materials : INITIAL_DATA.materials,
+    finishes: Array.isArray(existingData.finishes) ? existingData.finishes : INITIAL_DATA.finishes,
+    frames: Array.isArray(existingData.frames) ? existingData.frames : INITIAL_DATA.frames,
+    hardware: Array.isArray(existingData.hardware) ? existingData.hardware : INITIAL_DATA.hardware,
+    banners: Array.isArray(existingData.banners) ? existingData.banners : INITIAL_DATA.banners,
+    articles: Array.isArray(existingData.articles) ? existingData.articles : INITIAL_DATA.articles,
+    teamMembers: Array.isArray(existingData.teamMembers) ? existingData.teamMembers : INITIAL_DATA.teamMembers,
+    quotes: Array.isArray(existingData.quotes) ? existingData.quotes : [],
+    enquiries: Array.isArray(existingData.enquiries) ? existingData.enquiries : [],
+    settings: existingData.settings
+      ? {
+          ...existingData.settings,
+          aiWoodDetector: existingData.settings.aiWoodDetector || {
+            enabled: true,
+            maxDailyScans: 150,
+            customNotice: '',
+          },
+        }
+      : INITIAL_DATA.settings,
+    adminPasswordHash: existingData.adminPasswordHash || INITIAL_DATA.adminPasswordHash,
+    users: Array.isArray(existingData.users) ? existingData.users : [],
+    notificationTokens: Array.isArray(existingData.notificationTokens) ? existingData.notificationTokens : [],
+    notificationCampaigns: Array.isArray(existingData.notificationCampaigns) ? existingData.notificationCampaigns : [],
+    articleCategories: Array.isArray(existingData.articleCategories) ? existingData.articleCategories : INITIAL_DATA.articleCategories,
+    articleComments: Array.isArray(existingData.articleComments) ? existingData.articleComments : [],
+    articleViews: Array.isArray(existingData.articleViews) ? existingData.articleViews : [],
+    articleLikes: Array.isArray(existingData.articleLikes) ? existingData.articleLikes : [],
+    articleShares: Array.isArray(existingData.articleShares) ? existingData.articleShares : [],
+    aiWoodDetectorLogs: Array.isArray(existingData.aiWoodDetectorLogs) ? existingData.aiWoodDetectorLogs : [],
+    woodReferences: Array.isArray(existingData.woodReferences) ? existingData.woodReferences : [],
+  };
 }
 
 /**
  * Returns current production database.
+ * Auto-detects on-disk changes to avoid multi-instance desynchronization.
  * NEVER overwrites existing data with defaults on server start or restarts.
  */
 export function getDb(): DatabaseSchema {
   if (inMemoryDb) {
+    try {
+      if (fs.existsSync(DB_FILE)) {
+        const stat = fs.statSync(DB_FILE);
+        if (stat.mtimeMs > lastLoadedMtime + 500) {
+          const fresh = findBestAvailableData();
+          if (fresh && (fresh.version || 0) >= (inMemoryDb.version || 0)) {
+            inMemoryDb = normalizeDatabaseSchema(fresh);
+            lastLoadedMtime = stat.mtimeMs;
+          }
+        }
+      }
+    } catch {}
     return inMemoryDb;
   }
 
   const existingData = findBestAvailableData();
 
   if (existingData) {
-    // Non-destructive schema normalization - NEVER replace customized data
-    inMemoryDb = {
-      ...existingData,
-      doors: Array.isArray(existingData.doors) ? existingData.doors : INITIAL_DATA.doors,
-      categories: Array.isArray(existingData.categories) ? existingData.categories : INITIAL_DATA.categories,
-      materials: Array.isArray(existingData.materials) ? existingData.materials : INITIAL_DATA.materials,
-      finishes: Array.isArray(existingData.finishes) ? existingData.finishes : INITIAL_DATA.finishes,
-      frames: Array.isArray(existingData.frames) ? existingData.frames : INITIAL_DATA.frames,
-      hardware: Array.isArray(existingData.hardware) ? existingData.hardware : INITIAL_DATA.hardware,
-      banners: Array.isArray(existingData.banners) ? existingData.banners : INITIAL_DATA.banners,
-      articles: Array.isArray(existingData.articles) ? existingData.articles : INITIAL_DATA.articles,
-      teamMembers: Array.isArray(existingData.teamMembers) ? existingData.teamMembers : INITIAL_DATA.teamMembers,
-      quotes: Array.isArray(existingData.quotes) ? existingData.quotes : [],
-      enquiries: Array.isArray(existingData.enquiries) ? existingData.enquiries : [],
-      settings: existingData.settings || INITIAL_DATA.settings,
-      adminPasswordHash: existingData.adminPasswordHash || INITIAL_DATA.adminPasswordHash,
-      users: Array.isArray(existingData.users) ? existingData.users : [],
-      notificationTokens: Array.isArray(existingData.notificationTokens) ? existingData.notificationTokens : [],
-      notificationCampaigns: Array.isArray(existingData.notificationCampaigns) ? existingData.notificationCampaigns : [],
-      articleCategories: Array.isArray(existingData.articleCategories) ? existingData.articleCategories : INITIAL_DATA.articleCategories,
-      articleComments: Array.isArray(existingData.articleComments) ? existingData.articleComments : [],
-      articleViews: Array.isArray(existingData.articleViews) ? existingData.articleViews : [],
-      articleLikes: Array.isArray(existingData.articleLikes) ? existingData.articleLikes : [],
-      articleShares: Array.isArray(existingData.articleShares) ? existingData.articleShares : [],
-    };
+    inMemoryDb = normalizeDatabaseSchema(existingData);
+    lastLoadedMtime = Date.now();
 
-    // Ensure disk files are synced with the valid in-memory representation
+    // Mirror to all targets synchronously so all files stay 100% in sync
     try {
-      if (!fs.existsSync(DB_FILE)) {
-        writeAtomicJson(DB_FILE, inMemoryDb);
-      }
-      if (!fs.existsSync(MIRROR_FILE)) {
-        writeAtomicJson(MIRROR_FILE, inMemoryDb);
-      }
+      if (!fs.existsSync(DB_FILE)) writeAtomicJson(DB_FILE, inMemoryDb);
+      if (!fs.existsSync(ADMIN_STORE_FILE)) writeAtomicJson(ADMIN_STORE_FILE, inMemoryDb);
+      if (!fs.existsSync(MIRROR_FILE)) writeAtomicJson(MIRROR_FILE, inMemoryDb);
     } catch {}
 
     return inMemoryDb;
@@ -795,47 +920,113 @@ export function getDb(): DatabaseSchema {
 
   // First-time initialization only when no existing store or backup exists
   console.log('🆕 First-time initialization: No existing production data or backup found. Initializing seed structure.');
-  inMemoryDb = { ...INITIAL_DATA };
-  saveDb(inMemoryDb);
+  inMemoryDb = normalizeDatabaseSchema(INITIAL_DATA);
+  saveDb(inMemoryDb, {
+    entity: 'system',
+    action: 'create',
+    details: 'Initial database bootstrap',
+  });
   return inMemoryDb;
 }
 
+export interface SaveAuditContext {
+  entity: string; // 'door' | 'material' | 'finish' | 'frame' | 'hardware' | 'banner' | 'article' | 'team' | 'settings' | 'backup'
+  action: 'create' | 'update' | 'delete' | 'bulk_update' | 'restore';
+  targetId?: string;
+  targetName?: string;
+  details?: string;
+}
+
 /**
- * Saves database state using atomic operations across primary, mirror, and rolling backups.
+ * Saves database state using verified atomic writes across primary, server store, mirror, and rolling backups.
+ * Records change audit history and throws if physical write fails.
  */
-export function saveDb(data: DatabaseSchema): void {
-  try {
-    inMemoryDb = data;
+export function saveDb(data: DatabaseSchema, auditContext?: SaveAuditContext): void {
+  // 1. Increment version & timestamp
+  data.version = (Number(data.version) || 0) + 1;
+  data.lastModified = new Date().toISOString();
 
-    // 1. Primary write (atomic rename)
-    writeAtomicJson(DB_FILE, data);
+  // 2. Append audit log entry if context provided
+  if (auditContext) {
+    if (!Array.isArray(data.auditLogs)) {
+      data.auditLogs = [];
+    }
+    const auditItem: AdminAuditLogItem = {
+      id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      entity: auditContext.entity,
+      action: auditContext.action,
+      targetId: auditContext.targetId,
+      targetName: auditContext.targetName,
+      timestamp: new Date().toISOString(),
+      success: true,
+      details: auditContext.details,
+    };
+    data.auditLogs.unshift(auditItem);
+    // Retain newest 300 audit logs
+    if (data.auditLogs.length > 300) {
+      data.auditLogs = data.auditLogs.slice(0, 300);
+    }
+  }
 
-    // 2. Mirror write (atomic rename)
-    writeAtomicJson(MIRROR_FILE, data);
+  // Update in-memory reference immediately
+  inMemoryDb = data;
+  lastLoadedMtime = Date.now();
 
-    // 3. Automated Rolling Backup (throttle to at most one snapshot per 5 seconds)
-    const now = Date.now();
-    if (now - lastBackupTime > 5000) {
-      lastBackupTime = now;
-      const ts = new Date().toISOString().replace(/[:.]/g, '-');
-      const backupFile = path.join(BACKUPS_DIR, `snapshot-${ts}.json`);
-      writeAtomicJson(backupFile, data);
+  const targetFiles = [
+    DB_FILE,
+    ADMIN_STORE_FILE,
+    MIRROR_FILE,
+  ];
 
-      // Rotate backups: retain newest 30
+  if (process.env.PERSISTENT_DATA_DIR) {
+    const extFile = path.join(process.env.PERSISTENT_DATA_DIR, 'database.json');
+    if (!targetFiles.includes(extFile)) {
+      targetFiles.push(extFile);
+    }
+  }
+
+  let successCount = 0;
+  let lastError: Error | null = null;
+
+  for (const file of targetFiles) {
+    try {
+      writeAtomicJson(file, data);
+      successCount++;
+    } catch (err: any) {
+      console.error(`❌ Error writing database to ${file}:`, err.message);
+      lastError = err;
+    }
+  }
+
+  if (successCount === 0 && lastError) {
+    throw new Error(`CRITICAL: Failed to write database to any persistent location! ${lastError.message}`);
+  }
+
+  // 3. Automated Rolling Backup (throttle to at most one snapshot per 3 seconds)
+  const now = Date.now();
+  if (now - lastBackupTime > 3000) {
+    lastBackupTime = now;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupFile = path.join(BACKUPS_DIR, `snapshot-${ts}.json`);
+    const serverBackupFile = path.join(SERVER_BACKUPS_DIR, `snapshot-${ts}.json`);
+
+    try { writeAtomicJson(backupFile, data); } catch {}
+    try { writeAtomicJson(serverBackupFile, data); } catch {}
+
+    // Rotate backups: retain newest 40 in each directory
+    [BACKUPS_DIR, SERVER_BACKUPS_DIR].forEach(dir => {
       try {
-        const files = fs.readdirSync(BACKUPS_DIR)
+        const files = fs.readdirSync(dir)
           .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
           .sort();
-        if (files.length > 30) {
-          const toRemove = files.slice(0, files.length - 30);
+        if (files.length > 40) {
+          const toRemove = files.slice(0, files.length - 40);
           for (const f of toRemove) {
-            try { fs.unlinkSync(path.join(BACKUPS_DIR, f)); } catch {}
+            try { fs.unlinkSync(path.join(dir, f)); } catch {}
           }
         }
       } catch {}
-    }
-  } catch (err) {
-    console.error('❌ Error saving database atomically:', err);
+    });
   }
 }
 
@@ -966,3 +1157,142 @@ export function restoreBackupFile(filename: string): { success: boolean; message
   const parsed = JSON.parse(content);
   return importDatabaseBackup(parsed);
 }
+
+// ---------------- AI WOOD DETECTOR PERSISTENCE & MONITORING ----------------
+
+export function logWoodDetectorScan(entry: Omit<AIWoodDetectorLogItem, 'id' | 'timestamp'>): AIWoodDetectorLogItem {
+  const db = getDb();
+  if (!Array.isArray(db.aiWoodDetectorLogs)) {
+    db.aiWoodDetectorLogs = [];
+  }
+  const item: AIWoodDetectorLogItem = {
+    id: `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    ...entry,
+  };
+  // Store rolling log of scans (privacy-safe: only technical metadata and species name, NO customer image data)
+  db.aiWoodDetectorLogs.unshift(item);
+  if (db.aiWoodDetectorLogs.length > 500) {
+    db.aiWoodDetectorLogs = db.aiWoodDetectorLogs.slice(0, 500);
+  }
+  saveDb(db);
+  return item;
+}
+
+export function getWoodDetectorStats(): AIWoodDetectorStats {
+  const db = getDb();
+  const logs = Array.isArray(db.aiWoodDetectorLogs) ? db.aiWoodDetectorLogs : [];
+  const enabled = db.settings?.aiWoodDetector?.enabled !== false;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayScans = logs.filter(l => l.timestamp && l.timestamp.startsWith(todayStr)).length;
+  const successfulScans = logs.filter(l => l.success).length;
+  const failedScans = logs.filter(l => !l.success).length;
+
+  return {
+    enabled,
+    totalScans: logs.length,
+    todayScans,
+    successfulScans,
+    failedScans,
+    lastScanTimestamp: logs[0]?.timestamp,
+    recentLogs: logs.slice(0, 50),
+  };
+}
+
+export function updateWoodDetectorSettings(detectorSettings: Partial<AIWoodDetectorSettings>): AIWoodDetectorSettings {
+  const db = getDb();
+  if (!db.settings) {
+    db.settings = { ...INITIAL_DATA.settings };
+  }
+  db.settings.aiWoodDetector = {
+    enabled: true,
+    ...(db.settings.aiWoodDetector || {}),
+    ...detectorSettings,
+  };
+  saveDb(db);
+  return db.settings.aiWoodDetector;
+}
+
+// ---------------- VERIFIED WOOD REFERENCE DATASET ----------------
+
+export function getWoodReferences(verifiedOnly: boolean = false): WoodReferenceSample[] {
+  const db = getDb();
+  const list = Array.isArray(db.woodReferences) ? db.woodReferences : [];
+  if (verifiedOnly) {
+    return list.filter(item => item.isVerified);
+  }
+  return list;
+}
+
+export function addWoodReference(
+  sample: Omit<WoodReferenceSample, 'id' | 'createdAt' | 'updatedAt'>
+): WoodReferenceSample {
+  const db = getDb();
+  if (!Array.isArray(db.woodReferences)) {
+    db.woodReferences = [];
+  }
+  const now = new Date().toISOString();
+  const newRef: WoodReferenceSample = {
+    id: `ref-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    ...sample,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.woodReferences.push(newRef);
+  saveDb(db);
+  return newRef;
+}
+
+export function updateWoodReference(
+  id: string,
+  updates: Partial<WoodReferenceSample>
+): WoodReferenceSample | null {
+  const db = getDb();
+  if (!Array.isArray(db.woodReferences)) return null;
+  const idx = db.woodReferences.findIndex(r => r.id === id);
+  if (idx === -1) return null;
+
+  db.woodReferences[idx] = {
+    ...db.woodReferences[idx],
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+  saveDb(db);
+  return db.woodReferences[idx];
+}
+
+export function deleteWoodReference(id: string): boolean {
+  const db = getDb();
+  if (!Array.isArray(db.woodReferences)) return false;
+  const initialLen = db.woodReferences.length;
+  db.woodReferences = db.woodReferences.filter(r => r.id !== id);
+  if (db.woodReferences.length !== initialLen) {
+    saveDb(db);
+    return true;
+  }
+  return false;
+}
+
+export function toggleVerifyWoodReference(
+  id: string,
+  verifiedBy: string = 'Administrator'
+): WoodReferenceSample | null {
+  const db = getDb();
+  if (!Array.isArray(db.woodReferences)) return null;
+  const idx = db.woodReferences.findIndex(r => r.id === id);
+  if (idx === -1) return null;
+
+  const current = db.woodReferences[idx];
+  const newStatus = !current.isVerified;
+  db.woodReferences[idx] = {
+    ...current,
+    isVerified: newStatus,
+    verifiedBy: newStatus ? verifiedBy : undefined,
+    verifiedAt: newStatus ? new Date().toISOString() : undefined,
+    updatedAt: new Date().toISOString(),
+  };
+  saveDb(db);
+  return db.woodReferences[idx];
+}
+

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -15,7 +16,18 @@ import {
   listAvailableBackups,
   restoreBackupFile,
   INITIAL_DATA,
+  logWoodDetectorScan,
+  getWoodDetectorStats,
+  updateWoodDetectorSettings,
+  getWoodReferences,
+  addWoodReference,
+  updateWoodReference,
+  deleteWoodReference,
+  toggleVerifyWoodReference,
 } from './server/db.ts';
+import { analyzeDoorWood, ImageInputPart } from './server/aiWoodDetector.ts';
+import { WOOD_SPECIES_PROFILES } from './server/woodAnatomyGuide.ts';
+import { runWoodBenchmarkEvaluation } from './server/woodBenchmark.ts';
 import { generateSitemapXml, generateRobotsTxt } from './server/sitemap.ts';
 import { CalculationInput, CalculationResult, Quotation, Door, NotificationCampaign, TeamMember, CustomerEnquiry } from './src/types.ts';
 import {
@@ -31,6 +43,59 @@ import {
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+// Production & Development CORS Configuration
+const ALLOWED_ORIGIN_PATTERNS = [
+  /^https?:\/\/(www\.)?jaihanumandoor\.com$/,
+  /^https?:\/\/localhost(:\d+)?$/,
+  /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+  /^https:\/\/.*\.run\.app$/,
+  /^https:\/\/.*\.googleusercontent\.com$/,
+  /^https:\/\/.*\.web\.app$/,
+  /^https:\/\/.*\.firebaseapp\.com$/,
+  /^https:\/\/.*\.aistudio\.google\.com$/,
+  /^https:\/\/.*\.google\.com$/,
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  let isAllowed = false;
+
+  if (!origin || origin === 'null') {
+    // Same-origin, direct browser navigation, server-to-server, curl, mobile app, or sandboxed iframe
+    isAllowed = true;
+  } else {
+    isAllowed =
+      process.env.NODE_ENV !== 'production' ||
+      ALLOWED_ORIGIN_PATTERNS.some(pattern => pattern.test(origin));
+  }
+
+  if (isAllowed) {
+    if (origin && origin !== 'null') {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+  }
+
+  res.setHeader(
+    'Access-Control-Allow-Methods',
+    'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+  );
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control'
+  );
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  // Handle preflight OPTIONS request immediately
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  next();
+});
 
 // Increase request size limit for base64/images
 app.use(express.json({ limit: '50mb' }));
@@ -55,6 +120,19 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are permitted'));
+    }
+  },
+});
+
+// Ephemeral in-memory multer for AI Wood Detector (privacy-first: zero disk storage)
+const memoryUpload = multer({
+  storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
@@ -138,6 +216,280 @@ app.get('/api/health', (_req, res) => {
     environment: process.env.NODE_ENV || 'production',
     timestamp: new Date().toISOString(),
   });
+});
+
+// =========================================================================
+// AI WOOD DETECTOR – LAKDI KI PEHCHAN API (Privacy-Safe & Real-Time)
+// =========================================================================
+
+// Public Wood Detection Handler (Processes in-memory only, ZERO disk storage)
+const woodAnalysisHandler: express.RequestHandler = async (req, res) => {
+  const startTime = Date.now();
+  try {
+    const db = getDb();
+    const detectorSettings = db.settings?.aiWoodDetector;
+    if (detectorSettings && detectorSettings.enabled === false) {
+      return res.status(403).json({
+        error: 'AI Wood Detector is temporarily disabled by administrator. Kripya thodi der baad prayas karein.',
+      });
+    }
+
+    const imageParts: ImageInputPart[] = [];
+
+    // 1. Check if files were uploaded via multipart/form-data
+    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+      for (const f of req.files as Express.Multer.File[]) {
+        if (f.buffer && f.buffer.length > 0) {
+          imageParts.push({
+            data: f.buffer.toString('base64'),
+            mimeType: f.mimetype || 'image/jpeg',
+          });
+        }
+      }
+    }
+
+    // 2. Check if base64 images were sent via JSON body
+    const parseDataUrl = (raw: string): ImageInputPart => {
+      const match = raw.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+      if (match) {
+        return { mimeType: match[1], data: match[2] };
+      }
+      return { mimeType: 'image/jpeg', data: raw };
+    };
+
+    // 2a. Multi-image slots (Full Door, Grain Closeup, Unpolished Edge, End-Grain)
+    if (req.body?.slots && typeof req.body.slots === 'object') {
+      const { fullDoor, grainCloseup, unpolishedEdge, endGrain } = req.body.slots;
+      if (typeof fullDoor === 'string' && fullDoor.trim()) {
+        imageParts.push({ ...parseDataUrl(fullDoor), role: 'full_door' });
+      }
+      if (typeof grainCloseup === 'string' && grainCloseup.trim()) {
+        imageParts.push({ ...parseDataUrl(grainCloseup), role: 'grain_closeup' });
+      }
+      if (typeof unpolishedEdge === 'string' && unpolishedEdge.trim()) {
+        imageParts.push({ ...parseDataUrl(unpolishedEdge), role: 'unpolished_edge' });
+      }
+      if (typeof endGrain === 'string' && endGrain.trim()) {
+        imageParts.push({ ...parseDataUrl(endGrain), role: 'end_grain' });
+      }
+    }
+
+    // 2b. Standard primary image + additionalImages
+    if (imageParts.length === 0 && req.body?.image && typeof req.body.image === 'string') {
+      const primaryRole = req.body.imageRoles?.[0] || 'full_door';
+      imageParts.push({ ...parseDataUrl(req.body.image), role: primaryRole });
+
+      if (Array.isArray(req.body.additionalImages)) {
+        req.body.additionalImages.forEach((addImg: string, idx: number) => {
+          if (typeof addImg === 'string' && addImg.trim()) {
+            const addRole = req.body.imageRoles?.[idx + 1] || 'grain_closeup';
+            imageParts.push({ ...parseDataUrl(addImg), role: addRole });
+          }
+        });
+      }
+    }
+
+    if (imageParts.length === 0) {
+      return res.status(400).json({
+        error: 'Photo nahi mili. Kripya apne darwaze ki photo upload karein.',
+      });
+    }
+
+    console.log(`📸 Received wood detection request with ${imageParts.length} photo part(s).`);
+
+    // Call Gemini Vision model (with server-side retry and fallback)
+    const result = await analyzeDoorWood(imageParts);
+    const duration = Date.now() - startTime;
+
+    // Log telemetry (Privacy-Safe: only metadata, NO image data stored)
+    logWoodDetectorScan({
+      likelyWoodType: result.likely_wood_type,
+      confidenceLevel: result.confidence_level,
+      success: true,
+      responseTimeMs: duration,
+    });
+
+    console.log(`🪵 Wood identification complete in ${duration}ms: ${result.likely_wood_type} (${result.confidence_level})`);
+
+    res.json({
+      success: true,
+      result,
+      durationMs: duration,
+    });
+  } catch (error: any) {
+    const duration = Date.now() - startTime;
+    console.error('AI Wood Detection Error:', error);
+
+    logWoodDetectorScan({
+      success: false,
+      errorMessage: error.message || 'Analysis failed',
+      responseTimeMs: duration,
+    });
+
+    let userFacingMessage = 'Lakdi scan karne mein samasya aayi. Kripya doosri saaf photo ke sath prayas karein.';
+    let statusCode = 500;
+
+    const errMsg = (error.message || '').toLowerCase();
+    if (errMsg.includes('api key') || errMsg.includes('api_key') || errMsg.includes('unauthenticated')) {
+      console.error('❌ Server API Key configuration issue.');
+      userFacingMessage = 'AI analysis service temporarily unavailable on server. Kripya thodi der baad prayas karein.';
+      statusCode = 503;
+    } else if (errMsg.includes('quota') || errMsg.includes('rate limit') || errMsg.includes('resource_exhausted')) {
+      userFacingMessage = 'AI service par temporary limit hai. Kripya kuch second baad Retry karein.';
+      statusCode = 429;
+    } else if (errMsg.includes('demand') || errMsg.includes('503') || errMsg.includes('unavailable')) {
+      userFacingMessage = 'AI model par temporary load hai. Kripya Retry button dabayein.';
+      statusCode = 503;
+    }
+
+    res.status(statusCode).json({
+      error: userFacingMessage,
+      technicalDetails: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+const multipartOrJson = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.is('multipart/form-data')) {
+    memoryUpload.any()(req, res, next);
+  } else {
+    next();
+  }
+};
+
+// Mount Wood Detection on both /api/wood-analysis and /api/ai/detect-wood
+app.post('/api/wood-analysis', multipartOrJson, woodAnalysisHandler);
+app.post('/api/ai/detect-wood', multipartOrJson, woodAnalysisHandler);
+
+// Health check endpoints for wood detector
+app.get(['/api/wood-analysis', '/api/ai/detect-wood'], (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'Jai Hanuman Door - AI Wood Detector',
+    version: '2.0',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Admin: Get AI Wood Detector usage stats and logs
+app.get('/api/ai/wood-detector/stats', verifyAdminToken, (_req, res) => {
+  try {
+    const stats = getWoodDetectorStats();
+    res.json({ success: true, stats });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Update AI Wood Detector configuration (enable/disable, notices)
+app.post('/api/ai/wood-detector/settings', verifyAdminToken, (req, res) => {
+  try {
+    const { enabled, customNotice, maxDailyScans } = req.body;
+    const updated = updateWoodDetectorSettings({
+      ...(typeof enabled === 'boolean' ? { enabled } : {}),
+      ...(typeof customNotice === 'string' ? { customNotice } : {}),
+      ...(typeof maxDailyScans === 'number' ? { maxDailyScans } : {}),
+    });
+    res.json({ success: true, settings: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Public / Client: Botanical Wood Species Anatomy Guide
+app.get('/api/wood-species-guide', (_req, res) => {
+  res.json({
+    success: true,
+    profiles: WOOD_SPECIES_PROFILES,
+  });
+});
+
+// Wood Reference Library: Get reference samples
+app.get('/api/ai/wood-detector/references', (req, res) => {
+  try {
+    const verifiedOnly = req.query.verified === 'true';
+    const references = getWoodReferences(verifiedOnly);
+    res.json({ success: true, references });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Add a new Wood Reference Sample
+app.post('/api/ai/wood-detector/references', verifyAdminToken, (req, res) => {
+  try {
+    const { woodType, verifiedLabel, imageUrl, source, notes, anatomicalFeatures, isVerified } = req.body;
+    if (!woodType || !verifiedLabel || !imageUrl) {
+      return res.status(400).json({ error: 'woodType, verifiedLabel, and imageUrl are required.' });
+    }
+    const created = addWoodReference({
+      woodType,
+      verifiedLabel,
+      imageUrl,
+      source: source || 'Jai Hanuman Door Workshop Sample',
+      notes: notes || '',
+      anatomicalFeatures: anatomicalFeatures || {},
+      isVerified: Boolean(isVerified),
+      verifiedBy: isVerified ? 'Administrator' : undefined,
+      verifiedAt: isVerified ? new Date().toISOString() : undefined,
+    });
+    res.status(201).json({ success: true, reference: created });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Update a Wood Reference Sample
+app.put('/api/ai/wood-detector/references/:id', verifyAdminToken, (req, res) => {
+  try {
+    const { id } = req.params;
+    const updated = updateWoodReference(id, req.body);
+    if (!updated) {
+      return res.status(404).json({ error: 'Reference sample not found.' });
+    }
+    res.json({ success: true, reference: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Delete a Wood Reference Sample
+app.delete('/api/ai/wood-detector/references/:id', verifyAdminToken, (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = deleteWoodReference(id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Reference sample not found.' });
+    }
+    res.json({ success: true, deleted: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Toggle Verification status of a Reference Sample
+app.post('/api/ai/wood-detector/references/:id/toggle-verify', verifyAdminToken, (req, res) => {
+  try {
+    const { id } = req.params;
+    const toggled = toggleVerifyWoodReference(id, 'Master Craftsman / Administrator');
+    if (!toggled) {
+      return res.status(404).json({ error: 'Reference sample not found.' });
+    }
+    res.json({ success: true, reference: toggled });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Run isolated Wood Accuracy Benchmark against documented test dataset
+app.post('/api/ai/wood-detector/evaluate', verifyAdminToken, async (_req, res) => {
+  try {
+    console.log('🧪 Administrator triggered isolated Wood Accuracy Benchmark...');
+    const benchmarkResult = await runWoodBenchmarkEvaluation();
+    res.json({ success: true, benchmark: benchmarkResult });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Benchmark evaluation failed' });
+  }
 });
 
 // Content Protection & Secure Media Serving Layer
@@ -1627,6 +1979,14 @@ app.put('/api/admin/settings', verifyAdminToken, (req, res) => {
         : 'diagonal',
       enableAndroidFlagSecure: Boolean(newSettings.contentProtection.enableAndroidFlagSecure ?? true),
       enableAndroidScreenRecordProtection: Boolean(newSettings.contentProtection.enableAndroidScreenRecordProtection ?? true),
+    };
+  }
+
+  if (newSettings.aiWoodDetector) {
+    db.settings.aiWoodDetector = {
+      enabled: Boolean(newSettings.aiWoodDetector.enabled ?? true),
+      maxDailyScans: Number(newSettings.aiWoodDetector.maxDailyScans ?? 150),
+      customNotice: typeof newSettings.aiWoodDetector.customNotice === 'string' ? newSettings.aiWoodDetector.customNotice : '',
     };
   }
 

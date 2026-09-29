@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Layers, Calculator, BookOpen, Heart } from 'lucide-react';
+import { Home, Layers, Calculator, BookOpen, Heart, Sparkles } from 'lucide-react';
 
 interface BottomNavProps {
   currentTab?: string;
@@ -103,6 +103,18 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         >
           <BookOpen className="w-5 h-5" />
           <span className="text-[10px] mt-0.5 font-medium">Guide</span>
+        </button>
+
+        {/* AI Wood Detector */}
+        <button
+          id="bottom-nav-wood-detector"
+          onClick={() => handleNav('wood-detector')}
+          className={`flex flex-col items-center justify-center w-14 py-1 focus:outline-none transition-colors ${
+            current === 'wood-detector' ? 'text-amber-400' : 'text-stone-400 hover:text-stone-200'
+          }`}
+        >
+          <Sparkles className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5 font-medium">AI Lakdi</span>
         </button>
 
         {/* Saved Doors / Estimates */}

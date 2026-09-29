@@ -281,6 +281,107 @@ export interface LegalSettings {
   socialLinks?: SocialLinks;
 }
 
+export type WoodSpeciesCategory =
+  | 'Sagwan (Teak)'
+  | 'Saal (Sal)'
+  | 'Sheesham'
+  | 'Jungle Wood'
+  | 'Deodar'
+  | 'Mango Wood'
+  | 'Neem'
+  | 'Pine'
+  | 'Plywood'
+  | 'Veneered Wood'
+  | 'Laminated or engineered wood'
+  | 'Other / Unknown';
+
+export interface WoodReferenceSample {
+  id: string;
+  woodType: WoodSpeciesCategory | string;
+  verifiedLabel: string;
+  imageUrl: string;
+  source: string;
+  notes?: string;
+  anatomicalFeatures?: {
+    grainPattern?: string;
+    poreDistribution?: string;
+    colorVariation?: string;
+    texture?: string;
+    cutType?: 'radial' | 'tangential' | 'end-grain' | 'general';
+    finishState?: 'unpolished' | 'raw_cut' | 'sanded' | 'clear_polish' | 'stained' | 'vintage';
+  };
+  isVerified: boolean;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface WoodAccuracyBenchmarkResult {
+  totalTests: number;
+  correctIdentifications: number;
+  accuracyRate: number; // 0 to 100
+  sagwanSalConfusionCount: number;
+  sagwanSheeshamConfusionCount: number;
+  falseConfidentCount: number;
+  honestRefusalCount: number;
+  evaluatedAt: string;
+  details: {
+    sampleId: string;
+    expectedSpecies: string;
+    predictedSpecies: string;
+    confidence: string;
+    passed: boolean;
+    isRefusal: boolean;
+    notes: string;
+  }[];
+}
+
+export interface AIWoodAnalysisResult {
+  likely_wood_type: string;
+  alternative_possibilities: string[];
+  confidence_level: 'Low' | 'Moderate' | 'High';
+  visual_observations: string[];
+  visible_evidence?: string[];
+  features_unassessed?: string[];
+  uncertainty_reasons?: string[];
+  reasons_for_match: string[];
+  limitations: string[];
+  additional_photos_recommended: boolean;
+  photo_recommendations?: string[];
+  customer_explanation: string;
+  anti_false_sagwan_notice?: string;
+  comparison_notes?: Record<string, string>;
+  disclaimer?: string;
+  analyzed_at?: string;
+}
+
+export interface AIWoodDetectorSettings {
+  enabled: boolean;
+  maxDailyScans?: number;
+  customNotice?: string;
+}
+
+export interface AIWoodDetectorLogItem {
+  id: string;
+  timestamp: string;
+  likelyWoodType?: string;
+  confidenceLevel?: string;
+  success: boolean;
+  errorMessage?: string;
+  responseTimeMs?: number;
+}
+
+export interface AIWoodDetectorStats {
+  enabled: boolean;
+  totalScans: number;
+  todayScans: number;
+  successfulScans: number;
+  failedScans: number;
+  lastScanTimestamp?: string;
+  recentLogs: AIWoodDetectorLogItem[];
+}
+
 export interface BusinessSettings {
   businessName: string;
   tagline: string;
@@ -299,6 +400,7 @@ export interface BusinessSettings {
   disclaimer: string;
   contentProtection?: ContentProtectionSettings;
   legalSettings?: LegalSettings;
+  aiWoodDetector?: AIWoodDetectorSettings;
 }
 
 export interface AdminStats {
@@ -306,6 +408,17 @@ export interface AdminStats {
   totalQuotes: number;
   totalMaterials: number;
   recentQuotes: Quotation[];
+}
+
+export interface AdminAuditLogItem {
+  id: string;
+  entity: string; // 'door' | 'material' | 'finish' | 'frame' | 'hardware' | 'banner' | 'article' | 'team' | 'settings' | 'backup'
+  action: 'create' | 'update' | 'delete' | 'bulk_update' | 'restore';
+  targetId?: string;
+  targetName?: string;
+  timestamp: string;
+  success: boolean;
+  details?: string;
 }
 
 export interface UserCalculationRecord {
