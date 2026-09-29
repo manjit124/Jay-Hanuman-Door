@@ -1,3 +1,4 @@
+
 name: Build Android APK & AAB
 
 on:
@@ -8,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: 'Build Target'
+        description: Build Target
         required: true
-        default: 'all'
+        default: all
         type: choice
         options:
           - all
@@ -43,28 +44,28 @@ jobs:
       - name: Setup Java JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
-          cache: 'gradle'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
-          cmdline-tools-version: '11076708'
+          gradle-version: '8.11.1'
 
       - name: Install Dependencies
         run: |
-          if command -v bun >/dev/null 2>&1 && [ -f "bun.lock" ]; then
-            echo "Installing dependencies with Bun..."
+          if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
             bun install --frozen-lockfile || bun install
           else
-            echo "Installing dependencies with NPM..."
             npm install
           fi
 
       - name: Build Web Application
         run: |
-          if command -v bun >/dev/null 2>&1; then
+          if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
             bun run build
           else
             npm run build
@@ -73,6 +74,13 @@ jobs:
       - name: Sync Capacitor Android
         run: |
           npx cap sync android
+
+      - name: Check Android Gradle Project
+        run: |
+          if [ ! -f "android/settings.gradle" ] && [ ! -f "android/settings.gradle.kts" ]; then
+            echo "::error::Android Gradle project is incomplete. Ensure the Android platform is generated and committed."
+            exit 1
+          fi
 
       - name: Prepare Gradle Wrapper
         working-directory: android
@@ -83,82 +91,43 @@ jobs:
           chmod +x gradlew
 
       - name: Build Debug APK
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' || github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' }}
         working-directory: android
-        run: |
-          ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace
 
-      - name: Build Release AAB (Google Play Bundle)
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'aab' || github.event_name == 'push' }}
+      - name: Build Release AAB
+        if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'aab' }}
         working-directory: android
-        run: |
-          ./gradlew bundleRelease --stacktrace
+        run: ./gradlew bundleRelease --stacktrace
 
-      - name: Build Release APK (Unsigned / Direct Install)
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' || github.event_name == 'push' }}
+      - name: Build Release APK
+        if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' }}
         working-directory: android
-        run: |
-          ./gradlew assembleRelease --stacktrace || echo "assembleRelease completed"
+        run: ./gradlew assembleRelease --stacktrace
 
-      - name: Sign Release AAB (if Secrets are configured)
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          echo "Decoding keystore..."
-          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
-          if [ -f "android/app/build/outputs/bundle/release/app-release.aab" ]; then
-            jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
-              -keystore android/app/release.keystore \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -keypass "$KEY_PASSWORD" \
-              -signedjar android/app/build/outputs/bundle/release/app-release-signed.aab \
-              android/app/build/outputs/bundle/release/app-release.aab "$KEY_ALIAS"
-            echo "Signed AAB created successfully."
-          fi
-
-      - name: Sign Release APK (if Secrets are configured)
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          if [ -f "android/app/build/outputs/apk/release/app-release-unsigned.apk" ]; then
-            $ANDROID_HOME/build-tools/35.0.0/apksigner sign \
-              --ks android/app/release.keystore \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass pass:"$KEYSTORE_PASSWORD" \
-              --key-pass pass:"$KEY_PASSWORD" \
-              --out android/app/build/outputs/apk/release/app-release-signed.apk \
-              android/app/build/outputs/apk/release/app-release-unsigned.apk
-            echo "Signed APK created successfully."
-          fi
-
-      - name: Upload Debug APK Artifact
+      - name: Upload Debug APK
+        if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' }}
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
-      - name: Upload Release AAB Artifact (Google Play Store)
+      - name: Upload Release AAB
+        if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'aab' }}
         uses: actions/upload-artifact@v4
         with:
           name: app-release-aab
           path: android/app/build/outputs/bundle/release/*.aab
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
-      - name: Upload Release APK Artifact
+      - name: Upload Release APK
+        if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' }}
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
           path: android/app/build/outputs/apk/release/*.apk
-          if-no-files-found: ignore
+          if-no-files-found: warn
           retention-days: 14
