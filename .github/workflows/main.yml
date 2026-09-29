@@ -60,6 +60,9 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Configure Android SDK
         shell: bash
@@ -67,26 +70,14 @@ jobs:
           echo "ANDROID_HOME=${ANDROID_HOME:-$ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-$ANDROID_HOME}" >> "$GITHUB_ENV"
 
-      - name: Install Android SDK Packages
-        shell: bash
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-${ANDROID_API_LEVEL}" \
-            "build-tools;${ANDROID_BUILD_TOOLS}"
-
       - name: Install Dependencies
         shell: bash
         run: |
           if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
-            echo "Installing with Bun"
-            bun install --frozen-lockfile || bun install
+            bun install --frozen-lockfile
           elif [ -f "package-lock.json" ]; then
-            echo "Installing with NPM"
             npm ci
           else
-            echo "Installing with NPM"
             npm install
           fi
 
@@ -106,15 +97,13 @@ jobs:
             echo "Android project not found. Creating it..."
             npx cap add android
           elif [ ! -f "android/settings.gradle" ] && [ ! -f "android/settings.gradle.kts" ]; then
-            echo "Android folder exists but is missing Gradle settings."
-            echo "Please repair the Android project before building."
+            echo "Android project is missing Gradle settings."
             exit 1
           fi
 
       - name: Sync Capacitor Android
         shell: bash
-        run: |
-          npx cap sync android
+        run: npx cap sync android
 
       - name: Prepare Gradle Wrapper
         shell: bash
@@ -122,7 +111,7 @@ jobs:
           cd android
 
           if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Gradle Wrapper missing. Generating it..."
+            echo "Gradle Wrapper missing. Generating..."
             gradle wrapper --gradle-version "$GRADLE_VERSION"
           fi
 
@@ -145,20 +134,17 @@ jobs:
       - name: Build Debug APK
         if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' }}
         working-directory: android
-        run: |
-          ./gradlew assembleDebug --stacktrace
+        run: ./gradlew --no-daemon assembleDebug --stacktrace
 
       - name: Build Release AAB
         if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'aab' }}
         working-directory: android
-        run: |
-          ./gradlew bundleRelease --stacktrace
+        run: ./gradlew --no-daemon bundleRelease --stacktrace
 
       - name: Build Release APK
         if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' }}
         working-directory: android
-        run: |
-          ./gradlew assembleRelease --stacktrace
+        run: ./gradlew --no-daemon assembleRelease --stacktrace
 
       - name: Sign Release Files If Keystore Exists
         shell: bash
@@ -169,9 +155,13 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "Keystore secrets not configured."
-            echo "Release files may be unsigned."
+            echo "Keystore secrets not configured. Skipping manual signing."
             exit 0
+          fi
+
+          if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "Keystore secrets are incomplete."
+            exit 1
           fi
 
           echo "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
@@ -224,7 +214,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jai-hanuman-door-release-aab
-          path: android/app/build/outputs/bundle/release/*.aab
+          path: |
+            android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: warn
           retention-days: 14
 
