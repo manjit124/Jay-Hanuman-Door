@@ -26,14 +26,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
+    env:
+      ANDROID_API_LEVEL: "36"
+      ANDROID_BUILD_TOOLS: "36.0.0"
+      GRADLE_VERSION: "8.14.3"
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -45,70 +50,109 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-          cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
-          cmdline-tools-version: '11076708'
+          gradle-version: "8.14.3"
+
+      - name: Configure Android SDK
+        shell: bash
+        run: |
+          set -e
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_ROOT" ]; then
+            echo "ERROR: Android SDK not found at $SDK_ROOT"
+            exit 1
+          fi
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "sdk.dir=$SDK_ROOT" > android/local.properties
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install \
+            "platform-tools" \
+            "platforms;android-${ANDROID_API_LEVEL}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
+          echo "Android SDK configured successfully."
 
       - name: Install Dependencies
+        shell: bash
         run: |
-          if command -v bun >/dev/null 2>&1 && [ -f "bun.lock" ]; then
+          set -e
+          if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
             echo "Installing dependencies with Bun..."
             bun install --frozen-lockfile || bun install
+          elif [ -f "package-lock.json" ]; then
+            npm ci
           else
-            echo "Installing dependencies with NPM..."
             npm install
           fi
 
       - name: Build Web Application
+        shell: bash
         run: |
-          if command -v bun >/dev/null 2>&1; then
+          set -e
+          if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
             bun run build
           else
             npm run build
           fi
 
       - name: Sync Capacitor Android
+        shell: bash
         run: |
+          set -e
           npx cap sync android
 
       - name: Prepare Gradle Wrapper
+        shell: bash
         working-directory: android
         run: |
+          set -e
           if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            gradle wrapper --gradle-version 8.11.1
+            gradle wrapper --gradle-version "$GRADLE_VERSION"
           fi
           chmod +x gradlew
+          ./gradlew --no-daemon --version
 
       - name: Build Debug APK
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' || github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' }}
         working-directory: android
         run: |
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew --no-daemon assembleDebug --stacktrace
 
       - name: Build Release AAB (Google Play Bundle)
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'aab' || github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'aab' }}
         working-directory: android
         run: |
-          ./gradlew bundleRelease --stacktrace
+          ./gradlew --no-daemon bundleRelease --stacktrace
 
-      - name: Build Release APK (Unsigned / Direct Install)
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' || github.event_name == 'push' }}
+      - name: Build Release APK (Direct Install)
+        if: ${{ github.event_name == 'push' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' }}
         working-directory: android
         run: |
-          ./gradlew assembleRelease --stacktrace || echo "assembleRelease completed"
+          ./gradlew --no-daemon assembleRelease --stacktrace || echo "assembleRelease completed"
 
-      - name: Sign Release AAB (if Secrets are configured)
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
+      - name: Sign Release Outputs (if Secrets are configured)
+        shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          echo "Decoding keystore..."
+          set -e
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "Keystore secrets not provided; skipping signing."
+            exit 0
+          fi
           echo "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
           if [ -f "android/app/build/outputs/bundle/release/app-release.aab" ]; then
             jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
@@ -117,48 +161,46 @@ jobs:
               -keypass "$KEY_PASSWORD" \
               -signedjar android/app/build/outputs/bundle/release/app-release-signed.aab \
               android/app/build/outputs/bundle/release/app-release.aab "$KEY_ALIAS"
-            echo "Signed AAB created successfully."
+            echo "Signed AAB created."
           fi
-
-      - name: Sign Release APK (if Secrets are configured)
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          if [ -f "android/app/build/outputs/apk/release/app-release-unsigned.apk" ]; then
-            $ANDROID_HOME/build-tools/35.0.0/apksigner sign \
-              --ks android/app/release.keystore \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass pass:"$KEYSTORE_PASSWORD" \
-              --key-pass pass:"$KEY_PASSWORD" \
-              --out android/app/build/outputs/apk/release/app-release-signed.apk \
-              android/app/build/outputs/apk/release/app-release-unsigned.apk
-            echo "Signed APK created successfully."
+          UNSIGNED_APK="$(find android/app/build/outputs/apk/release -name "*unsigned.apk" 2>/dev/null | head -n 1)"
+          if [ -n "$UNSIGNED_APK" ] && [ -f "$UNSIGNED_APK" ]; then
+            APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+            if [ -n "$APKSIGNER" ]; then
+              "$APKSIGNER" sign \
+                --ks android/app/release.keystore \
+                --ks-key-alias "$KEY_ALIAS" \
+                --ks-pass "pass:$KEYSTORE_PASSWORD" \
+                --key-pass "pass:$KEY_PASSWORD" \
+                --out android/app/build/outputs/apk/release/app-release-signed.apk \
+                "$UNSIGNED_APK"
+              echo "Signed APK created."
+            fi
           fi
 
       - name: Upload Debug APK Artifact
+        if: ${{ always() && (github.event_name == 'push' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk') }}
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
+          name: jai-hanuman-door-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
           retention-days: 14
 
       - name: Upload Release AAB Artifact (Google Play Store)
+        if: ${{ always() && (github.event_name == 'push' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'aab') }}
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-aab
+          name: jai-hanuman-door-release-aab
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: warn
           retention-days: 14
 
       - name: Upload Release APK Artifact
+        if: ${{ always() && (github.event_name == 'push' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk') }}
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
+          name: jai-hanuman-door-release-apk
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: ignore
           retention-days: 14
