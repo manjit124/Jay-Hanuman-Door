@@ -33,180 +33,242 @@ jobs:
       GRADLE_VERSION: "8.11.1"
 
     steps:
+      # 1. Checkout repository
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # 2. Setup Node.js
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
+      # 3. Setup Bun
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
+      # 4. Setup Java 21 (matches app/build.gradle)
       - name: Setup Java JDK 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
 
+      # 5. Setup Gradle
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
 
+      # 6. Setup Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
 
-      - name: Configure Android SDK
+      # 7. Install Android packages
+      - name: Install Android SDK Packages
         shell: bash
         run: |
-          echo "ANDROID_HOME=${ANDROID_HOME:-$ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-$ANDROID_HOME}" >> "$GITHUB_ENV"
+          set -e
 
-      - name: Accept Android SDK Licenses
-        shell: bash
-        run: |
-          yes | sdkmanager --licenses || true
+          SDKMANAGER="$(command -v sdkmanager || true)"
 
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found"
+            exit 1
+          fi
+
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+
+          if [ -z "$SDK_ROOT" ]; then
+            SDK_ROOT="$(dirname "$(dirname "$(dirname "$SDKMANAGER")")")"
+          fi
+
+          echo "Using Android SDK: $SDK_ROOT"
+
+          yes | "$SDKMANAGER" \
+            --sdk_root="$SDK_ROOT" --licenses || true
+
+          "$SDKMANAGER" \
+            --sdk_root="$SDK_ROOT" \
+            --install \
+            "platform-tools" \
+            "platforms;android-${ANDROID_API_LEVEL}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+      # 8. Install project dependencies
       - name: Install Dependencies
         shell: bash
         run: |
+          set -e
+
           if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
+            echo "Installing with Bun"
             bun install --frozen-lockfile
+
           elif [ -f "package-lock.json" ]; then
+            echo "Installing with NPM"
             npm ci
+
           else
+            echo "Installing with NPM"
             npm install
           fi
 
+      # 9. Build web application
       - name: Build Web Application
         shell: bash
         run: |
+          set -e
+
           if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
             bun run build
           else
             npm run build
           fi
 
+      # 10. Check Android project
       - name: Check Capacitor Android Project
         shell: bash
         run: |
+          set -e
+
           if [ ! -d "android" ]; then
-            echo "Android project not found."
+            echo "Creating Capacitor Android project"
             npx cap add android
           fi
 
           if [ ! -f "android/settings.gradle" ] && \
              [ ! -f "android/settings.gradle.kts" ]; then
-            echo "Gradle settings file is missing."
+            echo "ERROR: Android Gradle settings missing"
             exit 1
           fi
 
+          if [ ! -f "android/app/build.gradle" ] && \
+             [ ! -f "android/app/build.gradle.kts" ]; then
+            echo "ERROR: Android app Gradle file missing"
+            exit 1
+          fi
+
+      # 11. Sync Capacitor plugins
       - name: Sync Capacitor Android
         shell: bash
-        run: npx cap sync android
+        run: |
+          set -e
+          npx cap sync android
 
+      # 12. Fix Cordova plugin Gradle reference
       - name: Fix Cordova Gradle Project Reference
         shell: bash
         run: |
-          SETTINGS="android/settings.gradle"
+          set -e
+
+          GROOVY="android/settings.gradle"
+          KOTLIN="android/settings.gradle.kts"
           PLUGIN_DIR="android/capacitor-cordova-android-plugins"
 
-          if [ ! -d "$PLUGIN_DIR" ]; then
-            echo "Cordova plugins project folder not generated."
-            echo "Check Capacitor plugins and sync output."
+          if [ -d "$PLUGIN_DIR" ]; then
+
+            if [ -f "$GROOVY" ]; then
+              if ! grep -q "include.*capacitor-cordova-android-plugins" "$GROOVY"; then
+                echo "Adding Cordova plugin include"
+                echo "include ':capacitor-cordova-android-plugins'" >> "$GROOVY"
+              fi
+
+              echo "Setting Cordova plugin project directory"
+              echo "project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')" >> "$GROOVY"
+
+            elif [ -f "$KOTLIN" ]; then
+              if ! grep -q 'include.*capacitor-cordova-android-plugins' "$KOTLIN"; then
+                echo 'include(":capacitor-cordova-android-plugins")' >> "$KOTLIN"
+              fi
+
+              echo 'project(":capacitor-cordova-android-plugins").projectDir = File("./capacitor-cordova-android-plugins/")' >> "$KOTLIN"
+            fi
+          else
+            echo "No Cordova plugin project directory found; skipping"
+          fi
+
+      # 13. Set correct Android SDK path
+      - name: Configure Android SDK
+        shell: bash
+        run: |
+          set -e
+
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+
+          if [ -z "$SDK_ROOT" ] || [ ! -d "$SDK_ROOT" ]; then
+            echo "ERROR: Android SDK directory not found"
             exit 1
           fi
 
-          if [ ! -f "$SETTINGS" ]; then
-            echo "settings.gradle is missing."
-            exit 1
-          fi
+          echo "sdk.dir=$SDK_ROOT" > android/local.properties
 
-          python3 - <<'PY'
-          from pathlib import Path
+          echo "Android SDK configured:"
+          cat android/local.properties
 
-          path = Path("android/settings.gradle")
-          content = path.read_text()
-
-          include_line = "include ':capacitor-cordova-android-plugins'"
-          project_line = (
-              "project(':capacitor-cordova-android-plugins').projectDir = "
-              "new File('./capacitor-cordova-android-plugins/')"
-          )
-
-          if include_line not in content:
-              addition = include_line + "\n" + project_line + "\n"
-
-              marker = "apply from: 'capacitor.settings.gradle'"
-              if marker in content:
-                  content = content.replace(
-                      marker, addition + marker, 1
-                  )
-              else:
-                  content = content.rstrip() + "\n" + addition
-
-          elif project_line not in content:
-              content = content.replace(
-                  include_line,
-                  include_line + "\n" + project_line,
-                  1
-              )
-
-          path.write_text(content)
-          print("Updated settings.gradle:")
-          print(content)
-          PY
-
+      # 14. Prepare Gradle wrapper
       - name: Prepare Gradle Wrapper
         shell: bash
         run: |
+          set -e
           cd android
 
           if [ ! -f "gradlew" ] || \
              [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Generating Gradle Wrapper"
             gradle wrapper --gradle-version "$GRADLE_VERSION"
           fi
 
           chmod +x gradlew
-          ./gradlew --version
+          ./gradlew --no-daemon --version
 
+      # 15. Verify Android project
       - name: Verify Android Project
         shell: bash
         run: |
+          set -e
+
           test -f android/gradlew
           test -f android/gradle/wrapper/gradle-wrapper.jar
-          test -d android/capacitor-cordova-android-plugins
+          test -f android/local.properties
 
-          if [ ! -f android/app/build.gradle ] && \
-             [ ! -f android/app/build.gradle.kts ]; then
-            echo "App Gradle file is missing."
+          if [ ! -f "android/app/build.gradle" ] && \
+             [ ! -f "android/app/build.gradle.kts" ]; then
+            echo "ERROR: app Gradle configuration missing"
             exit 1
           fi
 
-          echo "Android project verification passed."
+          echo "Android project verification passed"
 
+      # 16. Build Debug APK
       - name: Build Debug APK
         if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' }}
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug --stacktrace
+        run: |
+          ./gradlew --no-daemon assembleDebug --stacktrace
 
+      # 17. Build Release AAB
       - name: Build Release AAB
         if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'aab' }}
         working-directory: android
-        run: ./gradlew --no-daemon bundleRelease --stacktrace
+        run: |
+          ./gradlew --no-daemon bundleRelease --stacktrace
 
+      # 18. Build Release APK
       - name: Build Release APK
         if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' }}
         working-directory: android
-        run: ./gradlew --no-daemon assembleRelease --stacktrace
+        run: |
+          ./gradlew --no-daemon assembleRelease --stacktrace
 
+      # 19. Sign release files if keystore secrets exist
       - name: Sign Release Files If Keystore Exists
+        if: ${{ success() }}
         shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -214,15 +276,15 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "Keystore not configured. Manual signing skipped."
-            exit 0
-          fi
+          set -e
 
-          if [ -z "$KEYSTORE_PASSWORD" ] || \
-             [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "Keystore secrets are incomplete."
-            exit 1
+          if [ -z "$KEYSTORE_BASE64" ] || \
+             [ -z "$KEYSTORE_PASSWORD" ] || \
+             [ -z "$KEY_ALIAS" ] || \
+             [ -z "$KEY_PASSWORD" ]; then
+            echo "Keystore secrets incomplete or missing."
+            echo "Release files may be unsigned."
+            exit 0
           fi
 
           echo "$KEYSTORE_BASE64" | base64 --decode \
@@ -247,11 +309,11 @@ jobs:
           APK="android/app/build/outputs/apk/release/app-release-unsigned.apk"
 
           if [ -f "$APK" ]; then
-            APKSIGNER=$(find "$ANDROID_HOME/build-tools" \
-              -type f -name apksigner | sort -V | tail -n 1)
+            APKSIGNER="$(find "$ANDROID_HOME/build-tools" \
+              -type f -name apksigner | sort -V | tail -n 1)"
 
             if [ -z "$APKSIGNER" ]; then
-              echo "apksigner not found."
+              echo "ERROR: apksigner not found"
               exit 1
             fi
 
@@ -267,6 +329,7 @@ jobs:
               android/app/build/outputs/apk/release/app-release-signed.apk
           fi
 
+      # 20. Upload Debug APK
       - name: Upload Debug APK
         if: ${{ always() && (github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk') }}
         uses: actions/upload-artifact@v4
@@ -276,6 +339,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # 21. Upload Release AAB
       - name: Upload Release AAB
         if: ${{ always() && (github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'aab') }}
         uses: actions/upload-artifact@v4
@@ -285,6 +349,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # 22. Upload Release APK
       - name: Upload Release APK
         if: ${{ always() && (github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk') }}
         uses: actions/upload-artifact@v4
@@ -294,6 +359,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # 23. Build summary
       - name: Build Summary
         if: always()
         shell: bash
@@ -306,5 +372,5 @@ jobs:
               \( -name "*.apk" -o -name "*.aab" \) \
               >> "$GITHUB_STEP_SUMMARY" || true
           else
-            echo "No build artifacts were created." >> "$GITHUB_STEP_SUMMARY"
+            echo "No build outputs created." >> "$GITHUB_STEP_SUMMARY"
           fi
