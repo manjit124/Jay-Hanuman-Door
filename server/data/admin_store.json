@@ -871,6 +871,21 @@
   "articleShares": [],
   "aiWoodDetectorLogs": [
     {
+      "id": "scan-1790783376435-tsjdl",
+      "timestamp": "2026-09-30T15:49:36.436Z",
+      "success": false,
+      "errorMessage": "AI Wood Detector could not process image: {\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}",
+      "responseTimeMs": 12447
+    },
+    {
+      "id": "scan-1790783200689-ftr2v",
+      "timestamp": "2026-09-30T15:46:40.689Z",
+      "likelyWoodType": "Jungle Wood",
+      "confidenceLevel": "Moderate",
+      "success": true,
+      "responseTimeMs": 12187
+    },
+    {
       "id": "scan-1790678824009-7vl51",
       "timestamp": "2026-09-29T10:47:04.009Z",
       "likelyWoodType": "Sagwan (Teak)",
@@ -988,8 +1003,8 @@
       "responseTimeMs": 23694
     }
   ],
-  "version": 5,
-  "lastModified": "2026-09-29T10:47:04.009Z",
+  "version": 7,
+  "lastModified": "2026-09-30T15:49:36.436Z",
   "auditLogs": [],
   "woodReferences": []
 }

@@ -34,16 +34,174 @@ const GUEST_CALCULATIONS_KEY = 'shivshahi_guest_calculations';
 const CATALOG_CACHE_KEY = 'shivshahi_cached_catalog_v2';
 const CALCULATOR_CACHE_KEY = 'shivshahi_cached_calculator_v2';
 
+export const DEFAULT_MATERIALS: DoorMaterial[] = [
+  {
+    id: 'mat-1',
+    name: 'Sagwan',
+    ratePerSqFt: 800,
+    description: 'Premium grade Central Province (CP) Teak Wood with natural oil & high moisture resistance',
+    active: true,
+  },
+  {
+    id: 'mat-2',
+    name: 'Sal Wood',
+    ratePerSqFt: 650,
+    description: 'Heavy, durable Indian hardwood renowned for extreme load-bearing strength',
+    active: true,
+  },
+  {
+    id: 'mat-3',
+    name: 'Pine',
+    ratePerSqFt: 450,
+    description: 'Treated pine timber with light grain texture, kiln-dried for dimensional stability',
+    active: true,
+  },
+  {
+    id: 'mat-4',
+    name: 'Plywood',
+    ratePerSqFt: 350,
+    description: 'Boiling Waterproof (BWP) marine grade core with hardwood internal framing',
+    active: true,
+  },
+  {
+    id: 'mat-5',
+    name: 'Teak Veneer Flush Door',
+    ratePerSqFt: 550,
+    description: 'Solid core flush door with 4mm natural Burma teak wood veneer on both sides',
+    active: true,
+  },
+];
+
+export const DEFAULT_FINISHES: PolishFinish[] = [
+  {
+    id: 'fin-1',
+    name: 'Normal Polish',
+    ratePerSqFt: 110,
+    description: 'Standard hand-rubbed spirit French polish for natural wood luster',
+    active: true,
+  },
+  {
+    id: 'fin-2',
+    name: 'Teak Polish',
+    ratePerSqFt: 150,
+    description: 'Deep teak oil stain with double protective sealant coat',
+    active: true,
+  },
+  {
+    id: 'fin-3',
+    name: 'PU Polish (Polyurethane)',
+    ratePerSqFt: 250,
+    description: 'Ultra-durable polyurethane Italian finish with anti-scratch UV shield',
+    active: true,
+  },
+  {
+    id: 'fin-4',
+    name: 'Melamine Polish',
+    ratePerSqFt: 180,
+    description: 'Heat & water resistant non-yellowing clear protective coat',
+    active: true,
+  },
+  {
+    id: 'fin-5',
+    name: 'Unpolished / Raw',
+    ratePerSqFt: 0,
+    description: 'Natural seasoned raw timber ready for on-site painter finishing',
+    active: true,
+  },
+];
+
+export const DEFAULT_FRAMES: ChaukhatFrame[] = [
+  {
+    id: 'frm-0',
+    name: 'No Frame (Shutter Only)',
+    price: 0,
+    description: 'Only door shutter without wooden chaukhat frame',
+    active: true,
+  },
+  {
+    id: 'frm-1',
+    name: 'Sagwan Chaukhat (5" × 2.5")',
+    price: 6500,
+    description: 'Heavy solid Sagwan wood frame with rebate for main entrance',
+    active: true,
+  },
+  {
+    id: 'frm-2',
+    name: 'Sal Wood Chaukhat (5" × 2.5")',
+    price: 4500,
+    description: 'Super strong heavy-density Sal timber frame',
+    active: true,
+  },
+  {
+    id: 'frm-3',
+    name: 'Normal Frame (4" × 2.5")',
+    price: 3500,
+    description: 'Standard seasoned timber frame for bedroom & interior doors',
+    active: true,
+  },
+];
+
+export const DEFAULT_HARDWARE: HardwareItem[] = [
+  {
+    id: 'hwd-0',
+    name: 'None (Bina Hardware)',
+    price: 0,
+    description: 'No hardware fittings included',
+    active: true,
+  },
+  {
+    id: 'hwd-1',
+    name: 'Single Aldrop (Stainless Steel)',
+    price: 700,
+    description: 'Heavy duty SS 304 12-inch aldrop with mortise lock socket',
+    active: true,
+  },
+  {
+    id: 'hwd-2',
+    name: 'Complete Hardware Kit',
+    price: 1800,
+    description: 'SS Aldrop, 2 Tower Bolts, 2 Pull Handles, 3 SS Bearing Hinges & Stopper',
+    active: true,
+  },
+  {
+    id: 'hwd-3',
+    name: 'Premium Antique Brass Kit',
+    price: 3200,
+    description: 'Royal antique brass finish designer aldrop, lion knocker, latch & heavy brass hinges',
+    active: true,
+  },
+];
+
+export const DEFAULT_SETTINGS: BusinessSettings = {
+  businessName: 'Jai Hanuman Door',
+  tagline: 'Premium Handcrafted Wooden Doors & Custom Architectural Joinery',
+  phone: '7887412884',
+  whatsappNumber: '7887412884',
+  email: 'shivshahidoors@gmail.com',
+  address: 'Plot No. 12, MIDC Industrial Area, Latur, Maharashtra 413531',
+  gstNumber: '27AABCU9603R1ZM',
+  currencySymbol: '₹',
+  quotePrefix: 'JHD',
+  additionalChargePercentage: 0,
+  additionalChargeName: 'Taxes',
+  terms: [
+    'Quotation is valid for 15 days from the date of issue.',
+    'Delivery lead time: 10 to 18 working days from confirmed order & advance.',
+    'Timber is seasoned and moisture-tested prior to manufacturing.',
+  ],
+  disclaimer: 'Price shown is an estimated factory price and may vary according to final wood grade, carving details, customized size and hardware fittings.',
+};
+
 /**
- * Returns the resolved API base URL (defaults to same-origin relative path).
- * Never hardcodes localhost or external dev URLs in production.
+ * Returns the resolved API base URL.
+ * Automatically handles Capacitor native Android environment by routing to the active deployed cloud backend.
  */
 export function getApiBaseUrl(): string {
-  const envUrl = (import.meta as any).env?.VITE_API_BASE_URL;
+  const envUrl = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_APP_URL;
   if (typeof envUrl === 'string' && envUrl.trim()) {
     return envUrl.trim().replace(/\/$/, '');
   }
-  // If running inside Capacitor native Android environment, route relative API calls to the production domain
+  // If running inside Capacitor native Android environment, route API calls to the deployed Cloud Run backend
   if (typeof window !== 'undefined') {
     const isCapacitorNative = Boolean(
       (window as any).Capacitor?.isNativePlatform?.() ||
@@ -51,10 +209,22 @@ export function getApiBaseUrl(): string {
       (window.location.hostname === 'localhost' && Boolean((window as any).Capacitor))
     );
     if (isCapacitorNative) {
-      return 'https://jaihanumandoor.com';
+      return 'https://ais-pre-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app';
     }
   }
   return '';
+}
+
+/**
+ * Resolves a relative path to a fully qualified API URL when needed.
+ */
+export function resolveApiUrl(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  const base = getApiBaseUrl();
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${cleanPath}`;
 }
 
 /**
@@ -67,13 +237,12 @@ export async function fetchWithRetry(
   retries = 3,
   backoffMs = 350
 ): Promise<Response> {
-  const baseUrl = getApiBaseUrl();
-  const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+  const fullUrl = resolveApiUrl(url);
 
   let lastError: any = null;
   for (let attempt = 0; attempt < retries; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     const signal = options.signal || controller.signal;
 
     try {
@@ -100,6 +269,14 @@ export async function fetchWithRetry(
   }
 
   throw lastError || new Error(`Network request failed for ${url}`);
+}
+
+/**
+ * Helper for single-shot API fetches that ensures URLs are resolved correctly on all platforms.
+ */
+export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const fullUrl = resolveApiUrl(url);
+  return fetch(fullUrl, options);
 }
 
 export function getAdminToken(): string | null {
@@ -257,12 +434,19 @@ export async function fetchCalculatorData(): Promise<{
     const res = await fetchWithRetry('/api/calculator-data', {}, 3, 350);
     if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch calculator data`);
     const data = await res.json();
+    const result = {
+      materials: Array.isArray(data.materials) && data.materials.length > 0 ? data.materials : DEFAULT_MATERIALS,
+      finishes: Array.isArray(data.finishes) && data.finishes.length > 0 ? data.finishes : DEFAULT_FINISHES,
+      frames: Array.isArray(data.frames) && data.frames.length > 0 ? data.frames : DEFAULT_FRAMES,
+      hardware: Array.isArray(data.hardware) && data.hardware.length > 0 ? data.hardware : DEFAULT_HARDWARE,
+      settings: data.settings || DEFAULT_SETTINGS,
+    };
     try {
-      localStorage.setItem(CALCULATOR_CACHE_KEY, JSON.stringify(data));
+      localStorage.setItem(CALCULATOR_CACHE_KEY, JSON.stringify(result));
     } catch {
       // ignore storage errors
     }
-    return data;
+    return result;
   } catch (err: any) {
     console.warn('Network request for calculator data failed, checking client cache...', err.message || err);
     try {
@@ -277,7 +461,14 @@ export async function fetchCalculatorData(): Promise<{
     } catch {
       // ignore
     }
-    throw err;
+    // Return built-in master dataset so calculator works instantly offline/cold-start
+    return {
+      materials: DEFAULT_MATERIALS,
+      finishes: DEFAULT_FINISHES,
+      frames: DEFAULT_FRAMES,
+      hardware: DEFAULT_HARDWARE,
+      settings: DEFAULT_SETTINGS,
+    };
   }
 }
 
@@ -370,7 +561,7 @@ export async function uploadImage(file: File): Promise<{ url: string }> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await fetch('/api/upload', {
+  const res = await apiFetch('/api/upload', {
     method: 'POST',
     body: formData,
   });
@@ -389,7 +580,7 @@ export async function adminLogin(emailOrPassword: string, password?: string): Pr
     : { email: 'shivshahidoors@gmail.com', password: emailOrPassword };
 
   try {
-    const res = await fetch('/api/auth/login', {
+    const res = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -410,7 +601,7 @@ export async function adminLogin(emailOrPassword: string, password?: string): Pr
 
 export async function resetAdminDefaultPassword(): Promise<boolean> {
   try {
-    const res = await fetch('/api/auth/reset-default-password', {
+    const res = await apiFetch('/api/auth/reset-default-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -424,7 +615,7 @@ export async function adminLogout(): Promise<void> {
   const token = getAdminToken();
   if (token) {
     try {
-      await fetch('/api/auth/logout', {
+      await apiFetch('/api/auth/logout', {
         method: 'POST',
         headers: authHeaders(),
       });
@@ -439,7 +630,7 @@ export async function checkAdminAuth(): Promise<boolean> {
   const token = getAdminToken();
   if (!token) return false;
   try {
-    const res = await fetch('/api/auth/verify', {
+    const res = await apiFetch('/api/auth/verify', {
       headers: authHeaders(),
     });
     const data = await res.json();
@@ -462,7 +653,7 @@ export async function fetchAdminAllData(): Promise<{
   settings: BusinessSettings;
   teamMembers?: TeamMember[];
 }> {
-  const res = await fetch('/api/admin/all-data', {
+  const res = await apiFetch('/api/admin/all-data', {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Unauthorized or failed to fetch admin data');
@@ -471,7 +662,7 @@ export async function fetchAdminAllData(): Promise<{
 
 // Door CRUD
 export async function createDoor(door: Partial<Door>): Promise<Door> {
-  const res = await fetch('/api/admin/doors', {
+  const res = await apiFetch('/api/admin/doors', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(door),
@@ -481,7 +672,7 @@ export async function createDoor(door: Partial<Door>): Promise<Door> {
 }
 
 export async function updateDoor(id: string, door: Partial<Door>): Promise<Door> {
-  const res = await fetch(`/api/admin/doors/${id}`, {
+  const res = await apiFetch(`/api/admin/doors/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(door),
@@ -491,7 +682,7 @@ export async function updateDoor(id: string, door: Partial<Door>): Promise<Door>
 }
 
 export async function deleteDoor(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/doors/${id}`, {
+  const res = await apiFetch(`/api/admin/doors/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -500,7 +691,7 @@ export async function deleteDoor(id: string): Promise<void> {
 
 // Material CRUD
 export async function createMaterial(data: Partial<DoorMaterial>): Promise<DoorMaterial> {
-  const res = await fetch('/api/admin/materials', {
+  const res = await apiFetch('/api/admin/materials', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -510,7 +701,7 @@ export async function createMaterial(data: Partial<DoorMaterial>): Promise<DoorM
 }
 
 export async function updateMaterial(id: string, data: Partial<DoorMaterial>): Promise<DoorMaterial> {
-  const res = await fetch(`/api/admin/materials/${id}`, {
+  const res = await apiFetch(`/api/admin/materials/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -520,7 +711,7 @@ export async function updateMaterial(id: string, data: Partial<DoorMaterial>): P
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/materials/${id}`, {
+  const res = await apiFetch(`/api/admin/materials/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -529,7 +720,7 @@ export async function deleteMaterial(id: string): Promise<void> {
 
 // Finish CRUD
 export async function createFinish(data: Partial<PolishFinish>): Promise<PolishFinish> {
-  const res = await fetch('/api/admin/finishes', {
+  const res = await apiFetch('/api/admin/finishes', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -539,7 +730,7 @@ export async function createFinish(data: Partial<PolishFinish>): Promise<PolishF
 }
 
 export async function updateFinish(id: string, data: Partial<PolishFinish>): Promise<PolishFinish> {
-  const res = await fetch(`/api/admin/finishes/${id}`, {
+  const res = await apiFetch(`/api/admin/finishes/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -549,7 +740,7 @@ export async function updateFinish(id: string, data: Partial<PolishFinish>): Pro
 }
 
 export async function deleteFinish(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/finishes/${id}`, {
+  const res = await apiFetch(`/api/admin/finishes/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -558,7 +749,7 @@ export async function deleteFinish(id: string): Promise<void> {
 
 // Frame CRUD
 export async function createFrame(data: Partial<ChaukhatFrame>): Promise<ChaukhatFrame> {
-  const res = await fetch('/api/admin/frames', {
+  const res = await apiFetch('/api/admin/frames', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -568,7 +759,7 @@ export async function createFrame(data: Partial<ChaukhatFrame>): Promise<Chaukha
 }
 
 export async function updateFrame(id: string, data: Partial<ChaukhatFrame>): Promise<ChaukhatFrame> {
-  const res = await fetch(`/api/admin/frames/${id}`, {
+  const res = await apiFetch(`/api/admin/frames/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -578,7 +769,7 @@ export async function updateFrame(id: string, data: Partial<ChaukhatFrame>): Pro
 }
 
 export async function deleteFrame(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/frames/${id}`, {
+  const res = await apiFetch(`/api/admin/frames/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -587,7 +778,7 @@ export async function deleteFrame(id: string): Promise<void> {
 
 // Hardware CRUD
 export async function createHardware(data: Partial<HardwareItem>): Promise<HardwareItem> {
-  const res = await fetch('/api/admin/hardware', {
+  const res = await apiFetch('/api/admin/hardware', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -597,7 +788,7 @@ export async function createHardware(data: Partial<HardwareItem>): Promise<Hardw
 }
 
 export async function updateHardware(id: string, data: Partial<HardwareItem>): Promise<HardwareItem> {
-  const res = await fetch(`/api/admin/hardware/${id}`, {
+  const res = await apiFetch(`/api/admin/hardware/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -607,7 +798,7 @@ export async function updateHardware(id: string, data: Partial<HardwareItem>): P
 }
 
 export async function deleteHardware(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/hardware/${id}`, {
+  const res = await apiFetch(`/api/admin/hardware/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -616,7 +807,7 @@ export async function deleteHardware(id: string): Promise<void> {
 
 // Banner CRUD
 export async function createBanner(data: Partial<HomeBanner>): Promise<HomeBanner> {
-  const res = await fetch('/api/admin/banners', {
+  const res = await apiFetch('/api/admin/banners', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -626,7 +817,7 @@ export async function createBanner(data: Partial<HomeBanner>): Promise<HomeBanne
 }
 
 export async function updateBanner(id: string, data: Partial<HomeBanner>): Promise<HomeBanner> {
-  const res = await fetch(`/api/admin/banners/${id}`, {
+  const res = await apiFetch(`/api/admin/banners/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -636,7 +827,7 @@ export async function updateBanner(id: string, data: Partial<HomeBanner>): Promi
 }
 
 export async function deleteBanner(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/banners/${id}`, {
+  const res = await apiFetch(`/api/admin/banners/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -645,7 +836,7 @@ export async function deleteBanner(id: string): Promise<void> {
 
 // Article CRUD
 export async function createArticle(data: Partial<Article>): Promise<Article> {
-  const res = await fetch('/api/admin/articles', {
+  const res = await apiFetch('/api/admin/articles', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -655,7 +846,7 @@ export async function createArticle(data: Partial<Article>): Promise<Article> {
 }
 
 export async function updateArticle(id: string, data: Partial<Article>): Promise<Article> {
-  const res = await fetch(`/api/admin/articles/${id}`, {
+  const res = await apiFetch(`/api/admin/articles/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -665,7 +856,7 @@ export async function updateArticle(id: string, data: Partial<Article>): Promise
 }
 
 export async function deleteArticle(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/articles/${id}`, {
+  const res = await apiFetch(`/api/admin/articles/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -687,13 +878,13 @@ export async function fetchArticles(params?: {
   if (params?.tag) query.set('tag', params.tag);
   if (params?.sort) query.set('sort', params.sort);
 
-  const res = await fetch(`/api/articles?${query.toString()}`);
+  const res = await apiFetch(`/api/articles?${query.toString()}`);
   if (!res.ok) throw new Error('Failed to fetch articles');
   return res.json();
 }
 
 export async function fetchArticleCategories(): Promise<ArticleCategory[]> {
-  const res = await fetch('/api/articles/categories');
+  const res = await apiFetch('/api/articles/categories');
   if (!res.ok) throw new Error('Failed to fetch article categories');
   const json = await res.json();
   return json.categories || [];
@@ -705,13 +896,13 @@ export async function fetchArticleDetails(slugOrId: string): Promise<{
   relatedDoors: Door[];
   relatedArticles: Article[];
 }> {
-  const res = await fetch(`/api/articles/${encodeURIComponent(slugOrId)}`);
+  const res = await apiFetch(`/api/articles/${encodeURIComponent(slugOrId)}`);
   if (!res.ok) throw new Error('Failed to fetch article details');
   return res.json();
 }
 
 export async function registerArticleView(id: string, viewerHash?: string): Promise<{ views: number; counted: boolean }> {
-  const res = await fetch(`/api/articles/${id}/view`, {
+  const res = await apiFetch(`/api/articles/${id}/view`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ viewerHash }),
@@ -721,7 +912,7 @@ export async function registerArticleView(id: string, viewerHash?: string): Prom
 }
 
 export async function toggleArticleLike(id: string, likerHash?: string): Promise<{ liked: boolean; likes: number }> {
-  const res = await fetch(`/api/articles/${id}/like`, {
+  const res = await apiFetch(`/api/articles/${id}/like`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ likerHash }),
@@ -731,7 +922,7 @@ export async function toggleArticleLike(id: string, likerHash?: string): Promise
 }
 
 export async function registerArticleShare(id: string, platform?: string): Promise<{ shares: number }> {
-  const res = await fetch(`/api/articles/${id}/share`, {
+  const res = await apiFetch(`/api/articles/${id}/share`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ platform }),
@@ -744,7 +935,7 @@ export async function submitArticleComment(
   id: string,
   data: { authorName?: string; authorEmail?: string; content: string }
 ): Promise<{ success: boolean; comment: ArticleComment; message: string }> {
-  const res = await fetch(`/api/articles/${id}/comments`, {
+  const res = await apiFetch(`/api/articles/${id}/comments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -755,7 +946,7 @@ export async function submitArticleComment(
 }
 
 export async function fetchArticleComments(id: string): Promise<ArticleComment[]> {
-  const res = await fetch(`/api/articles/${id}/comments`);
+  const res = await apiFetch(`/api/articles/${id}/comments`);
   if (!res.ok) throw new Error('Failed to fetch comments');
   const json = await res.json();
   return json.comments || [];
@@ -795,7 +986,7 @@ export async function fetchUserSavedArticles(): Promise<{ favoriteArticles: Arti
 
 // Admin Article Management
 export async function fetchAdminArticles(): Promise<Article[]> {
-  const res = await fetch('/api/admin/articles', {
+  const res = await apiFetch('/api/admin/articles', {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to load articles');
@@ -813,7 +1004,7 @@ export async function fetchAdminArticleComments(params?: {
   if (params?.status) query.set('status', params.status);
   if (params?.articleId) query.set('articleId', params.articleId);
 
-  const res = await fetch(`/api/admin/articles/comments?${query.toString()}`, {
+  const res = await apiFetch(`/api/admin/articles/comments?${query.toString()}`, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to load comments');
@@ -821,7 +1012,7 @@ export async function fetchAdminArticleComments(params?: {
 }
 
 export async function moderateArticleComment(commentId: string, status: string): Promise<ArticleComment> {
-  const res = await fetch(`/api/admin/articles/comments/${commentId}`, {
+  const res = await apiFetch(`/api/admin/articles/comments/${commentId}`, {
     method: 'PATCH',
     headers: authHeaders(),
     body: JSON.stringify({ status }),
@@ -836,7 +1027,7 @@ export async function replyToArticleComment(
   text: string,
   authorName?: string
 ): Promise<ArticleComment> {
-  const res = await fetch(`/api/admin/articles/comments/${commentId}/reply`, {
+  const res = await apiFetch(`/api/admin/articles/comments/${commentId}/reply`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({ text, authorName }),
@@ -847,7 +1038,7 @@ export async function replyToArticleComment(
 }
 
 export async function deleteArticleComment(commentId: string): Promise<void> {
-  const res = await fetch(`/api/admin/articles/comments/${commentId}`, {
+  const res = await apiFetch(`/api/admin/articles/comments/${commentId}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -855,7 +1046,7 @@ export async function deleteArticleComment(commentId: string): Promise<void> {
 }
 
 export async function fetchArticleAnalytics(): Promise<ArticleAnalyticsSummary> {
-  const res = await fetch('/api/admin/articles/analytics', {
+  const res = await apiFetch('/api/admin/articles/analytics', {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch analytics');
@@ -864,7 +1055,7 @@ export async function fetchArticleAnalytics(): Promise<ArticleAnalyticsSummary> 
 }
 
 export async function fetchAdminArticleCategories(): Promise<ArticleCategory[]> {
-  const res = await fetch('/api/admin/article-categories', {
+  const res = await apiFetch('/api/admin/article-categories', {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch categories');
@@ -872,7 +1063,7 @@ export async function fetchAdminArticleCategories(): Promise<ArticleCategory[]> 
 }
 
 export async function createArticleCategory(data: Partial<ArticleCategory>): Promise<ArticleCategory> {
-  const res = await fetch('/api/admin/article-categories', {
+  const res = await apiFetch('/api/admin/article-categories', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -882,7 +1073,7 @@ export async function createArticleCategory(data: Partial<ArticleCategory>): Pro
 }
 
 export async function updateArticleCategory(id: string, data: Partial<ArticleCategory>): Promise<ArticleCategory> {
-  const res = await fetch(`/api/admin/article-categories/${id}`, {
+  const res = await apiFetch(`/api/admin/article-categories/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -892,7 +1083,7 @@ export async function updateArticleCategory(id: string, data: Partial<ArticleCat
 }
 
 export async function deleteArticleCategory(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/article-categories/${id}`, {
+  const res = await apiFetch(`/api/admin/article-categories/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -901,7 +1092,7 @@ export async function deleteArticleCategory(id: string): Promise<void> {
 
 // Settings
 export async function updateSettings(data: Partial<BusinessSettings> & { adminPassword?: string }): Promise<BusinessSettings> {
-  const res = await fetch('/api/admin/settings', {
+  const res = await apiFetch('/api/admin/settings', {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -913,7 +1104,7 @@ export async function updateSettings(data: Partial<BusinessSettings> & { adminPa
 
 // Quotes
 export async function fetchQuotes(): Promise<Quotation[]> {
-  const res = await fetch('/api/admin/quotes', {
+  const res = await apiFetch('/api/admin/quotes', {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch quotes');
@@ -921,7 +1112,7 @@ export async function fetchQuotes(): Promise<Quotation[]> {
 }
 
 export async function deleteQuote(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/quotes/${id}`, {
+  const res = await apiFetch(`/api/admin/quotes/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -940,7 +1131,7 @@ export interface BackupSummary {
 }
 
 export async function exportDatabaseBackup(): Promise<Blob> {
-  const res = await fetch('/api/admin/backup/export', {
+  const res = await apiFetch('/api/admin/backup/export', {
     headers: authHeaders(),
   });
   if (!res.ok) {
@@ -951,7 +1142,7 @@ export async function exportDatabaseBackup(): Promise<Blob> {
 }
 
 export async function importDatabaseBackup(backupData: any): Promise<{ success: boolean; message: string; doorCount: number }> {
-  const res = await fetch('/api/admin/backup/import', {
+  const res = await apiFetch('/api/admin/backup/import', {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -967,7 +1158,7 @@ export async function importDatabaseBackup(backupData: any): Promise<{ success: 
 }
 
 export async function fetchBackupsList(): Promise<BackupSummary[]> {
-  const res = await fetch('/api/admin/backup/list', {
+  const res = await apiFetch('/api/admin/backup/list', {
     headers: authHeaders(),
   });
   if (!res.ok) {
@@ -979,7 +1170,7 @@ export async function fetchBackupsList(): Promise<BackupSummary[]> {
 }
 
 export async function restoreLocalBackup(filename: string): Promise<{ success: boolean; message: string; doorCount: number }> {
-  const res = await fetch('/api/admin/backup/restore-local', {
+  const res = await apiFetch('/api/admin/backup/restore-local', {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -996,7 +1187,7 @@ export async function restoreLocalBackup(filename: string): Promise<{ success: b
 
 // Protected reset defaults (deprecated - protected on server)
 export async function resetDatabase(): Promise<void> {
-  const res = await fetch('/api/admin/reset-defaults', {
+  const res = await apiFetch('/api/admin/reset-defaults', {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -1014,7 +1205,7 @@ export async function fetchNotificationConfig(): Promise<{
   vapidKey: string | null;
   firebaseClientConfig: any | null;
 }> {
-  const res = await fetch('/api/notifications/config');
+  const res = await apiFetch('/api/notifications/config');
   if (!res.ok) throw new Error('Failed to fetch notification config');
   return res.json();
 }
@@ -1027,7 +1218,7 @@ export async function registerDeviceToken(data: {
   permission?: 'granted' | 'denied' | 'default';
   preferences?: Partial<NotificationPreferences>;
 }): Promise<{ success: boolean; tokenRecord: NotificationTokenRecord }> {
-  const res = await fetch('/api/notifications/register-token', {
+  const res = await apiFetch('/api/notifications/register-token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -1043,7 +1234,7 @@ export async function fetchNotificationPreferences(deviceId?: string): Promise<{
   preferences: NotificationPreferences;
 }> {
   const query = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : '';
-  const res = await fetch(`/api/notifications/preferences${query}`);
+  const res = await apiFetch(`/api/notifications/preferences${query}`);
   if (!res.ok) throw new Error('Failed to fetch notification preferences');
   return res.json();
 }
@@ -1053,7 +1244,7 @@ export async function updateNotificationPreferences(data: {
   token?: string;
   preferences: Partial<NotificationPreferences>;
 }): Promise<{ success: boolean }> {
-  const res = await fetch('/api/notifications/preferences', {
+  const res = await apiFetch('/api/notifications/preferences', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -1064,7 +1255,7 @@ export async function updateNotificationPreferences(data: {
 
 // Admin Notification Endpoints
 export async function fetchAdminNotificationStats(): Promise<NotificationStats> {
-  const res = await fetch('/api/admin/notifications/stats', {
+  const res = await apiFetch('/api/admin/notifications/stats', {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to load notification statistics');
@@ -1072,7 +1263,7 @@ export async function fetchAdminNotificationStats(): Promise<NotificationStats> 
 }
 
 export async function fetchAdminNotificationCampaigns(): Promise<NotificationCampaign[]> {
-  const res = await fetch('/api/admin/notifications/campaigns', {
+  const res = await apiFetch('/api/admin/notifications/campaigns', {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to load notification campaigns');
@@ -1095,7 +1286,7 @@ export async function sendAdminNotification(data: {
   result?: any;
   campaign: NotificationCampaign;
 }> {
-  const res = await fetch('/api/admin/notifications/send', {
+  const res = await apiFetch('/api/admin/notifications/send', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -1108,7 +1299,7 @@ export async function sendAdminNotification(data: {
 }
 
 export async function cancelAdminScheduledNotification(id: string): Promise<{ success: boolean; campaign: NotificationCampaign }> {
-  const res = await fetch(`/api/admin/notifications/cancel-scheduled/${id}`, {
+  const res = await apiFetch(`/api/admin/notifications/cancel-scheduled/${id}`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -1117,7 +1308,7 @@ export async function cancelAdminScheduledNotification(id: string): Promise<{ su
 }
 
 export async function deleteAdminNotificationCampaign(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/notifications/campaign/${id}`, {
+  const res = await apiFetch(`/api/admin/notifications/campaign/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -1127,14 +1318,14 @@ export async function deleteAdminNotificationCampaign(id: string): Promise<void>
 // ---------------- Team Management Endpoints ----------------
 
 export async function fetchTeamMembers(): Promise<TeamMember[]> {
-  const res = await fetch('/api/team-members');
+  const res = await apiFetch('/api/team-members');
   if (!res.ok) throw new Error('Failed to fetch team members');
   const data = await res.json();
   return data.teamMembers || [];
 }
 
 export async function fetchAdminTeamMembers(): Promise<TeamMember[]> {
-  const res = await fetch('/api/admin/team-members', {
+  const res = await apiFetch('/api/admin/team-members', {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch team members');
@@ -1143,7 +1334,7 @@ export async function fetchAdminTeamMembers(): Promise<TeamMember[]> {
 }
 
 export async function createTeamMember(data: Partial<TeamMember>): Promise<TeamMember> {
-  const res = await fetch('/api/admin/team-members', {
+  const res = await apiFetch('/api/admin/team-members', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -1157,7 +1348,7 @@ export async function createTeamMember(data: Partial<TeamMember>): Promise<TeamM
 }
 
 export async function updateTeamMember(id: string, data: Partial<TeamMember>): Promise<TeamMember> {
-  const res = await fetch(`/api/admin/team-members/${id}`, {
+  const res = await apiFetch(`/api/admin/team-members/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -1171,7 +1362,7 @@ export async function updateTeamMember(id: string, data: Partial<TeamMember>): P
 }
 
 export async function toggleTeamMemberActive(id: string): Promise<{ success: boolean; active: boolean; member: TeamMember }> {
-  const res = await fetch(`/api/admin/team-members/${id}/toggle-active`, {
+  const res = await apiFetch(`/api/admin/team-members/${id}/toggle-active`, {
     method: 'PATCH',
     headers: authHeaders(),
   });
@@ -1183,7 +1374,7 @@ export async function toggleTeamMemberActive(id: string): Promise<{ success: boo
 }
 
 export async function reorderTeamMembers(orderList: { id: string; displayOrder: number }[]): Promise<TeamMember[]> {
-  const res = await fetch('/api/admin/team-members-reorder', {
+  const res = await apiFetch('/api/admin/team-members-reorder', {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify({ orderList }),
@@ -1197,7 +1388,7 @@ export async function reorderTeamMembers(orderList: { id: string; displayOrder: 
 }
 
 export async function deleteTeamMember(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/team-members/${id}`, {
+  const res = await apiFetch(`/api/admin/team-members/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -1219,7 +1410,7 @@ export async function submitCustomerEnquiry(data: {
   doorName?: string;
   message: string;
 }): Promise<{ success: boolean; enquiry: { id: string; name: string }; message: string }> {
-  const res = await fetch('/api/enquiries', {
+  const res = await apiFetch('/api/enquiries', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -1232,7 +1423,7 @@ export async function submitCustomerEnquiry(data: {
 }
 
 export async function fetchAdminEnquiries(): Promise<CustomerEnquiry[]> {
-  const res = await fetch('/api/admin/enquiries', {
+  const res = await apiFetch('/api/admin/enquiries', {
     headers: authHeaders(),
   });
   if (!res.ok) {
@@ -1247,7 +1438,7 @@ export async function updateAdminEnquiryStatus(
   id: string,
   status: 'new' | 'contacted' | 'resolved'
 ): Promise<CustomerEnquiry> {
-  const res = await fetch(`/api/admin/enquiries/${id}/status`, {
+  const res = await apiFetch(`/api/admin/enquiries/${id}/status`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify({ status }),
@@ -1261,7 +1452,7 @@ export async function updateAdminEnquiryStatus(
 }
 
 export async function deleteAdminEnquiry(id: string): Promise<void> {
-  const res = await fetch(`/api/admin/enquiries/${id}`, {
+  const res = await apiFetch(`/api/admin/enquiries/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -1297,8 +1488,10 @@ export async function detectWoodFromImage(
     | FormData,
   signal?: AbortSignal
 ): Promise<AIWoodAnalysisResult> {
-  const baseUrl = getApiBaseUrl();
-  const endpoints = [`${baseUrl}/api/wood-analysis`, `${baseUrl}/api/ai/detect-wood`];
+  const endpoints = [
+    resolveApiUrl('/api/wood-analysis'),
+    resolveApiUrl('/api/ai/detect-wood'),
+  ];
 
   let lastError: Error | null = null;
 
@@ -1390,7 +1583,7 @@ export async function detectWoodFromImage(
  * Fetch AI Wood Detector usage stats and activity logs (Admin only)
  */
 export async function fetchWoodDetectorStats(): Promise<AIWoodDetectorStats> {
-  const res = await fetch('/api/ai/wood-detector/stats', {
+  const res = await apiFetch('/api/ai/wood-detector/stats', {
     headers: authHeaders(),
   });
   if (!res.ok) {
@@ -1407,7 +1600,7 @@ export async function fetchWoodDetectorStats(): Promise<AIWoodDetectorStats> {
 export async function updateWoodDetectorConfig(
   settings: Partial<AIWoodDetectorSettings>
 ): Promise<AIWoodDetectorSettings> {
-  const res = await fetch('/api/ai/wood-detector/settings', {
+  const res = await apiFetch('/api/ai/wood-detector/settings', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(settings),
@@ -1424,7 +1617,7 @@ export async function updateWoodDetectorConfig(
  * Fetch botanical timber comparison guide profiles
  */
 export async function fetchWoodSpeciesGuide(): Promise<Record<string, any>> {
-  const res = await fetch('/api/wood-species-guide');
+  const res = await apiFetch('/api/wood-species-guide');
   if (!res.ok) {
     throw new Error('Failed to load wood species guide');
   }
@@ -1436,7 +1629,7 @@ export async function fetchWoodSpeciesGuide(): Promise<Record<string, any>> {
  * Fetch verified wood reference library samples
  */
 export async function fetchWoodReferences(verifiedOnly: boolean = false): Promise<WoodReferenceSample[]> {
-  const res = await fetch(`/api/ai/wood-detector/references?verified=${verifiedOnly ? 'true' : 'false'}`);
+  const res = await apiFetch(`/api/ai/wood-detector/references?verified=${verifiedOnly ? 'true' : 'false'}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to fetch wood references');
@@ -1451,7 +1644,7 @@ export async function fetchWoodReferences(verifiedOnly: boolean = false): Promis
 export async function createWoodReference(
   sample: Omit<WoodReferenceSample, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<WoodReferenceSample> {
-  const res = await fetch('/api/ai/wood-detector/references', {
+  const res = await apiFetch('/api/ai/wood-detector/references', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(sample),
@@ -1471,7 +1664,7 @@ export async function updateWoodReferenceAPI(
   id: string,
   updates: Partial<WoodReferenceSample>
 ): Promise<WoodReferenceSample> {
-  const res = await fetch(`/api/ai/wood-detector/references/${id}`, {
+  const res = await apiFetch(`/api/ai/wood-detector/references/${id}`, {
     method: 'PUT',
     headers: authHeaders(),
     body: JSON.stringify(updates),
@@ -1488,7 +1681,7 @@ export async function updateWoodReferenceAPI(
  * Delete a Wood Reference Sample (Admin only)
  */
 export async function deleteWoodReferenceAPI(id: string): Promise<boolean> {
-  const res = await fetch(`/api/ai/wood-detector/references/${id}`, {
+  const res = await apiFetch(`/api/ai/wood-detector/references/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -1504,7 +1697,7 @@ export async function deleteWoodReferenceAPI(id: string): Promise<boolean> {
  * Toggle verification status of a sample (Admin only)
  */
 export async function toggleVerifyWoodReferenceAPI(id: string): Promise<WoodReferenceSample> {
-  const res = await fetch(`/api/ai/wood-detector/references/${id}/toggle-verify`, {
+  const res = await apiFetch(`/api/ai/wood-detector/references/${id}/toggle-verify`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -1520,7 +1713,7 @@ export async function toggleVerifyWoodReferenceAPI(id: string): Promise<WoodRefe
  * Run isolated Wood Accuracy Benchmark test against documented specimens (Admin only)
  */
 export async function runWoodBenchmarkAPI(): Promise<WoodAccuracyBenchmarkResult> {
-  const res = await fetch('/api/ai/wood-detector/evaluate', {
+  const res = await apiFetch('/api/ai/wood-detector/evaluate', {
     method: 'POST',
     headers: authHeaders(),
   });

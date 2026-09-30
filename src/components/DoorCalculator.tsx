@@ -30,7 +30,13 @@ import {
   UserProfile,
   UserCalculationRecord,
 } from '../types.ts';
-import { saveUserCalculation } from '../lib/api.ts';
+import {
+  saveUserCalculation,
+  DEFAULT_MATERIALS,
+  DEFAULT_FINISHES,
+  DEFAULT_FRAMES,
+  DEFAULT_HARDWARE,
+} from '../lib/api.ts';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 
 interface DoorCalculatorProps {
@@ -50,10 +56,10 @@ interface DoorCalculatorProps {
 }
 
 export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
-  materials,
-  finishes,
-  frames,
-  hardware,
+  materials: propMaterials,
+  finishes: propFinishes,
+  frames: propFrames,
+  hardware: propHardware,
   settings,
   preselectedDoor,
   onClearPreselectedDoor,
@@ -64,26 +70,56 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
   initialCalculationRecord,
   onClearInitialRecord,
 }) => {
+  // Guaranteed non-empty lists with fallbacks for cold-start & offline resilience
+  const materials = useMemo(() => {
+    const list = Array.isArray(propMaterials) && propMaterials.length > 0 ? propMaterials : DEFAULT_MATERIALS;
+    return list.filter(m => m.active !== false);
+  }, [propMaterials]);
+
+  const finishes = useMemo(() => {
+    const list = Array.isArray(propFinishes) && propFinishes.length > 0 ? propFinishes : DEFAULT_FINISHES;
+    return list.filter(f => f.active !== false);
+  }, [propFinishes]);
+
+  const frames = useMemo(() => {
+    const list = Array.isArray(propFrames) && propFrames.length > 0 ? propFrames : DEFAULT_FRAMES;
+    return list.filter(fr => fr.active !== false);
+  }, [propFrames]);
+
+  const hardware = useMemo(() => {
+    const list = Array.isArray(propHardware) && propHardware.length > 0 ? propHardware : DEFAULT_HARDWARE;
+    return list.filter(h => h.active !== false);
+  }, [propHardware]);
+
   // Step 1: Dimensions
   const [selectedPreset, setSelectedPreset] = useState<string>('36x78');
   const [widthInch, setWidthInch] = useState<number>(36);
   const [heightInch, setHeightInch] = useState<number>(78);
 
   // Step 2: Material
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string>('');
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string>(() => {
+    const sagwan = materials.find(m => m.name.toLowerCase().includes('sagwan')) || materials[0];
+    return sagwan ? sagwan.id : 'mat-1';
+  });
 
   // Step 3: Polish / Finish
-  const [selectedFinishId, setSelectedFinishId] = useState<string>('');
+  const [selectedFinishId, setSelectedFinishId] = useState<string>(() => {
+    const teakPolish = finishes.find(f => f.name.toLowerCase().includes('teak')) || finishes[0];
+    return teakPolish ? teakPolish.id : 'fin-2';
+  });
 
   // Step 4: Chowkhat / Frame
-  const [selectedFrameId, setSelectedFrameId] = useState<string>('');
+  const [selectedFrameId, setSelectedFrameId] = useState<string>(() => {
+    const normalFrame = frames.find(fr => fr.name.toLowerCase().includes('normal')) || frames[0];
+    return normalFrame ? normalFrame.id : 'frm-3';
+  });
 
   // Step 5: Hardware
-  const [selectedHardwareId, setSelectedHardwareId] = useState<string>('');
+  const [selectedHardwareId, setSelectedHardwareId] = useState<string>(() => {
+    const aldrop = hardware.find(h => h.name.toLowerCase().includes('single')) || hardware[0];
+    return aldrop ? aldrop.id : 'hwd-1';
+  });
   const [hardwareQty, setHardwareQty] = useState<number>(1);
-
-  // Active calculator step tab
-  const [activeStep, setActiveStep] = useState<number>(1);
 
   // Save to history notification states
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -126,31 +162,27 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
     }
   }, [initialCalculationRecord, materials, finishes, frames, hardware]);
 
-  // Initialize selections with sensible defaults when DB data loads
+  // Ensure selections point to valid IDs in current lists
   useEffect(() => {
-    if (materials.length > 0 && !selectedMaterialId) {
-      // Default to Sagwan or first material
+    if (materials.length > 0 && !materials.some(m => m.id === selectedMaterialId)) {
       const sagwan = materials.find(m => m.name.toLowerCase().includes('sagwan')) || materials[0];
       setSelectedMaterialId(sagwan.id);
     }
-    if (finishes.length > 0 && !selectedFinishId) {
-      // Default to Teak Polish or first finish
+    if (finishes.length > 0 && !finishes.some(f => f.id === selectedFinishId)) {
       const teakPolish = finishes.find(f => f.name.toLowerCase().includes('teak')) || finishes[0];
       setSelectedFinishId(teakPolish.id);
     }
-    if (frames.length > 0 && !selectedFrameId) {
-      // Default to Normal Frame
+    if (frames.length > 0 && !frames.some(fr => fr.id === selectedFrameId)) {
       const normalFrame = frames.find(fr => fr.name.toLowerCase().includes('normal')) || frames[0];
       setSelectedFrameId(normalFrame.id);
     }
-    if (hardware.length > 0 && !selectedHardwareId) {
-      // Default to Aldrop Single
+    if (hardware.length > 0 && !hardware.some(h => h.id === selectedHardwareId)) {
       const aldrop = hardware.find(h => h.name.toLowerCase().includes('single')) || hardware[0];
       setSelectedHardwareId(aldrop.id);
     }
-  }, [materials, finishes, frames, hardware]);
+  }, [materials, finishes, frames, hardware, selectedMaterialId, selectedFinishId, selectedFrameId, selectedHardwareId]);
 
-  // If a door was passed from the gallery, set material if matching
+  // If a door was passed from the gallery on first mount/change, match its material
   useEffect(() => {
     if (preselectedDoor && materials.length > 0) {
       const match = materials.find(
@@ -160,7 +192,7 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
         setSelectedMaterialId(match.id);
       }
     }
-  }, [preselectedDoor, materials]);
+  }, [preselectedDoor?.id]);
 
   // Standard Presets
   const presets = [
@@ -181,7 +213,7 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
     }
   };
 
-  // Calculation Math
+  // Calculation Math (Always strictly reactive to selected material, finish, frame, and hardware)
   const calculation: CalculationResult = useMemo(() => {
     const w = Math.max(12, Number(widthInch) || 36);
     const h = Math.max(24, Number(heightInch) || 78);
@@ -189,24 +221,24 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
     const sqFt = Math.round(rawSqFt * 100) / 100;
 
     // Material Cost
-    const mat = materials.find(m => m.id === selectedMaterialId) || materials[0];
+    const mat = materials.find(m => m.id === selectedMaterialId) || materials[0] || DEFAULT_MATERIALS[0];
     const materialRate = mat ? mat.ratePerSqFt : 800;
     const materialName = mat ? mat.name : 'Sagwan';
     const materialCost = Math.round(sqFt * materialRate);
 
     // Polish Cost
-    const fin = finishes.find(f => f.id === selectedFinishId) || finishes[0];
+    const fin = finishes.find(f => f.id === selectedFinishId) || finishes[0] || DEFAULT_FINISHES[1];
     const finishRate = fin ? fin.ratePerSqFt : 150;
     const finishName = fin ? fin.name : 'Teak Polish';
     const finishCost = Math.round(sqFt * finishRate);
 
     // Frame Cost
-    const frm = frames.find(fr => fr.id === selectedFrameId) || frames[0];
+    const frm = frames.find(fr => fr.id === selectedFrameId) || frames[0] || DEFAULT_FRAMES[3];
     const frameCost = frm ? frm.price : 3500;
     const frameName = frm ? frm.name : 'Normal Frame';
 
     // Hardware Cost
-    const hwd = hardware.find(h => h.id === selectedHardwareId) || hardware[0];
+    const hwd = hardware.find(h => h.id === selectedHardwareId) || hardware[0] || DEFAULT_HARDWARE[1];
     const hardwarePrice = hwd ? hwd.price : 700;
     const hardwareName = hwd ? hwd.name : 'Single Aldrop';
     const qty = Math.max(0, Number(hardwareQty) || 1);
@@ -214,7 +246,7 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
 
     // Subtotal & Total
     const subtotal = materialCost + finishCost + frameCost + hardwareCost;
-    const taxPercent = Number(settings.additionalChargePercentage) || 0;
+    const taxPercent = Number(settings?.additionalChargePercentage) || 0;
     const additionalCharges = Math.round((subtotal * taxPercent) / 100);
     const total = subtotal + additionalCharges;
 
@@ -236,7 +268,7 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
       hardwareCost,
       subtotal,
       additionalCharges,
-      additionalChargeName: settings.additionalChargeName || 'Taxes',
+      additionalChargeName: settings?.additionalChargeName || 'Taxes',
       total,
     };
   }, [
@@ -254,20 +286,20 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
     settings,
   ]);
 
-  // WhatsApp Message Formatter (Section 12)
+  // WhatsApp Message Formatter
   const prepareWhatsAppMessage = () => {
-    return `Hello ${settings.businessName || 'Jai Hanuman Door'}, I am interested in this door.
+    return `Hello ${settings?.businessName || 'Jai Hanuman Door'}, I am interested in this door.
 
 Door Design: ${preselectedDoor ? preselectedDoor.name : 'Custom Door'}
-Door Size: ${calculation.widthInch} × ${calculation.heightInch} inch (${calculation.sqFt.toFixed(2)})
-Material: ${calculation.materialName} (₹${calculation.materialRate} = ₹${calculation.materialCost.toLocaleString('en-IN')})
-Finish: ${calculation.finishName} (₹${calculation.finishRate} = ₹${calculation.finishCost.toLocaleString('en-IN')})
+Door Size: ${calculation.widthInch} × ${calculation.heightInch} inch (${calculation.sqFt.toFixed(2)} sq.ft)
+Material: ${calculation.materialName} (₹${calculation.materialRate}/sq.ft = ₹${calculation.materialCost.toLocaleString('en-IN')})
+Finish: ${calculation.finishName} (₹${calculation.finishRate}/sq.ft = ₹${calculation.finishCost.toLocaleString('en-IN')})
 Frame: ${calculation.frameName} (₹${calculation.frameCost.toLocaleString('en-IN')})
 Hardware: ${calculation.hardwareName} (Qty: ${calculation.hardwareQty} = ₹${calculation.hardwareCost.toLocaleString('en-IN')})
 ---
 Estimated Total: ₹${calculation.total.toLocaleString('en-IN')}
 
-Please provide more details.`;
+Please provide more details and quotation.`;
   };
 
   const handleSendWhatsApp = () => {
@@ -302,7 +334,6 @@ Please provide more details.`;
     if (frames[0]) setSelectedFrameId(frames[0].id);
     if (hardware[0]) setSelectedHardwareId(hardware[0].id);
     setHardwareQty(1);
-    setActiveStep(1);
     if (onClearPreselectedDoor) onClearPreselectedDoor();
   };
 
@@ -366,6 +397,7 @@ Please provide more details.`;
               </div>
             </div>
             <button
+              type="button"
               onClick={onClearPreselectedDoor}
               className="text-amber-800 hover:text-amber-950 text-xs font-semibold underline"
             >
@@ -390,6 +422,7 @@ Please provide more details.`;
             </div>
             {onClearInitialRecord && (
               <button
+                type="button"
                 onClick={onClearInitialRecord}
                 className="text-amber-800 hover:text-amber-950 text-xs font-semibold underline"
               >
@@ -403,6 +436,7 @@ Please provide more details.`;
         {onOpenProfileHistory && (
           <div className="mt-3 flex justify-center">
             <button
+              type="button"
               onClick={onOpenProfileHistory}
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-100 hover:bg-amber-100 text-stone-700 hover:text-amber-900 text-xs font-medium border border-stone-200 transition-colors"
             >
@@ -428,7 +462,7 @@ Please provide more details.`;
                 </span>
                 <h3 className="font-serif text-lg sm:text-xl font-bold text-stone-900 flex items-center gap-2">
                   <Ruler className="w-5 h-5 text-amber-600" />
-                  Door Size & Dimensions
+                  Door Size &amp; Dimensions
                 </h3>
               </div>
               <span className="text-xs font-medium text-stone-500">
@@ -446,6 +480,7 @@ Please provide more details.`;
                 return (
                   <button
                     key={p.label}
+                    type="button"
                     id={`preset-${p.label.replace(/[^a-zA-Z0-9]/g, '-')}`}
                     onClick={() => handlePresetSelect(p)}
                     className={`p-2.5 rounded-xl border text-left transition-all ${
@@ -528,7 +563,7 @@ Please provide more details.`;
 
             </div>
 
-            {/* Square Feet Result Box (Required in Section 4) */}
+            {/* Square Feet Result Box */}
             <div className="mt-4 p-3.5 rounded-xl bg-amber-50/90 border border-amber-200/80 flex items-center justify-between">
               <div>
                 <div className="text-xs font-medium text-amber-900">
@@ -540,14 +575,14 @@ Please provide more details.`;
               </div>
               <div className="text-right">
                 <span className="text-xl sm:text-2xl font-black text-amber-900 font-mono">
-                  {calculation.sqFt.toFixed(2)}
+                  {calculation.sqFt.toFixed(2)} sq.ft
                 </span>
               </div>
             </div>
 
           </div>
 
-          {/* STEP 2: Door Material (Section 5) */}
+          {/* STEP 2: Door Material */}
           <div className="bg-white rounded-2xl border border-stone-200/90 shadow-sm p-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2.5">
@@ -559,46 +594,64 @@ Please provide more details.`;
                   Select Door Material
                 </h3>
               </div>
-              <span className="text-xs text-stone-500">Rate</span>
+              <span className="text-xs font-medium text-stone-500">Rate / Sq.Ft</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Door Material Selection">
               {materials.map(mat => {
                 const isSelected = selectedMaterialId === mat.id;
                 const cost = Math.round(calculation.sqFt * mat.ratePerSqFt);
                 return (
-                  <div
+                  <button
                     key={mat.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
                     id={`material-${mat.id}`}
                     onClick={() => setSelectedMaterialId(mat.id)}
-                    className={`cursor-pointer p-4 rounded-xl border transition-all ${
+                    className={`w-full text-left p-4 rounded-xl border transition-all relative select-none ${
                       isSelected
-                        ? 'bg-amber-50/80 border-amber-500 ring-2 ring-amber-500/20 text-stone-900 shadow-sm'
-                        : 'bg-white border-stone-200/90 text-stone-700 hover:border-amber-300'
+                        ? 'bg-amber-500/10 border-amber-500 ring-2 ring-amber-500/30 text-stone-900 shadow-sm'
+                        : 'bg-white border-stone-200/90 text-stone-700 hover:border-amber-300 hover:bg-stone-50/50'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm sm:text-base text-stone-900">{mat.name}</span>
-                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-stone-100 text-amber-800">
-                        ₹{mat.ratePerSqFt}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border transition-all ${
+                            isSelected
+                              ? 'bg-amber-600 border-amber-600 text-white shadow-sm'
+                              : 'border-stone-300 bg-white'
+                          }`}
+                        >
+                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 stroke-[3]" />}
+                        </div>
+                        <span className={`font-bold text-sm sm:text-base ${isSelected ? 'text-amber-950' : 'text-stone-900'}`}>
+                          {mat.name}
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-stone-100 text-amber-800 shrink-0">
+                        ₹{mat.ratePerSqFt}/sq.ft
                       </span>
                     </div>
-                    <p className="text-xs text-stone-500 mt-1 line-clamp-2 leading-relaxed">
+
+                    <p className="text-xs text-stone-500 mt-2 line-clamp-2 leading-relaxed pl-7">
                       {mat.description}
                     </p>
-                    <div className="mt-2 pt-2 border-t border-stone-100 flex items-center justify-between text-xs text-stone-600">
-                      <span>Area Cost:</span>
-                      <span className="font-bold font-mono text-stone-900">
+
+                    <div className="mt-3 pt-2.5 border-t border-stone-100/90 flex items-center justify-between text-xs pl-7">
+                      <span className="text-stone-500">Material Cost:</span>
+                      <span className={`font-bold font-mono ${isSelected ? 'text-amber-700 text-sm' : 'text-stone-900'}`}>
                         {calculation.sqFt.toFixed(2)} × ₹{mat.ratePerSqFt} = ₹{cost.toLocaleString('en-IN')}
                       </span>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           </div>
 
-          {/* STEP 3: Polish / Finish (Section 6) */}
+          {/* STEP 3: Polish / Finish */}
           <div className="bg-white rounded-2xl border border-stone-200/90 shadow-sm p-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2.5">
@@ -610,46 +663,64 @@ Please provide more details.`;
                   Select Polish / Finish
                 </h3>
               </div>
-              <span className="text-xs text-stone-500">Rate</span>
+              <span className="text-xs font-medium text-stone-500">Rate / Sq.Ft</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Polish Finish Selection">
               {finishes.map(fin => {
                 const isSelected = selectedFinishId === fin.id;
                 const cost = Math.round(calculation.sqFt * fin.ratePerSqFt);
                 return (
-                  <div
+                  <button
                     key={fin.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
                     id={`finish-${fin.id}`}
                     onClick={() => setSelectedFinishId(fin.id)}
-                    className={`cursor-pointer p-4 rounded-xl border transition-all ${
+                    className={`w-full text-left p-4 rounded-xl border transition-all relative select-none ${
                       isSelected
-                        ? 'bg-amber-50/80 border-amber-500 ring-2 ring-amber-500/20 text-stone-900 shadow-sm'
-                        : 'bg-white border-stone-200/90 text-stone-700 hover:border-amber-300'
+                        ? 'bg-amber-500/10 border-amber-500 ring-2 ring-amber-500/30 text-stone-900 shadow-sm'
+                        : 'bg-white border-stone-200/90 text-stone-700 hover:border-amber-300 hover:bg-stone-50/50'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm sm:text-base text-stone-900">{fin.name}</span>
-                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-stone-100 text-amber-800">
-                        {fin.ratePerSqFt > 0 ? `₹${fin.ratePerSqFt}` : 'Included'}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border transition-all ${
+                            isSelected
+                              ? 'bg-amber-600 border-amber-600 text-white shadow-sm'
+                              : 'border-stone-300 bg-white'
+                          }`}
+                        >
+                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 stroke-[3]" />}
+                        </div>
+                        <span className={`font-bold text-sm sm:text-base ${isSelected ? 'text-amber-950' : 'text-stone-900'}`}>
+                          {fin.name}
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-stone-100 text-amber-800 shrink-0">
+                        {fin.ratePerSqFt > 0 ? `₹${fin.ratePerSqFt}/sq.ft` : 'Included'}
                       </span>
                     </div>
-                    <p className="text-xs text-stone-500 mt-1 line-clamp-2 leading-relaxed">
+
+                    <p className="text-xs text-stone-500 mt-2 line-clamp-2 leading-relaxed pl-7">
                       {fin.description}
                     </p>
-                    <div className="mt-2 pt-2 border-t border-stone-100 flex items-center justify-between text-xs text-stone-600">
-                      <span>Finish Cost:</span>
-                      <span className="font-bold font-mono text-stone-900">
-                        {fin.ratePerSqFt > 0 ? `₹${cost.toLocaleString('en-IN')}` : '₹0'}
+
+                    <div className="mt-3 pt-2.5 border-t border-stone-100/90 flex items-center justify-between text-xs pl-7">
+                      <span className="text-stone-500">Finish Cost:</span>
+                      <span className={`font-bold font-mono ${isSelected ? 'text-amber-700 text-sm' : 'text-stone-900'}`}>
+                        {fin.ratePerSqFt > 0 ? `₹${cost.toLocaleString('en-IN')}` : '₹0 (Free)'}
                       </span>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           </div>
 
-          {/* STEP 4: Chowkhat / Door Frame (Section 7) */}
+          {/* STEP 4: Chowkhat / Door Frame */}
           <div className="bg-white rounded-2xl border border-stone-200/90 shadow-sm p-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2.5">
@@ -661,39 +732,55 @@ Please provide more details.`;
                   Chowkhat / Door Frame
                 </h3>
               </div>
-              <span className="text-xs text-stone-500">Fixed Unit Price</span>
+              <span className="text-xs font-medium text-stone-500">Fixed Unit Price</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Chaukhat Frame Selection">
               {frames.map(frm => {
                 const isSelected = selectedFrameId === frm.id;
                 return (
-                  <div
+                  <button
                     key={frm.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
                     id={`frame-${frm.id}`}
                     onClick={() => setSelectedFrameId(frm.id)}
-                    className={`cursor-pointer p-4 rounded-xl border transition-all ${
+                    className={`w-full text-left p-4 rounded-xl border transition-all relative select-none ${
                       isSelected
-                        ? 'bg-amber-50/80 border-amber-500 ring-2 ring-amber-500/20 text-stone-900 shadow-sm'
-                        : 'bg-white border-stone-200/90 text-stone-700 hover:border-amber-300'
+                        ? 'bg-amber-500/10 border-amber-500 ring-2 ring-amber-500/30 text-stone-900 shadow-sm'
+                        : 'bg-white border-stone-200/90 text-stone-700 hover:border-amber-300 hover:bg-stone-50/50'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm sm:text-base text-stone-900">{frm.name}</span>
-                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-stone-100 text-amber-800">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border transition-all ${
+                            isSelected
+                              ? 'bg-amber-600 border-amber-600 text-white shadow-sm'
+                              : 'border-stone-300 bg-white'
+                          }`}
+                        >
+                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 stroke-[3]" />}
+                        </div>
+                        <span className={`font-bold text-sm sm:text-base ${isSelected ? 'text-amber-950' : 'text-stone-900'}`}>
+                          {frm.name}
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-stone-100 text-amber-800 shrink-0">
                         {frm.price > 0 ? `₹${frm.price.toLocaleString('en-IN')}` : 'No Frame'}
                       </span>
                     </div>
-                    <p className="text-xs text-stone-500 mt-1 line-clamp-2 leading-relaxed">
+                    <p className="text-xs text-stone-500 mt-2 line-clamp-2 leading-relaxed pl-7">
                       {frm.description}
                     </p>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           </div>
 
-          {/* STEP 5: Hardware (Section 8) */}
+          {/* STEP 5: Hardware */}
           <div className="bg-white rounded-2xl border border-stone-200/90 shadow-sm p-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2.5">
@@ -702,36 +789,52 @@ Please provide more details.`;
                 </span>
                 <h3 className="font-serif text-lg sm:text-xl font-bold text-stone-900 flex items-center gap-2">
                   <Wrench className="w-5 h-5 text-amber-600" />
-                  Hardware & Fittings
+                  Hardware &amp; Fittings
                 </h3>
               </div>
-              <span className="text-xs text-stone-500">Aldrop / Lock / Latches</span>
+              <span className="text-xs font-medium text-stone-500">Aldrop / Lock / Latches</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4" role="radiogroup" aria-label="Hardware Selection">
               {hardware.map(hwd => {
                 const isSelected = selectedHardwareId === hwd.id;
                 return (
-                  <div
+                  <button
                     key={hwd.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
                     id={`hardware-${hwd.id}`}
                     onClick={() => setSelectedHardwareId(hwd.id)}
-                    className={`cursor-pointer p-4 rounded-xl border transition-all ${
+                    className={`w-full text-left p-4 rounded-xl border transition-all relative select-none ${
                       isSelected
-                        ? 'bg-amber-50/80 border-amber-500 ring-2 ring-amber-500/20 text-stone-900 shadow-sm'
-                        : 'bg-white border-stone-200/90 text-stone-700 hover:border-amber-300'
+                        ? 'bg-amber-500/10 border-amber-500 ring-2 ring-amber-500/30 text-stone-900 shadow-sm'
+                        : 'bg-white border-stone-200/90 text-stone-700 hover:border-amber-300 hover:bg-stone-50/50'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm sm:text-base text-stone-900">{hwd.name}</span>
-                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-stone-100 text-amber-800">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border transition-all ${
+                            isSelected
+                              ? 'bg-amber-600 border-amber-600 text-white shadow-sm'
+                              : 'border-stone-300 bg-white'
+                          }`}
+                        >
+                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 stroke-[3]" />}
+                        </div>
+                        <span className={`font-bold text-sm sm:text-base ${isSelected ? 'text-amber-950' : 'text-stone-900'}`}>
+                          {hwd.name}
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-stone-100 text-amber-800 shrink-0">
                         {hwd.price > 0 ? `₹${hwd.price.toLocaleString('en-IN')}` : 'None'}
                       </span>
                     </div>
-                    <p className="text-xs text-stone-500 mt-1 line-clamp-2 leading-relaxed">
+                    <p className="text-xs text-stone-500 mt-2 line-clamp-2 leading-relaxed pl-7">
                       {hwd.description}
                     </p>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -742,8 +845,9 @@ Please provide more details.`;
                 <span className="text-xs font-semibold text-stone-700">Hardware Quantity:</span>
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
                     onClick={() => setHardwareQty(Math.max(1, hardwareQty - 1))}
-                    className="w-8 h-8 rounded-lg bg-white border border-stone-300 font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-center"
+                    className="w-8 h-8 rounded-lg bg-white border border-stone-300 font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-center active:scale-95"
                   >
                     -
                   </button>
@@ -751,8 +855,9 @@ Please provide more details.`;
                     {hardwareQty}
                   </span>
                   <button
+                    type="button"
                     onClick={() => setHardwareQty(hardwareQty + 1)}
-                    className="w-8 h-8 rounded-lg bg-white border border-stone-300 font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-center"
+                    className="w-8 h-8 rounded-lg bg-white border border-stone-300 font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-center active:scale-95"
                   >
                     +
                   </button>
@@ -763,7 +868,7 @@ Please provide more details.`;
 
         </div>
 
-        {/* Right: Transparent Price Estimate Summary Card (Section 9 & 10) */}
+        {/* Right: Transparent Price Estimate Summary Card */}
         <div className="lg:col-span-5 sticky top-24 space-y-4">
           
           <div className="bg-stone-900 text-stone-100 rounded-2xl border border-stone-800 shadow-2xl p-5 sm:p-6">
@@ -775,8 +880,9 @@ Please provide more details.`;
                   Transparent Breakdown
                 </span>
                 <button
+                  type="button"
                   onClick={resetAll}
-                  className="text-stone-400 hover:text-stone-200 text-xs flex items-center gap-1"
+                  className="text-stone-400 hover:text-stone-200 text-xs flex items-center gap-1 transition-colors"
                   title="Reset to defaults"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -798,13 +904,13 @@ Please provide more details.`;
                 <div>
                   <span className="text-stone-400">Calculated Area:</span>{' '}
                   <span className="font-bold text-amber-300 font-mono">
-                    {calculation.sqFt.toFixed(2)}
+                    {calculation.sqFt.toFixed(2)} sq.ft
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Transparent Line Items List (Section 9) */}
+            {/* Transparent Line Items List */}
             <div className="space-y-3 text-xs sm:text-sm">
               
               {/* 1. Material */}
@@ -814,7 +920,7 @@ Please provide more details.`;
                     Material: {calculation.materialName}
                   </div>
                   <div className="text-[11px] text-stone-400 font-mono">
-                    {calculation.sqFt.toFixed(2)} × ₹{calculation.materialRate}
+                    {calculation.sqFt.toFixed(2)} sq.ft × ₹{calculation.materialRate}
                   </div>
                 </div>
                 <div className="font-bold font-mono text-stone-100 text-sm">
@@ -829,7 +935,7 @@ Please provide more details.`;
                     Finish: {calculation.finishName}
                   </div>
                   <div className="text-[11px] text-stone-400 font-mono">
-                    {calculation.sqFt.toFixed(2)} × ₹{calculation.finishRate}
+                    {calculation.finishRate > 0 ? `${calculation.sqFt.toFixed(2)} sq.ft × ₹${calculation.finishRate}` : 'Included'}
                   </div>
                 </div>
                 <div className="font-bold font-mono text-stone-100 text-sm">
@@ -898,16 +1004,17 @@ Please provide more details.`;
               </div>
             </div>
 
-            {/* Required Disclaimer (Section 10) */}
+            {/* Required Disclaimer */}
             <p className="text-[11px] text-stone-400 mt-4 leading-relaxed bg-stone-800/40 p-3 rounded-lg border border-stone-800">
               <Info className="w-3.5 h-3.5 inline mr-1 text-amber-400" />
-              {settings.disclaimer || 'Price shown is an estimated price and may vary according to final design, material quality, hardware and customization.'}
+              {settings?.disclaimer || 'Price shown is an estimated price and may vary according to final design, material quality, hardware and customization.'}
             </p>
 
-            {/* Action Buttons (Section 10) */}
+            {/* Action Buttons */}
             <div className="mt-5 space-y-2.5">
               {/* Generate Official Quotation */}
               <button
+                type="button"
                 id="btn-generate-quote-modal"
                 onClick={() => onOpenQuotationModal(calculation, preselectedDoor)}
                 className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 hover:from-amber-500 hover:to-amber-500 text-stone-950 font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-900/30 transition-all active:scale-[0.98]"
@@ -918,6 +1025,7 @@ Please provide more details.`;
 
               {/* Save to History Button */}
               <button
+                type="button"
                 id="btn-save-calculation"
                 onClick={handleSaveCalculation}
                 disabled={saveStatus === 'saving'}
@@ -949,6 +1057,7 @@ Please provide more details.`;
                   </div>
                   {saveStatus === 'saved' && onOpenProfileHistory && (
                     <button
+                      type="button"
                       onClick={onOpenProfileHistory}
                       className="underline font-semibold hover:text-emerald-200"
                     >
@@ -958,11 +1067,12 @@ Please provide more details.`;
                 </div>
               )}
 
-              {/* Direct WhatsApp Action (Section 12) */}
+              {/* Direct WhatsApp Action */}
               <button
+                type="button"
                 id="btn-whatsapp-quote"
                 onClick={handleSendWhatsApp}
-                className="w-full py-3 px-4 rounded-xl bg-emerald-700/90 hover:bg-emerald-600 text-emerald-100 font-semibold text-sm flex items-center justify-center gap-2 border border-emerald-500/30 transition-all"
+                className="w-full py-3 px-4 rounded-xl bg-emerald-700/90 hover:bg-emerald-600 text-emerald-100 font-semibold text-sm flex items-center justify-center gap-2 border border-emerald-500/30 transition-all active:scale-[0.98]"
               >
                 <MessageCircle className="w-4 h-4 text-emerald-300" />
                 Send on WhatsApp
@@ -970,9 +1080,10 @@ Please provide more details.`;
 
               {/* Share Quote */}
               <button
+                type="button"
                 id="btn-share-quote"
                 onClick={handleShareQuote}
-                className="w-full py-2.5 px-4 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium text-xs flex items-center justify-center gap-2 border border-stone-700 transition-colors"
+                className="w-full py-2.5 px-4 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium text-xs flex items-center justify-center gap-2 border border-stone-700 transition-colors active:scale-[0.98]"
               >
                 <Share2 className="w-3.5 h-3.5" />
                 Share Quote

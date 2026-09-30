@@ -1622,7 +1622,7 @@ INSTRUCTIONS FOR MULTI-IMAGE ANALYSIS:
 4. Evaluate whether the surface has been stained or coated in tinted PU polish to simulate Teak (Sagwan). Look for tell-tale signs: blotchy absorption in softer fibers, absence of genuine concentric earlywood pore bands, or interlocked fibrous texture beneath the color.
 5. If the evidence is insufficient, blurry, or completely masked by opaque paint or heavy plastic laminate, do NOT guess. Set likely_wood_type to "Wood species could not be reliably identified from these photos." and confidence to "Low".
 6. Provide your full multi-feature assessment in the exact JSON format specified.`;
-  const models = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"];
+  const models = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash"];
   let lastError = null;
   for (const model of models) {
     try {
