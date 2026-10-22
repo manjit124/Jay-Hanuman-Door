@@ -20,30 +20,68 @@ android {
         sourceCompatibility JavaVersion.VERSION_21
         targetCompatibility JavaVersion.VERSION_21
     }
+
+    // Helper to resolve release keystore file across common relative paths
+    def getReleaseKeystoreFile = {
+        def rawPath = System.getenv("KEYSTORE_PATH") ?: (project.findProperty("KEYSTORE_PATH") ?: "release.keystore")
+        def candidate = file(rawPath)
+        if (candidate.exists()) return candidate
+        def candidateFromRoot = rootProject.file(rawPath)
+        if (candidateFromRoot.exists()) return candidateFromRoot
+        def candidateInApp = file("release.keystore")
+        if (candidateInApp.exists()) return candidateInApp
+        def candidateInProjectRoot = rootProject.file("app/release.keystore")
+        if (candidateInProjectRoot.exists()) return candidateInProjectRoot
+        return candidate
+    }
+
+    def getReleaseSigningCredentials = {
+        def ksFile = getReleaseKeystoreFile()
+        def storePass = System.getenv("KEYSTORE_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: (project.findProperty("KEYSTORE_PASSWORD") ?: "")
+        def keyAliasName = System.getenv("KEY_ALIAS") ?: System.getenv("ANDROID_KEY_ALIAS") ?: (project.findProperty("KEY_ALIAS") ?: "")
+        def keyPass = System.getenv("KEY_PASSWORD") ?: System.getenv("ANDROID_KEY_PASSWORD") ?: (project.findProperty("KEY_PASSWORD") ?: storePass)
+        return [file: ksFile, storePassword: storePass, keyAlias: keyAliasName, keyPassword: keyPass]
+    }
+
     signingConfigs {
         release {
-            def ksPath = System.getenv("KEYSTORE_PATH") ?: "release.keystore"
-            def ksFile = file(ksPath)
-            if (ksFile.exists()) {
-                storeFile ksFile
-                storePassword System.getenv("KEYSTORE_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: (project.findProperty("KEYSTORE_PASSWORD") ?: "")
-                keyAlias System.getenv("KEY_ALIAS") ?: System.getenv("ANDROID_KEY_ALIAS") ?: (project.findProperty("KEY_ALIAS") ?: "")
-                def keyPass = System.getenv("KEY_PASSWORD") ?: System.getenv("ANDROID_KEY_PASSWORD") ?: (project.findProperty("KEY_PASSWORD") ?: "")
-                keyPassword keyPass ?: storePassword
-            }
+            def creds = getReleaseSigningCredentials()
+            storeFile creds.file
+            storePassword creds.storePassword
+            keyAlias creds.keyAlias
+            keyPassword creds.keyPassword ?: creds.storePassword
         }
     }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            def ksPath = System.getenv("KEYSTORE_PATH") ?: "release.keystore"
-            if (file(ksPath).exists()) {
-                signingConfig signingConfigs.release
-            }
+            signingConfig signingConfigs.release
         }
     }
 }
+
+// Fail-fast verification: Unsigned release builds are strictly prohibited
+gradle.taskGraph.whenReady { taskGraph ->
+    def isReleaseTask = taskGraph.allTasks.any { task ->
+        def name = task.name.toLowerCase()
+        name.contains("release") && (name.contains("bundle") || name.contains("assemble") || name.contains("package"))
+    }
+    if (isReleaseTask) {
+        def creds = getReleaseSigningCredentials()
+        if (!creds.file.exists()) {
+            throw new GradleException(
+                "BUILD FAILED: Release keystore file not found at '${creds.file.absolutePath}'!\n" +
+                "Unsigned release builds are strictly prohibited. Ensure KEYSTORE_PATH is set or 'release.keystore' exists."
+            )
+        }
+        if (!creds.storePassword || !creds.keyAlias) {
+            throw new GradleException(
+                "BUILD FAILED: Release signing credentials missing!\n" +
+                "KEYSTORE_PASSWORD and KEY_ALIAS environment variables or properties must be provided."
+            )
+        }
+    }
 
 repositories {
     flatDir{

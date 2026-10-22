@@ -199,22 +199,9 @@ jobs:
           AAB_FILE="android/app/build/outputs/bundle/release/app-release.aab"
           if [ -f "$AAB_FILE" ]; then
             echo "Inspecting Release AAB at: $AAB_FILE"
-            
-            # Build keystore arguments to validate against local upload keystore if available
-            KS_VERIFY_ARGS=()
-            if [ -f "android/app/release.keystore" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
-              KS_VERIFY_ARGS=(-keystore android/app/release.keystore -storepass "$KEYSTORE_PASSWORD")
-            fi
 
-            # Check whether AAB was already signed by Gradle (allow warning exit code on self-signed certs)
-            CHECK_GRADLE_LOG=$(jarsigner -verify "${KS_VERIFY_ARGS[@]}" "$AAB_FILE" 2>&1 || true)
-            SIGNED_BY_GRADLE=false
-            if echo "$CHECK_GRADLE_LOG" | grep -qi "jar verified"; then
-              SIGNED_BY_GRADLE=true
-              echo "Release AAB was signed during Gradle build."
-            fi
-
-            if [ "$SIGNED_BY_GRADLE" = "false" ]; then
+            # Check if AAB has signature block in META-INF
+            if ! unzip -l "$AAB_FILE" | grep -qE "META-INF/.*\.(RSA|EC|DSA)"; then
               if [ "$HAS_KEYSTORE" = "true" ] && [ -s "android/app/release.keystore" ]; then
                 echo "Signing AAB with jarsigner..."
                 jarsigner -verbose \
@@ -237,15 +224,24 @@ jobs:
 
             # Strict Cryptographic Signature Verification
             echo "--- Verifying Release AAB Signature ---"
-            # Self-signed keystores are standard for Android; checking against release.keystore validates the cert chain,
-            # while '|| true' ensures that Java's untrusted CA path warning code does not terminate set -e.
-            VERIFY_LOG=$(jarsigner -verify -verbose -certs "${KS_VERIFY_ARGS[@]}" "$AAB_FILE" 2>&1 || true)
-            if echo "$VERIFY_LOG" | grep -qi "jar verified"; then
-              echo "SUCCESS: AAB cryptographic signature verified successfully (jar verified)."
-              echo "$VERIFY_LOG" | grep -E "Signer #|CN=|OU=|O=|L=|ST=|C=|\[certificate" | head -n 10 || true
+            if ! unzip -l "$AAB_FILE" | grep -qE "META-INF/.*\.(RSA|EC|DSA)"; then
+              echo "::error::AAB signature verification failed! No signature block found in META-INF."
+              exit 1
+            fi
+
+            if ! jarsigner -verify "$AAB_FILE" >/dev/null 2>&1; then
+              echo "::error::AAB integrity verification failed! Signature block is corrupt or invalid."
+              jarsigner -verify "$AAB_FILE"
+              exit 1
+            fi
+
+            CERT_OUTPUT=$(keytool -printcert -jarfile "$AAB_FILE")
+            if echo "$CERT_OUTPUT" | grep -q "Signer #" && echo "$CERT_OUTPUT" | grep -q "SHA256:"; then
+              echo "SUCCESS: AAB cryptographic signature verified successfully!"
+              echo "$CERT_OUTPUT" | grep -E "Signer #|Owner:|Issuer:|SHA256:|SHA1:"
             else
               echo "::error::AAB signature verification failed! Archive is unsigned or corrupt."
-              echo "$VERIFY_LOG" | head -n 30
+              echo "$CERT_OUTPUT"
               exit 1
             fi
           fi

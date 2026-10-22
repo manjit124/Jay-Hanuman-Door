@@ -2,12 +2,17 @@ name: Build Android App
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build Android APK & AAB
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout Code
@@ -18,11 +23,11 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Java JDK
+      - name: Setup Java JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: 'temurin'
+          java-version: '21'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -39,41 +44,93 @@ jobs:
       - name: Grant Execute Permission
         run: chmod +x android/gradlew
 
-      - name: Build Release APK
-        run: |
-          cd android
-          ./gradlew assembleRelease
-
       - name: Decode Keystore
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        shell: bash
+        env:
+          KS_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 || secrets.SIGNING_KEY }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -di > android/app/release.keystore
+          set -e
+          if [ -z "$KS_BASE64" ]; then
+            echo "::error::Release keystore secret is missing! Please configure KEYSTORE_BASE64 or ANDROID_KEYSTORE_BASE64 in GitHub Secrets."
+            exit 1
+          fi
+          echo "$KS_BASE64" | tr -d '\r\n ' | base64 -d > android/app/release.keystore
+          if [ ! -s android/app/release.keystore ]; then
+            echo "::error::Keystore could not be decoded or is empty! Unsigned release builds are prohibited."
+            exit 1
+          fi
+          echo "Keystore successfully decoded to android/app/release.keystore ($(wc -c < android/app/release.keystore | tr -d ' ') bytes)."
 
-      - name: Sign Release APK
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      - name: Build Signed Release AAB & APK
+        working-directory: android
+        env:
+          KEYSTORE_PATH: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || secrets.ANDROID_KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD || secrets.KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          cd android/app/build/outputs/apk/release
-          jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
-            -keystore ../../../../release.keystore \
-            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
-            -keypass ${{ secrets.KEY_PASSWORD }} \
-            app-release-unsigned.apk \
-            ${{ secrets.KEY_ALIAS }}
+          ./gradlew --no-daemon bundleRelease assembleRelease --stacktrace
 
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: jai-hanuman-door-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+      - name: Verify Signed Artifacts
+        shell: bash
+        run: |
+          set -e
+          echo "=============================================="
+          echo "     STRICT RELEASE ARTIFACT VERIFICATION"
+          echo "=============================================="
 
-      - name: Upload Release AAB
+          AAB_FILE="android/app/build/outputs/bundle/release/app-release.aab"
+          if [ ! -f "$AAB_FILE" ]; then
+            echo "::error::Release AAB not found at $AAB_FILE"
+            exit 1
+          fi
+
+          echo "--- Checking AAB Signature Structure ---"
+          if ! unzip -l "$AAB_FILE" | grep -qE "META-INF/.*\.(RSA|EC|DSA)"; then
+            echo "::error::AAB signature verification failed! No signature block found in META-INF."
+            exit 1
+          fi
+
+          echo "--- Cryptographic Digest Verification ---"
+          if ! jarsigner -verify "$AAB_FILE" >/dev/null 2>&1; then
+            echo "::error::AAB integrity verification failed! Signature block is corrupt or invalid."
+            jarsigner -verify "$AAB_FILE"
+            exit 1
+          fi
+
+          echo "--- Signer Certificate Verification via keytool ---"
+          CERT_OUTPUT=$(keytool -printcert -jarfile "$AAB_FILE")
+          if echo "$CERT_OUTPUT" | grep -q "Signer #" && echo "$CERT_OUTPUT" | grep -q "SHA256:"; then
+            echo "SUCCESS: AAB cryptographic signature verified successfully!"
+            echo "$CERT_OUTPUT" | grep -E "Signer #|Owner:|Issuer:|SHA256:|SHA1:"
+          else
+            echo "::error::AAB signature verification failed! Archive is unsigned or corrupt."
+            echo "$CERT_OUTPUT"
+            exit 1
+          fi
+
+          APK_FILE="android/app/build/outputs/apk/release/app-release.apk"
+          if [ -f "$APK_FILE" ]; then
+            echo "--- Verifying Release APK Signature via apksigner ---"
+            APKSIGNER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+            if [ -n "$APKSIGNER" ]; then
+              "$APKSIGNER" verify --verbose "$APK_FILE"
+              echo "SUCCESS: APK signature verified successfully!"
+            fi
+          fi
+
+      - name: Upload Release AAB (Google Play Store)
         uses: actions/upload-artifact@v4
         with:
           name: jai-hanuman-door-release-aab
           path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: jai-hanuman-door-release-apk
           path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
