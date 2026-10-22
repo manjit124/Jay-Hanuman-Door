@@ -10,11 +10,10 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
 
-        // IMPORTANT:
-        // Before uploading, set versionCode higher than every
-        // versionCode previously uploaded to Google Play.
-        versionCode 2
-        versionName "1.0.8"
+        // Next Play Store release: increase this beyond every
+        // versionCode already uploaded to Google Play.
+        versionCode 3
+        versionName "1.1.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
@@ -28,95 +27,44 @@ android {
         targetCompatibility JavaVersion.VERSION_21
     }
 
-    // Resolve the existing release keystore.
-    def getReleaseKeystoreFile = {
-        def rawPath = System.getenv("KEYSTORE_PATH") ?:
-            (project.findProperty("KEYSTORE_PATH") ?: "release.keystore")
-
-        def candidate = file(rawPath)
-        if (candidate.exists()) return candidate
-
-        def candidateFromRoot = rootProject.file(rawPath)
-        if (candidateFromRoot.exists()) return candidateFromRoot
-
-        def candidateInApp = file("release.keystore")
-        if (candidateInApp.exists()) return candidateInApp
-
-        def candidateInProjectRoot = rootProject.file("app/release.keystore")
-        if (candidateInProjectRoot.exists()) return candidateInProjectRoot
-
-        return candidate
-    }
-
-    def getReleaseSigningCredentials = {
-        def ksFile = getReleaseKeystoreFile()
-
-        def storePass = System.getenv("KEYSTORE_PASSWORD") ?:
-            System.getenv("ANDROID_KEYSTORE_PASSWORD") ?:
-            (project.findProperty("KEYSTORE_PASSWORD") ?: "")
-
-        def keyAliasName = System.getenv("KEY_ALIAS") ?:
-            System.getenv("ANDROID_KEY_ALIAS") ?:
-            (project.findProperty("KEY_ALIAS") ?: "")
-
-        def keyPass = System.getenv("KEY_PASSWORD") ?:
-            System.getenv("ANDROID_KEY_PASSWORD") ?:
-            (project.findProperty("KEY_PASSWORD") ?: storePass)
-
-        return [
-            file: ksFile,
-            storePassword: storePass,
-            keyAlias: keyAliasName,
-            keyPassword: keyPass
-        ]
-    }
-
     signingConfigs {
         release {
-            def creds = getReleaseSigningCredentials()
+            // GitHub Actions writes this file to android/app/release.keystore.
+            def ksPath = System.getenv("KEYSTORE_PATH") ?: "release.keystore"
+            storeFile file(ksPath)
 
-            storeFile creds.file
-            storePassword creds.storePassword
-            keyAlias creds.keyAlias
-            keyPassword creds.keyPassword ?: creds.storePassword
+            storePassword(
+                System.getenv("KEYSTORE_PASSWORD") ?:
+                System.getenv("ANDROID_KEYSTORE_PASSWORD") ?:
+                System.getenv("SIGNING_STORE_PASSWORD") ?: ""
+            )
+
+            keyAlias(
+                System.getenv("KEY_ALIAS") ?:
+                System.getenv("ANDROID_KEY_ALIAS") ?:
+                System.getenv("SIGNING_KEY_ALIAS") ?: ""
+            )
+
+            keyPassword(
+                System.getenv("KEY_PASSWORD") ?:
+                System.getenv("ANDROID_KEY_PASSWORD") ?:
+                System.getenv("SIGNING_KEY_PASSWORD") ?:
+                System.getenv("KEYSTORE_PASSWORD") ?:
+                System.getenv("ANDROID_KEYSTORE_PASSWORD") ?:
+                System.getenv("SIGNING_STORE_PASSWORD") ?: ""
+            )
         }
     }
 
     buildTypes {
+        debug {
+            // Debug builds use the standard Android debug key.
+        }
+
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release
-        }
-    }
-}
-
-// Fail-fast release signing validation.
-// This block is properly closed and does not alter the signing key.
-gradle.taskGraph.whenReady { taskGraph ->
-    def isReleaseTask = taskGraph.allTasks.any { task ->
-        def name = task.name.toLowerCase()
-        name.contains("release") &&
-            (name.contains("bundle") ||
-             name.contains("assemble") ||
-             name.contains("package"))
-    }
-
-    if (isReleaseTask) {
-        def creds = getReleaseSigningCredentials()
-
-        if (!creds.file.exists()) {
-            throw new GradleException(
-                "BUILD FAILED: Release keystore file not found at '${creds.file.absolutePath}'. " +
-                "Check KEYSTORE_PATH and the decoded release.keystore file."
-            )
-        }
-
-        if (!creds.storePassword || !creds.keyAlias || !creds.keyPassword) {
-            throw new GradleException(
-                "BUILD FAILED: Release signing credentials are missing. " +
-                "Check KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD GitHub Secrets."
-            )
         }
     }
 }
@@ -130,27 +78,27 @@ repositories {
 dependencies {
     implementation platform('org.jetbrains.kotlin:kotlin-bom:1.9.24')
     implementation fileTree(include: ['*.jar'], dir: 'libs')
+
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+
     implementation project(':capacitor-android')
+
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+
     implementation project(':capacitor-cordova-android-plugins')
 }
 
 apply from: 'capacitor.build.gradle'
 
-try {
-    def servicesJSON = file('google-services.json')
+// Apply Google Services only when the configuration file exists and is non-empty.
+def servicesJSON = file('google-services.json')
 
-    if (servicesJSON.exists() && servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
-    }
-} catch (Exception e) {
-    logger.info(
-        "google-services.json not found or could not be read; " +
-        "Google Services plugin not applied. Push Notifications may not work."
-    )
+if (servicesJSON.exists() && servicesJSON.length() > 0) {
+    apply plugin: 'com.google.gms.google-services'
+} else {
+    logger.lifecycle("google-services.json not found or empty; Google Services plugin skipped.")
 }
