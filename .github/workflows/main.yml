@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
 
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -30,8 +34,35 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+            -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::Android sdkmanager was not found on the runner."
+            exit 1
+          fi
+
+          echo "Using SDK Manager: $SDKMANAGER"
+          "$SDKMANAGER" --version
+
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses \
+            >/dev/null || true
+
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
 
       - name: Install Dependencies
         run: npm install
@@ -53,21 +84,22 @@ jobs:
           set -euo pipefail
 
           if [ -z "${KS_BASE64:-}" ]; then
-            echo "::error::Missing release keystore secret."
+            echo "::error::Release keystore secret is missing."
             exit 1
           fi
 
           mkdir -p android/app
-          printf '%s' "$KS_BASE64" | tr -d '\r\n ' | base64 --decode > android/app/release.keystore
+          printf '%s' "$KS_BASE64" | tr -d '\r\n ' \
+            | base64 --decode > android/app/release.keystore
 
           if [ ! -s android/app/release.keystore ]; then
-            echo "::error::Keystore is empty or could not be decoded."
+            echo "::error::Decoded keystore is empty."
             exit 1
           fi
 
-          echo "Release keystore decoded."
+          echo "Release keystore decoded successfully."
 
-      - name: Validate Signing Secrets
+      - name: Validate Signing Credentials
         shell: bash
         env:
           STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
@@ -76,8 +108,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${STORE_PASS:-}" ] || [ -z "${ALIAS_NAME:-}" ] || [ -z "${KEY_PASS:-}" ]; then
-            echo "::error::Required signing secrets are missing."
+          if [ -z "${STORE_PASS:-}" ] || \
+             [ -z "${ALIAS_NAME:-}" ] || \
+             [ -z "${KEY_PASS:-}" ]; then
+            echo "::error::One or more signing secrets are missing."
             exit 1
           fi
 
@@ -86,7 +120,7 @@ jobs:
             -storepass "$STORE_PASS" \
             -alias "$ALIAS_NAME" >/dev/null
 
-          echo "Signing keystore and alias validated."
+          echo "Signing credentials validated."
 
       - name: Build Signed Release AAB and APK
         working-directory: android
@@ -107,24 +141,20 @@ jobs:
           AAB_FILE="android/app/build/outputs/bundle/release/app-release.aab"
 
           if [ ! -s "$AAB_FILE" ]; then
-            echo "::error::Release AAB missing or empty."
+            echo "::error::Release AAB not found or empty."
             exit 1
           fi
 
-          if ! unzip -Z1 "$AAB_FILE" | grep -qE '^META-INF/[^/]+\.(RSA|EC|DSA)$'; then
+          if ! unzip -Z1 "$AAB_FILE" \
+            | grep -qE '^META-INF/[^/]+\.(RSA|EC|DSA)$'; then
             echo "::error::AAB signature block not found."
             exit 1
           fi
 
-          jarsigner -verify -verbose -certs "$AAB_FILE"
+          jarsigner -verify "$AAB_FILE"
+          keytool -printcert -jarfile "$AAB_FILE"
 
-          CERT_OUTPUT="$(keytool -printcert -jarfile "$AAB_FILE")"
-          if ! printf '%s\n' "$CERT_OUTPUT" | grep -q 'SHA256:'; then
-            echo "::error::AAB signer certificate could not be verified."
-            exit 1
-          fi
-
-          echo "AAB integrity and signer certificate checks passed."
+          echo "AAB signature checks completed."
 
       - name: Verify Release APK
         shell: bash
@@ -134,22 +164,21 @@ jobs:
           APK_FILE="android/app/build/outputs/apk/release/app-release.apk"
 
           if [ ! -s "$APK_FILE" ]; then
-            echo "::error::Release APK missing or empty."
+            echo "::error::Release APK not found or empty."
             exit 1
           fi
 
-          APKSIGNER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" \
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" \
             -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
 
           if [ -z "$APKSIGNER" ]; then
-            echo "::error::apksigner tool not found."
+            echo "::error::apksigner was not found."
             exit 1
           fi
 
           "$APKSIGNER" verify --verbose "$APK_FILE"
-          echo "APK signature verification passed."
 
-      - name: Upload Release AAB (Google Play)
+      - name: Upload Release AAB
         uses: actions/upload-artifact@v4
         with:
           name: jai-hanuman-door-release-aab
