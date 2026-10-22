@@ -23,10 +23,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Setup Java JDK 21
         uses: actions/setup-java@v4
@@ -39,14 +39,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
             -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
 
           if [ -z "$SDKMANAGER" ]; then
-            echo "::error::Android sdkmanager was not found on the runner."
+            echo "::error::Android sdkmanager not found."
             exit 1
           fi
 
@@ -63,6 +60,12 @@ jobs:
 
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
+
+      - name: Show Tool Versions
+        run: |
+          node --version
+          npm --version
+          java -version
 
       - name: Install Dependencies
         run: npm install
@@ -93,7 +96,7 @@ jobs:
             | base64 --decode > android/app/release.keystore
 
           if [ ! -s android/app/release.keystore ]; then
-            echo "::error::Decoded keystore is empty."
+            echo "::error::Keystore is empty or could not be decoded."
             exit 1
           fi
 
@@ -172,7 +175,7 @@ jobs:
             -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
 
           if [ -z "$APKSIGNER" ]; then
-            echo "::error::apksigner was not found."
+            echo "::error::apksigner not found."
             exit 1
           fi
 
