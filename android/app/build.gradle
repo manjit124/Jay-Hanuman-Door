@@ -1,57 +1,87 @@
+
 apply plugin: 'com.android.application'
 
 android {
     namespace = "com.doorstudio.ai"
     compileSdk = rootProject.ext.compileSdkVersion
+
     defaultConfig {
         applicationId "com.doorstudio.ai"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
+
+        // IMPORTANT:
+        // Before uploading, set versionCode higher than every
+        // versionCode previously uploaded to Google Play.
         versionCode 2
-        versionName "1.1.0"
+        versionName "1.0.8"
+
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
         aaptOptions {
-             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_21
         targetCompatibility JavaVersion.VERSION_21
     }
 
-    // Helper to resolve release keystore file across common relative paths
+    // Resolve the existing release keystore.
     def getReleaseKeystoreFile = {
-        def rawPath = System.getenv("KEYSTORE_PATH") ?: (project.findProperty("KEYSTORE_PATH") ?: "release.keystore")
+        def rawPath = System.getenv("KEYSTORE_PATH") ?:
+            (project.findProperty("KEYSTORE_PATH") ?: "release.keystore")
+
         def candidate = file(rawPath)
         if (candidate.exists()) return candidate
+
         def candidateFromRoot = rootProject.file(rawPath)
         if (candidateFromRoot.exists()) return candidateFromRoot
+
         def candidateInApp = file("release.keystore")
         if (candidateInApp.exists()) return candidateInApp
+
         def candidateInProjectRoot = rootProject.file("app/release.keystore")
         if (candidateInProjectRoot.exists()) return candidateInProjectRoot
+
         return candidate
     }
 
     def getReleaseSigningCredentials = {
         def ksFile = getReleaseKeystoreFile()
-        def storePass = System.getenv("KEYSTORE_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: (project.findProperty("KEYSTORE_PASSWORD") ?: "")
-        def keyAliasName = System.getenv("KEY_ALIAS") ?: System.getenv("ANDROID_KEY_ALIAS") ?: (project.findProperty("KEY_ALIAS") ?: "")
-        def keyPass = System.getenv("KEY_PASSWORD") ?: System.getenv("ANDROID_KEY_PASSWORD") ?: (project.findProperty("KEY_PASSWORD") ?: storePass)
-        return [file: ksFile, storePassword: storePass, keyAlias: keyAliasName, keyPassword: keyPass]
+
+        def storePass = System.getenv("KEYSTORE_PASSWORD") ?:
+            System.getenv("ANDROID_KEYSTORE_PASSWORD") ?:
+            (project.findProperty("KEYSTORE_PASSWORD") ?: "")
+
+        def keyAliasName = System.getenv("KEY_ALIAS") ?:
+            System.getenv("ANDROID_KEY_ALIAS") ?:
+            (project.findProperty("KEY_ALIAS") ?: "")
+
+        def keyPass = System.getenv("KEY_PASSWORD") ?:
+            System.getenv("ANDROID_KEY_PASSWORD") ?:
+            (project.findProperty("KEY_PASSWORD") ?: storePass)
+
+        return [
+            file: ksFile,
+            storePassword: storePass,
+            keyAlias: keyAliasName,
+            keyPassword: keyPass
+        ]
     }
 
     signingConfigs {
         release {
             def creds = getReleaseSigningCredentials()
+
             storeFile creds.file
             storePassword creds.storePassword
             keyAlias creds.keyAlias
             keyPassword creds.keyPassword ?: creds.storePassword
         }
     }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -61,30 +91,38 @@ android {
     }
 }
 
-// Fail-fast verification: Unsigned release builds are strictly prohibited
+// Fail-fast release signing validation.
+// This block is properly closed and does not alter the signing key.
 gradle.taskGraph.whenReady { taskGraph ->
     def isReleaseTask = taskGraph.allTasks.any { task ->
         def name = task.name.toLowerCase()
-        name.contains("release") && (name.contains("bundle") || name.contains("assemble") || name.contains("package"))
-    }
-    if (isReleaseTask) {
-        def creds = getReleaseSigningCredentials()
-        if (!creds.file.exists()) {
-            throw new GradleException(
-                "BUILD FAILED: Release keystore file not found at '${creds.file.absolutePath}'!\n" +
-                "Unsigned release builds are strictly prohibited. Ensure KEYSTORE_PATH is set or 'release.keystore' exists."
-            )
-        }
-        if (!creds.storePassword || !creds.keyAlias) {
-            throw new GradleException(
-                "BUILD FAILED: Release signing credentials missing!\n" +
-                "KEYSTORE_PASSWORD and KEY_ALIAS environment variables or properties must be provided."
-            )
-        }
+        name.contains("release") &&
+            (name.contains("bundle") ||
+             name.contains("assemble") ||
+             name.contains("package"))
     }
 
+    if (isReleaseTask) {
+        def creds = getReleaseSigningCredentials()
+
+        if (!creds.file.exists()) {
+            throw new GradleException(
+                "BUILD FAILED: Release keystore file not found at '${creds.file.absolutePath}'. " +
+                "Check KEYSTORE_PATH and the decoded release.keystore file."
+            )
+        }
+
+        if (!creds.storePassword || !creds.keyAlias || !creds.keyPassword) {
+            throw new GradleException(
+                "BUILD FAILED: Release signing credentials are missing. " +
+                "Check KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD GitHub Secrets."
+            )
+        }
+    }
+}
+
 repositories {
-    flatDir{
+    flatDir {
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
 }
@@ -106,9 +144,13 @@ apply from: 'capacitor.build.gradle'
 
 try {
     def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
+
+    if (servicesJSON.exists() && servicesJSON.text) {
         apply plugin: 'com.google.gms.google-services'
     }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+} catch (Exception e) {
+    logger.info(
+        "google-services.json not found or could not be read; " +
+        "Google Services plugin not applied. Push Notifications may not work."
+    )
 }
