@@ -1,321 +1,181 @@
+
 name: Build Android APK & AAB
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   workflow_dispatch:
-    inputs:
-      build_type:
-        description: 'Build Target'
-        required: true
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - apk
-          - aab
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build Android App
+    name: Build Android APK & AAB
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
-    env:
-      ANDROID_API_LEVEL: "36"
-      ANDROID_BUILD_TOOLS: "36.0.0"
-      GRADLE_VERSION: "8.14.3"
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+          node-version: "20"
 
       - name: Setup Java JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          distribution: temurin
+          java-version: "21"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.14.3"
-
-      - name: Configure Android SDK
-        shell: bash
-        run: |
-          set -e
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          if [ ! -d "$SDK_ROOT" ]; then
-            echo "ERROR: Android SDK not found at $SDK_ROOT"
-            exit 1
-          fi
-          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
-          if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager not found"
-            exit 1
-          fi
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
-          echo "sdk.dir=$SDK_ROOT" > android/local.properties
-          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses || true
-          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install \
-            "platform-tools" \
-            "platforms;android-${ANDROID_API_LEVEL}" \
-            "build-tools;${ANDROID_BUILD_TOOLS}"
-          echo "Android SDK configured successfully."
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Install Dependencies
-        shell: bash
-        run: |
-          set -e
-          if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
-            echo "Installing dependencies with Bun..."
-            bun install --frozen-lockfile || bun install
-          elif [ -f "package-lock.json" ]; then
-            npm ci
-          else
-            npm install
-          fi
+        run: npm install
 
-      - name: Build Web Application
-        shell: bash
-        run: |
-          set -e
-          if [ -f "bun.lock" ] || [ -f "bun.lockb" ]; then
-            bun run build
-          else
-            npm run build
-          fi
+      - name: Build Web App
+        run: npm run build
 
-      - name: Sync Capacitor Android
-        shell: bash
-        run: |
-          set -e
-          npx cap sync android
+      - name: Sync Capacitor
+        run: npx cap sync android
 
-      - name: Prepare Gradle Wrapper
-        shell: bash
-        working-directory: android
-        run: |
-          set -e
-          if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            gradle wrapper --gradle-version "$GRADLE_VERSION"
-          fi
-          chmod +x gradlew
-          ./gradlew --no-daemon --version
+      - name: Grant Gradle Permission
+        run: chmod +x android/gradlew
 
-      - name: Build Debug APK
-        if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' }}
-        working-directory: android
-        run: |
-          ./gradlew --no-daemon assembleDebug --stacktrace
-
-      - name: Prepare Release Signing Keystore
+      - name: Decode Release Keystore
         shell: bash
         env:
-          KS_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64 || secrets.SIGNING_KEY }}
-          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
-          K_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
-          K_PASS: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD }}
+          KS_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 || secrets.SIGNING_KEY }}
         run: |
-          set -e
-          HAS_KEYSTORE="false"
-          if [ -n "$KS_BASE64" ]; then
-            echo "Keystore base64 secret detected."
-            echo "$KS_BASE64" | tr -d '\r\n ' | base64 --decode > android/app/release.keystore
-            if [ -s android/app/release.keystore ]; then
-              HAS_KEYSTORE="true"
-              KS_SIZE=$(wc -c < android/app/release.keystore | tr -d ' ')
-              echo "Decoded keystore written to android/app/release.keystore ($KS_SIZE bytes)."
-            else
-              echo "::warning::Keystore base64 decoded to an empty file. Please verify secret encoding."
-            fi
-          else
-            echo "Notice: No keystore base64 secret detected in GitHub Secrets."
+          set -euo pipefail
+
+          if [ -z "${KS_BASE64:-}" ]; then
+            echo "::error::Missing release keystore secret."
+            exit 1
           fi
 
-          echo "HAS_KEYSTORE=$HAS_KEYSTORE" >> "$GITHUB_ENV"
-          if [ "$HAS_KEYSTORE" = "true" ]; then
-            echo "KEYSTORE_PATH=release.keystore" >> "$GITHUB_ENV"
-            echo "KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
-            echo "KEY_ALIAS=$K_ALIAS" >> "$GITHUB_ENV"
-            FINAL_K_PASS="${K_PASS:-$KS_PASS}"
-            echo "KEY_PASSWORD=$FINAL_K_PASS" >> "$GITHUB_ENV"
+          mkdir -p android/app
+          printf '%s' "$KS_BASE64" \
+            | tr -d '\r\n ' \
+            | base64 --decode > android/app/release.keystore
+
+          if [ ! -s android/app/release.keystore ]; then
+            echo "::error::Keystore is empty or could not be decoded."
+            exit 1
           fi
 
-      - name: Build Release AAB (Google Play Bundle)
-        if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'aab' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'aab' }}
+          echo "Release keystore decoded successfully."
+
+      - name: Validate Signing Secrets
+        shell: bash
+        env:
+          STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
+          ALIAS_NAME: ${{ secrets.KEY_ALIAS || secrets.ANDROID_KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD || secrets.KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${STORE_PASS:-}" ]; then
+            echo "::error::Missing keystore password secret."
+            exit 1
+          fi
+
+          if [ -z "${ALIAS_NAME:-}" ]; then
+            echo "::error::Missing key alias secret."
+            exit 1
+          fi
+
+          if [ -z "${KEY_PASS:-}" ]; then
+            echo "::error::Missing key password secret."
+            exit 1
+          fi
+
+          keytool -list \
+            -keystore android/app/release.keystore \
+            -storepass "$STORE_PASS" \
+            -alias "$ALIAS_NAME" >/dev/null
+
+          echo "Keystore and alias validation passed."
+
+      - name: Build Signed Release AAB and APK
         working-directory: android
         env:
           KEYSTORE_PATH: release.keystore
-          KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ env.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || secrets.ANDROID_KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD || secrets.KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          ./gradlew --no-daemon bundleRelease --stacktrace
+          set -euo pipefail
+          ./gradlew --no-daemon bundleRelease assembleRelease --stacktrace
 
-      - name: Build Release APK (Direct Install)
-        if: ${{ github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk' }}
-        working-directory: android
-        env:
-          KEYSTORE_PATH: release.keystore
-          KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ env.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
-        run: |
-          ./gradlew --no-daemon assembleRelease --stacktrace || echo "assembleRelease completed"
-
-      - name: Sign & Strictly Verify Release Artifacts
+      - name: Verify Release AAB
         shell: bash
-        env:
-          HAS_KEYSTORE: ${{ env.HAS_KEYSTORE }}
-          KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ env.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
         run: |
-          set -e
-          echo "=============================================="
-          echo "    SIGN & VERIFY RELEASE ARTIFACTS"
-          echo "=============================================="
+          set -euo pipefail
 
           AAB_FILE="android/app/build/outputs/bundle/release/app-release.aab"
-          if [ -f "$AAB_FILE" ]; then
-            echo "Inspecting Release AAB at: $AAB_FILE"
 
-            # Check if AAB has signature block in META-INF
-            if ! unzip -l "$AAB_FILE" | grep -qE "META-INF/.*\.(RSA|EC|DSA)"; then
-              if [ "$HAS_KEYSTORE" = "true" ] && [ -s "android/app/release.keystore" ]; then
-                echo "Signing AAB with jarsigner..."
-                jarsigner -verbose \
-                  -sigalg SHA256withRSA \
-                  -digestalg SHA-256 \
-                  -keystore android/app/release.keystore \
-                  -storepass "$KEYSTORE_PASSWORD" \
-                  -keypass "$KEY_PASSWORD" \
-                  "$AAB_FILE" "$KEY_ALIAS"
-                echo "AAB in-place signing completed."
-              else
-                echo "::error::Release bundle ($AAB_FILE) is UNSIGNED and will be rejected by Google Play Console!"
-                echo "::error::Missing signing keystore. Please add ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, and ANDROID_KEY_ALIAS to GitHub Repository Secrets."
-                exit 1
-              fi
-            fi
-
-            # Keep app-release-signed.aab as identical copy so both filenames are available
-            cp "$AAB_FILE" "android/app/build/outputs/bundle/release/app-release-signed.aab"
-
-            # Strict Cryptographic Signature Verification
-            echo "--- Verifying Release AAB Signature ---"
-            if ! unzip -l "$AAB_FILE" | grep -qE "META-INF/.*\.(RSA|EC|DSA)"; then
-              echo "::error::AAB signature verification failed! No signature block found in META-INF."
-              exit 1
-            fi
-
-            if ! jarsigner -verify "$AAB_FILE" >/dev/null 2>&1; then
-              echo "::error::AAB integrity verification failed! Signature block is corrupt or invalid."
-              jarsigner -verify "$AAB_FILE"
-              exit 1
-            fi
-
-            CERT_OUTPUT=$(keytool -printcert -jarfile "$AAB_FILE")
-            if echo "$CERT_OUTPUT" | grep -q "Signer #" && echo "$CERT_OUTPUT" | grep -q "SHA256:"; then
-              echo "SUCCESS: AAB cryptographic signature verified successfully!"
-              echo "$CERT_OUTPUT" | grep -E "Signer #|Owner:|Issuer:|SHA256:|SHA1:"
-            else
-              echo "::error::AAB signature verification failed! Archive is unsigned or corrupt."
-              echo "$CERT_OUTPUT"
-              exit 1
-            fi
+          if [ ! -s "$AAB_FILE" ]; then
+            echo "::error::Release AAB not found or empty: $AAB_FILE"
+            exit 1
           fi
 
-          # Sign and verify APK if produced
-          TARGET_APK="android/app/build/outputs/apk/release/app-release.apk"
-          UNSIGNED_APK="$(find android/app/build/outputs/apk/release -name "*unsigned.apk" 2>/dev/null | head -n 1)"
-          if [ ! -f "$TARGET_APK" ] && [ -n "$UNSIGNED_APK" ] && [ -f "$UNSIGNED_APK" ]; then
-            TARGET_APK="$UNSIGNED_APK"
+          echo "Checking AAB signature and archive integrity..."
+
+          if ! unzip -Z1 "$AAB_FILE" | grep -qE '^META-INF/[^/]+\.(RSA|EC|DSA)$'; then
+            echo "::error::AAB signature block not found."
+            exit 1
           fi
 
-          if [ -f "$TARGET_APK" ] && [ "$HAS_KEYSTORE" = "true" ] && [ -s "android/app/release.keystore" ]; then
-            APKSIGNER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-            if [ -n "$APKSIGNER" ]; then
-              echo "--- Checking APK Signature ---"
-              if ! "$APKSIGNER" verify "$TARGET_APK" >/dev/null 2>&1; then
-                echo "Signing APK with apksigner..."
-                "$APKSIGNER" sign \
-                  --ks android/app/release.keystore \
-                  --ks-key-alias "$KEY_ALIAS" \
-                  --ks-pass "pass:$KEYSTORE_PASSWORD" \
-                  --key-pass "pass:$KEY_PASSWORD" \
-                  --out android/app/build/outputs/apk/release/app-release-signed.apk \
-                  "$TARGET_APK"
-                cp android/app/build/outputs/apk/release/app-release-signed.apk android/app/build/outputs/apk/release/app-release.apk
-              fi
-              echo "--- Verifying APK Signature ---"
-              "$APKSIGNER" verify --verbose android/app/build/outputs/apk/release/app-release.apk || true
-            fi
+          jarsigner -verify -verbose -certs "$AAB_FILE"
+
+          CERT_OUTPUT="$(keytool -printcert -jarfile "$AAB_FILE")"
+
+          if ! printf '%s\n' "$CERT_OUTPUT" | grep -q 'SHA256:'; then
+            echo "::error::Could not read the AAB signer certificate."
+            exit 1
           fi
 
-      - name: Upload Debug APK Artifact
-        if: ${{ (github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk') && success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: jai-hanuman-door-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
-          retention-days: 14
+          echo "AAB signature and integrity verification passed."
 
-      - name: Upload Release AAB Artifact (Google Play Store)
-        if: ${{ (github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'aab' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'aab') && success() }}
+      - name: Verify Release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_FILE="android/app/build/outputs/apk/release/app-release.apk"
+
+          if [ ! -s "$APK_FILE" ]; then
+            echo "::error::Release APK not found or empty: $APK_FILE"
+            exit 1
+          fi
+
+          APKSIGNER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" \
+            -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::Android apksigner tool not found."
+            exit 1
+          fi
+
+          "$APKSIGNER" verify --verbose "$APK_FILE"
+          echo "APK signature verification passed."
+
+      - name: Upload Release AAB (Google Play)
         uses: actions/upload-artifact@v4
         with:
           name: jai-hanuman-door-release-aab
-          path: |
-            android/app/build/outputs/bundle/release/app-release.aab
-            android/app/build/outputs/bundle/release/app-release-signed.aab
+          path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload Release APK Artifact
-        if: ${{ (github.event_name == 'push' || inputs.build_type == 'all' || inputs.build_type == 'apk' || github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'apk') && success() }}
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: jai-hanuman-door-release-apk
-          path: |
-            android/app/build/outputs/apk/release/app-release.apk
-            android/app/build/outputs/apk/release/app-release-signed.apk
-          if-no-files-found: ignore
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
           retention-days: 14
-
-      - name: Build Summary
-        if: always()
-        shell: bash
-        run: |
-          echo "## Jai Hanuman Door Android Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          if [ -d android/app/build/outputs ]; then
-            echo "### Generated Artifacts:" >> "$GITHUB_STEP_SUMMARY"
-            find android/app/build/outputs -type f \( -name "*.apk" -o -name "*.aab" \) | while read -r file; do
-              size=$(ls -lh "$file" | awk '{print $5}')
-              echo "- \`$file\` ($size)" >> "$GITHUB_STEP_SUMMARY"
-            done
-          else
-            echo "No build outputs found." >> "$GITHUB_STEP_SUMMARY"
-          fi
