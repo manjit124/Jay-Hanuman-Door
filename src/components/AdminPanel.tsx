@@ -50,6 +50,8 @@ import {
   Truck,
   Box,
   Video,
+  Server,
+  Activity,
 } from 'lucide-react';
 import { ProtectedImage } from './ProtectedImage.tsx';
 import { DEFAULT_CONTENT_PROTECTION } from '../lib/contentProtection.ts';
@@ -115,6 +117,9 @@ import {
   uploadVideo,
   upload3DModel,
   resetAdminDefaultPassword,
+  getApiBaseUrl,
+  getCustomApiBaseUrl,
+  setCustomApiBaseUrl,
 } from '../lib/api.ts';
 import { removeBackgroundFromImage } from '../lib/transparentDoorUtils.ts';
 import { formatWhatsAppDisplay } from '../lib/contactUtils.ts';
@@ -151,6 +156,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [bypassCustomerDenied, setBypassCustomerDenied] = useState(false);
+
+  // Server connection diagnostics & custom URL
+  const [showServerConfig, setShowServerConfig] = useState(false);
+  const [customServerUrl, setCustomServerUrl] = useState(getCustomApiBaseUrl());
+  const [serverTestStatus, setServerTestStatus] = useState<string | null>(null);
+  const [isTestingServer, setIsTestingServer] = useState(false);
 
   // Active Admin Section Tab
   const [activeTab, setActiveTab] = useState<
@@ -308,26 +319,61 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   }, [isLoggedIn, isOpen]);
 
+  const handleTestServer = async () => {
+    setIsTestingServer(true);
+    setServerTestStatus(null);
+    try {
+      const activeUrl = customServerUrl.trim() || getApiBaseUrl();
+      const testEndpoint = (activeUrl.startsWith('http') ? activeUrl : '') + '/api/catalog';
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(testEndpoint, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        setServerTestStatus('Connected: Backend API is live and responding normally.');
+      } else if (res.status === 302 || contentType.includes('text/html')) {
+        setServerTestStatus('Notice: Server is behind web preview proxy; app will use direct cloud database authentication.');
+      } else {
+        setServerTestStatus(`Server responded with status code HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      setServerTestStatus(`Offline or unreachable: ${err.message || 'Connection failed'}. Direct cloud database authentication will be used.`);
+    } finally {
+      setIsTestingServer(false);
+    }
+  };
+
+  const handleSaveCustomServerUrl = () => {
+    setCustomApiBaseUrl(customServerUrl.trim());
+    showToast(customServerUrl.trim() ? `Server URL updated to: ${customServerUrl.trim()}` : 'Default backend URL restored');
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     setIsLoggingIn(true);
     try {
-      const ok = await adminLogin(emailInput.trim(), passwordInput);
-      if (ok) {
+      const res = await adminLogin(emailInput.trim(), passwordInput);
+      if (res.success) {
         setIsLoggedIn(true);
         setPasswordInput('');
         setLoginError('');
         loadData();
-        showToast('Welcome to Door Business Admin Portal');
+        showToast(
+          res.source === 'firestore'
+            ? 'Signed in via Secure Cloud Database (Direct Mode)'
+            : 'Welcome to Door Business Admin Portal'
+        );
         if (onNavigateTab) {
           onNavigateTab('dashboard');
         }
       } else {
-        setLoginError('Invalid email or password.');
+        setLoginError(res.error || 'Invalid email or password.');
       }
-    } catch {
-      setLoginError('Invalid email or password.');
+    } catch (err: any) {
+      setLoginError(err.message || 'Authentication request failed. Please check your internet connection.');
     } finally {
       setIsLoggingIn(false);
     }
@@ -766,14 +812,82 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 )}
 
-                <div className="pt-2 text-center">
+                {/* Server Diagnostics & Endpoint Settings */}
+                <div className="pt-2 border-t border-[#E5E5E5] text-center space-y-2">
                   <button
                     type="button"
-                    onClick={onClose}
-                    className="text-xs text-[#666666] hover:text-[#1A1A1A] transition-colors cursor-pointer"
+                    onClick={() => setShowServerConfig(!showServerConfig)}
+                    className="text-[11px] text-[#666666] hover:text-[#1A1A1A] inline-flex items-center gap-1.5 font-medium cursor-pointer"
                   >
-                    ← Return to Customer Storefront
+                    <Server className="w-3.5 h-3.5 text-[#C89211]" />
+                    <span>{showServerConfig ? 'Hide Server Connection Details' : 'Server Connection & Diagnostics'}</span>
                   </button>
+
+                  {showServerConfig && (
+                    <div className="p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-left text-xs space-y-2.5 animate-in fade-in duration-200">
+                      <div>
+                        <div className="flex items-center justify-between text-[11px] font-semibold text-[#1A1A1A] mb-1">
+                          <span>Active API Server Endpoint:</span>
+                          <span className="text-[10px] text-[#C89211] font-mono">
+                            {getApiBaseUrl() ? 'Configured URL' : 'Direct / Local'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-mono text-[#666666] break-all bg-white p-2 rounded-lg border border-[#E5E5E5]">
+                          {getApiBaseUrl() || '(Same-Origin / Direct Firestore Cloud Store)'}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-[11px] font-semibold text-[#1A1A1A]">
+                          Custom Backend Server URL (Optional):
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="e.g. https://your-server.run.app"
+                            value={customServerUrl}
+                            onChange={e => setCustomServerUrl(e.target.value)}
+                            className="flex-1 px-2.5 py-1.5 rounded-lg border border-[#E5E5E5] bg-white text-xs font-mono"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSaveCustomServerUrl}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#C89211] text-white font-bold text-xs hover:bg-[#A0700B] cursor-pointer"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleTestServer}
+                          disabled={isTestingServer}
+                          className="px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-[#1A1A1A] border border-[#E5E5E5] text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isTestingServer ? <Loader2 className="w-3 h-3 animate-spin" /> : <Activity className="w-3 h-3 text-[#C89211]" />}
+                          Test Connection
+                        </button>
+                      </div>
+
+                      {serverTestStatus && (
+                        <div className="p-2 rounded-lg bg-white border border-[#E5E5E5] text-[11px] text-[#1A1A1A] font-medium leading-relaxed">
+                          {serverTestStatus}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div>
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="text-xs text-[#666666] hover:text-[#1A1A1A] transition-colors cursor-pointer"
+                    >
+                      ← Return to Customer Storefront
+                    </button>
+                  </div>
                 </div>
               </div>
             )

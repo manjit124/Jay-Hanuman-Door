@@ -46,8 +46,13 @@ import {
   DEFAULT_INDIA_STATES,
   DEFAULT_DELIVERY_STORIES,
 } from '../data/indiaDeliveryData.ts';
+import {
+  verifyAdminCredentialsViaFirestore,
+  fetchDirectFirestoreData,
+} from './firestoreClient.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
+const CUSTOM_API_URL_KEY = 'jai_custom_api_base_url';
 const GUEST_FAVORITES_KEY = 'shivshahi_guest_favorites';
 const GUEST_CALCULATIONS_KEY = 'shivshahi_guest_calculations';
 const CATALOG_CACHE_KEY = 'shivshahi_cached_catalog_v2';
@@ -241,14 +246,53 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
 };
 
 /**
+ * Retrieves user-configured custom API server URL from localStorage.
+ */
+export function getCustomApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    try {
+      const custom = localStorage.getItem(CUSTOM_API_URL_KEY);
+      if (custom && custom.trim()) {
+        return custom.trim().replace(/\/$/, '');
+      }
+    } catch {}
+  }
+  return '';
+}
+
+/**
+ * Persists or clears custom API server URL in localStorage.
+ */
+export function setCustomApiBaseUrl(url: string): void {
+  if (typeof window !== 'undefined') {
+    try {
+      const clean = url.trim().replace(/\/$/, '');
+      if (clean) {
+        localStorage.setItem(CUSTOM_API_URL_KEY, clean);
+      } else {
+        localStorage.removeItem(CUSTOM_API_URL_KEY);
+      }
+    } catch {}
+  }
+}
+
+/**
  * Returns the resolved API base URL.
- * Automatically handles Capacitor native Android environment by routing to the active deployed cloud backend.
+ * Priority:
+ * 1. User/Admin configured custom API base URL in localStorage
+ * 2. Build-time environment variable VITE_API_BASE_URL or VITE_APP_URL
+ * 3. Capacitor Android native environment URL
+ * 4. Empty string (relative path for same-origin web browser)
  */
 export function getApiBaseUrl(): string {
+  const custom = getCustomApiBaseUrl();
+  if (custom) return custom;
+
   const envUrl = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_APP_URL;
   if (typeof envUrl === 'string' && envUrl.trim()) {
     return envUrl.trim().replace(/\/$/, '');
   }
+
   // If running inside Capacitor native Android environment, route API calls to the deployed Cloud Run backend
   if (typeof window !== 'undefined') {
     const isCapacitorNative = Boolean(
@@ -257,7 +301,7 @@ export function getApiBaseUrl(): string {
       (window.location.hostname === 'localhost' && Boolean((window as any).Capacitor))
     );
     if (isCapacitorNative) {
-      return 'https://ais-pre-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app';
+      return 'https://ais-dev-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app';
     }
   }
   return '';
@@ -679,29 +723,80 @@ export async function updateDoor3DConfig(
 
 // ---------------- Admin Endpoints ----------------
 
-export async function adminLogin(emailOrPassword: string, password?: string): Promise<boolean> {
-  const payload = password !== undefined
-    ? { email: emailOrPassword, password }
-    : { email: 'shivshahidoors@gmail.com', password: emailOrPassword };
+export interface AdminLoginResponse {
+  success: boolean;
+  error?: string;
+  source?: 'server' | 'firestore';
+}
 
+export async function adminLogin(
+  emailOrPassword: string,
+  password?: string
+): Promise<AdminLoginResponse> {
+  const email = password !== undefined ? emailOrPassword : 'shivshahidoors@gmail.com';
+  const pass = password !== undefined ? password : emailOrPassword;
+  const payload = { email, password: pass };
+
+  let serverResponseFailed = false;
+  let serverErrorMessage = '';
+
+  // 1. Attempt primary backend HTTP endpoint
   try {
     const res = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) {
-      return false;
+
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = await res.json();
+      if (res.ok && data.token) {
+        setAdminToken(data.token);
+        return { success: true, source: 'server' };
+      }
+      if (res.status === 401 || res.status === 400) {
+        return { success: false, error: data.error || 'Invalid email or password.' };
+      }
+      serverErrorMessage = data.error || `Server returned HTTP ${res.status}`;
+    } else {
+      // Non-JSON response (e.g. 302 HTML redirect from Cloud Run / AI Studio preview proxy)
+      serverResponseFailed = true;
+      serverErrorMessage = `Authentication server returned non-JSON response (HTTP ${res.status})`;
     }
-    const data = await res.json();
-    if (data.token) {
-      setAdminToken(data.token);
-      return true;
-    }
-    return false;
-  } catch {
-    return false;
+  } catch (err: any) {
+    serverResponseFailed = true;
+    serverErrorMessage = err.message || 'Server connection failed';
   }
+
+  // 2. Resilient Fallback: Authoritative direct Firestore database verification
+  // Crucial for installed Android APKs where external preview URL is cookie-protected
+  try {
+    const firestoreResult = await verifyAdminCredentialsViaFirestore(email, pass);
+    if (firestoreResult.success) {
+      setAdminToken('firestore_admin_token_' + Date.now());
+      return { success: true, source: 'firestore' };
+    }
+    // If Firestore was contacted and rejected the credentials (wrong password)
+    if (firestoreResult.error && !firestoreResult.error.toLowerCase().includes('unable to reach')) {
+      return { success: false, error: firestoreResult.error };
+    }
+  } catch (fsErr: any) {
+    console.warn('[AdminLogin] Direct Firestore fallback error:', fsErr.message);
+  }
+
+  // If both server and cloud store could not be reached, inform the user clearly
+  if (serverResponseFailed) {
+    return {
+      success: false,
+      error: 'Authentication server is currently unavailable. Please verify your internet connection.',
+    };
+  }
+
+  return {
+    success: false,
+    error: serverErrorMessage || 'Invalid email or password. You can use default password: admin123',
+  };
 }
 
 export async function resetAdminDefaultPassword(): Promise<boolean> {
@@ -738,11 +833,14 @@ export async function checkAdminAuth(): Promise<boolean> {
     const res = await apiFetch('/api/auth/verify', {
       headers: authHeaders(),
     });
-    const data = await res.json();
-    return Boolean(data.authenticated);
+    if (res.ok) {
+      const data = await res.json();
+      return Boolean(data.authenticated);
+    }
   } catch {
-    return false;
+    // If server unreachable, check if local token is valid
   }
+  return Boolean(token && token.length > 10);
 }
 
 export async function fetchAdminAllData(): Promise<{
@@ -760,11 +858,45 @@ export async function fetchAdminAllData(): Promise<{
   deliveryStates?: IndiaDeliveryState[];
   deliveryStories?: DeliveryStory[];
 }> {
-  const res = await apiFetch('/api/admin/all-data', {
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('Unauthorized or failed to fetch admin data');
-  return res.json();
+  try {
+    const res = await apiFetch('/api/admin/all-data', {
+      headers: authHeaders(),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server /api/admin/all-data unreachable, trying cloud database fallback...', err.message);
+  }
+
+  // Fallback: If token exists and server is unreachable, load directly from Firestore
+  const token = getAdminToken();
+  if (token) {
+    try {
+      const cloudData = await fetchDirectFirestoreData();
+      if (cloudData && Array.isArray(cloudData.doors)) {
+        return {
+          doors: cloudData.doors || [],
+          categories: cloudData.categories || [],
+          materials: cloudData.materials || [],
+          finishes: cloudData.finishes || [],
+          frames: cloudData.frames || [],
+          hardware: cloudData.hardware || [],
+          banners: cloudData.banners || [],
+          articles: cloudData.articles || [],
+          quotes: cloudData.quotes || [],
+          settings: cloudData.settings || {},
+          teamMembers: cloudData.teamMembers || [],
+          deliveryStates: cloudData.deliveryStates || DEFAULT_INDIA_STATES,
+          deliveryStories: cloudData.deliveryStories || DEFAULT_DELIVERY_STORIES,
+        };
+      }
+    } catch (fsErr: any) {
+      console.warn('[AdminAPI] Firestore fallback error:', fsErr.message);
+    }
+  }
+
+  throw new Error('Unauthorized or failed to connect to admin data store.');
 }
 
 // ---------------- ALL INDIA DELIVERY API METHODS ----------------

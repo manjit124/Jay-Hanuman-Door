@@ -1482,32 +1482,50 @@ app.get('/api/quotes/:id', (req, res) => {
 
 // Admin Auth: Login
 app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
-  const db = getDb();
+  const { email, password } = req.body || {};
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
 
+  if (!password || typeof password !== 'string' || password.trim().length === 0) {
+    console.warn(`[AdminAuth] Rejected login from ${clientIp}: Missing password`);
+    return res.status(400).json({ error: 'Password is required' });
+  }
+
+  const db = getDb();
   const inputEmail = (email || '').toLowerCase().trim();
-  const inputPassword = (password || '').trim();
+  const inputPassword = password.trim();
 
   const configuredEmail = (process.env.ADMIN_EMAIL || db.settings?.email || 'shivshahidoors@gmail.com').toLowerCase().trim();
   const validAdminEmails = Array.from(new Set([
     configuredEmail,
     'shivshahidoors@gmail.com',
+    'jayhanumandoor@gmail.com',
+    'jaihanumandoor@gmail.com',
+    'orders@jaihanumandoor.com',
+    'admin@jaihanumandoor.com',
     'admin@shivshahidoors.com',
     'admin@example.com',
     'admin',
   ])).filter(Boolean);
 
-  // Email check: accepts validAdminEmails, empty email (defaulting to master), or emails containing shivshahi/admin
+  // Email check: accepts validAdminEmails, empty email (defaulting to master), brand keywords, or registered admin users
   const isEmailValid = !inputEmail ||
     validAdminEmails.includes(inputEmail) ||
+    inputEmail.includes('jaihanuman') ||
+    inputEmail.includes('jayhanuman') ||
     inputEmail.includes('shivshahi') ||
-    inputEmail.includes('admin');
+    inputEmail.includes('admin') ||
+    (Array.isArray(db.users) && db.users.some((u: any) => u.email && u.email.toLowerCase() === inputEmail));
+
+  if (!isEmailValid) {
+    console.warn(`[AdminAuth] Rejected login from ${clientIp}: Unrecognized admin email "${inputEmail}"`);
+    return res.status(401).json({ error: 'Invalid email or password. You can use default password: admin123' });
+  }
 
   // Acceptable passwords:
   // 1. Universal master default 'admin123' (ensures admin can never be locked out)
   // 2. 'admin' fallback
   // 3. Password saved in database settings (db.adminPasswordHash)
-  // 4. Password from ADMIN_PASSWORD environment variable (e.g. 'Manjit', case-insensitive)
+  // 4. Password from ADMIN_PASSWORD environment variable (case-insensitive)
   const allowedPasswords = new Set<string>([
     'admin123',
     'admin',
@@ -1515,42 +1533,65 @@ app.post('/api/auth/login', (req, res) => {
 
   if (db.adminPasswordHash) {
     allowedPasswords.add(db.adminPasswordHash.trim());
+    allowedPasswords.add(db.adminPasswordHash.trim().toLowerCase());
   }
 
   if (process.env.ADMIN_PASSWORD) {
     const rawEnv = process.env.ADMIN_PASSWORD.trim().replace(/^["']|["']$/g, '');
-    allowedPasswords.add(rawEnv);
-    allowedPasswords.add(rawEnv.toLowerCase());
+    if (rawEnv) {
+      allowedPasswords.add(rawEnv);
+      allowedPasswords.add(rawEnv.toLowerCase());
+    }
   }
 
   // Check direct password match or case-insensitive match
   let isPasswordValid = allowedPasswords.has(inputPassword) ||
     Array.from(allowedPasswords).some(p => p.toLowerCase() === inputPassword.toLowerCase());
 
-  // 5. Also check if password matches the registered profile for shivshahidoors@gmail.com or matching inputEmail
+  // Check SHA-256 unsalted hash of inputPassword against stored db.adminPasswordHash
+  if (!isPasswordValid && db.adminPasswordHash) {
+    const sha256Hex = crypto.createHash('sha256').update(inputPassword).digest('hex');
+    if (sha256Hex === db.adminPasswordHash.trim().toLowerCase()) {
+      isPasswordValid = true;
+    }
+  }
+
+  // Check salted password hashes of matching users in db.users
   if (!isPasswordValid && inputPassword && Array.isArray(db.users)) {
-    const adminUser = db.users.find((u: any) =>
+    const candidateUsers = db.users.filter((u: any) =>
+      (inputEmail && u.email && u.email.toLowerCase() === inputEmail) ||
       (u.email && u.email.toLowerCase() === 'shivshahidoors@gmail.com') ||
-      (inputEmail && u.email && u.email.toLowerCase() === inputEmail)
+      (u.email && validAdminEmails.includes(u.email.toLowerCase()))
     );
-    if (adminUser && adminUser.salt && adminUser.passwordHash) {
-      if (hashPassword(inputPassword, adminUser.salt) === adminUser.passwordHash) {
-        isPasswordValid = true;
+
+    for (const adminUser of candidateUsers) {
+      if (adminUser.salt && adminUser.passwordHash) {
+        if (hashPassword(inputPassword, adminUser.salt) === adminUser.passwordHash) {
+          isPasswordValid = true;
+          break;
+        }
       }
     }
   }
 
-  if (!isEmailValid || !isPasswordValid) {
+  if (!isPasswordValid) {
+    console.warn(`[AdminAuth] Rejected login from ${clientIp}: Password mismatch for email "${inputEmail || '(default)'}"`);
     return res.status(401).json({ error: 'Invalid email or password. You can use default password: admin123' });
   }
 
   const token = crypto.randomBytes(32).toString('hex');
   activeTokens.add(token);
 
+  console.log(`[AdminAuth] Successful login from ${clientIp} for admin account "${inputEmail || 'shivshahidoors@gmail.com'}"`);
+
   res.json({
     success: true,
     token,
-    user: { role: 'admin', email: inputEmail || 'shivshahidoors@gmail.com', name: db.settings?.businessName || 'Shivshahi Doors' },
+    user: {
+      role: 'admin',
+      email: inputEmail || configuredEmail || 'shivshahidoors@gmail.com',
+      name: db.settings?.businessName || 'Jai Hanuman Door',
+    },
   });
 });
 
