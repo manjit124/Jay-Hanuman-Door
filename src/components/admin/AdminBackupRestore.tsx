@@ -125,7 +125,7 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
   return (
     <div className="space-y-6">
       {/* Header & Status Card */}
-      <div className="p-5 rounded-xl bg-stone-800/90 border border-emerald-500/30 shadow-lg">
+      <div className="p-5 rounded-xl bg-[#F8F8F6] border border-emerald-500/30 shadow-lg">
         <div className="flex items-start sm:items-center justify-between gap-4 flex-col sm:flex-row">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
@@ -138,7 +138,7 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
                   Active & Protected
                 </span>
               </h4>
-              <p className="text-xs text-stone-400 mt-0.5">
+              <p className="text-xs text-[#666666] mt-0.5">
                 Atomic disk writes, secondary mirror redundancy, and automated rolling snapshots protect your live catalogue, prices, articles, and settings.
               </p>
             </div>
@@ -146,7 +146,7 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
           <button
             onClick={loadBackups}
             disabled={loading}
-            className="text-xs text-stone-400 hover:text-stone-200 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-900/60 border border-stone-700/50"
+            className="text-xs text-[#666666] hover:text-[#1A1A1A] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[#E5E5E5]/50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -157,21 +157,21 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
       {/* Two Action Panels: Export and Import */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Export Panel */}
-        <div className="p-5 rounded-xl bg-stone-800/80 border border-stone-700/60 flex flex-col justify-between">
+        <div className="p-5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-2.5 text-amber-400 mb-2">
+            <div className="flex items-center gap-2.5 text-[#C89211] mb-2">
               <Download className="w-5 h-5" />
               <h5 className="font-semibold text-white">Export / Download Backup</h5>
             </div>
-            <p className="text-xs text-stone-300 leading-relaxed">
+            <p className="text-xs text-[#1A1A1A] leading-relaxed">
               Download a complete, offline JSON copy of your entire catalogue, customized door prices, categories, materials, finishes, frames, articles, and settings.
             </p>
-            <div className="mt-3 p-3 rounded-lg bg-stone-900/60 border border-stone-700/40 text-[11px] text-stone-400 space-y-1">
-              <div className="flex items-center gap-1.5 text-stone-300">
+            <div className="mt-3 p-3 rounded-lg bg-white border border-[#E5E5E5]/40 text-[11px] text-[#666666] space-y-1">
+              <div className="flex items-center gap-1.5 text-[#1A1A1A]">
                 <FileCheck className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Complete database structure & customized records</span>
               </div>
-              <div className="flex items-center gap-1.5 text-stone-300">
+              <div className="flex items-center gap-1.5 text-[#1A1A1A]">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Can be safely restored anytime on Hostinger or local server</span>
               </div>
@@ -180,7 +180,7 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
           <button
             onClick={handleExport}
             disabled={exporting}
-            className="mt-5 w-full py-2.5 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 text-stone-950 font-semibold text-sm flex items-center justify-center gap-2 transition shadow-md disabled:opacity-50"
+            className="mt-5 w-full py-2.5 px-4 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-semibold text-sm flex items-center justify-center gap-2 transition shadow-md disabled:opacity-50"
           >
             <Download className="w-4 h-4" />
             {exporting ? 'Generating Backup...' : 'Download Production Backup (.JSON)'}
@@ -188,24 +188,24 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
         </div>
 
         {/* Import Panel */}
-        <div className="p-5 rounded-xl bg-stone-800/80 border border-stone-700/60 flex flex-col justify-between">
+        <div className="p-5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-2.5 text-amber-400 mb-2">
+            <div className="flex items-center gap-2.5 text-[#C89211] mb-2">
               <Upload className="w-5 h-5" />
               <h5 className="font-semibold text-white">Restore / Import Backup</h5>
             </div>
-            <p className="text-xs text-stone-300 leading-relaxed">
+            <p className="text-xs text-[#1A1A1A] leading-relaxed">
               Restore your website data from a previously exported JSON backup file. The system will automatically create a pre-restore safety snapshot before updating.
             </p>
             <div className="mt-3">
-              <label className="block text-xs font-medium text-stone-300 mb-1.5">
+              <label className="block text-xs font-medium text-[#1A1A1A] mb-1.5">
                 Select JSON Backup File:
               </label>
               <input
                 type="file"
                 accept=".json,application/json"
                 onChange={handleFileChange}
-                className="w-full text-xs text-stone-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-stone-700 file:text-stone-200 hover:file:bg-stone-600 cursor-pointer bg-stone-900/60 p-2 rounded-lg border border-stone-700/40"
+                className="w-full text-xs text-[#1A1A1A] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-[#1A1A1A] hover:file:bg-stone-600 cursor-pointer bg-white p-2 rounded-lg border border-[#E5E5E5]/40"
               />
             </div>
           </div>
@@ -221,25 +221,25 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
       </div>
 
       {/* Automated Local Snapshots */}
-      <div className="p-5 rounded-xl bg-stone-800/80 border border-stone-700/60">
+      <div className="p-5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 text-white">
-            <HardDrive className="w-5 h-5 text-amber-400" />
+            <HardDrive className="w-5 h-5 text-[#C89211]" />
             <h5 className="font-semibold">Automated Rolling System Snapshots</h5>
           </div>
-          <span className="text-xs text-stone-400">
+          <span className="text-xs text-[#666666]">
             {backups.length} snapshots available
           </span>
         </div>
 
         {backups.length === 0 ? (
-          <div className="p-6 text-center text-xs text-stone-400 bg-stone-900/40 rounded-lg border border-stone-700/30">
+          <div className="p-6 text-center text-xs text-[#666666] bg-white rounded-lg border border-[#E5E5E5]/30">
             No local snapshots found. Snapshots are created automatically when changes are saved or builds run.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-stone-300">
-              <thead className="bg-stone-900/70 text-stone-400 border-b border-stone-700/60">
+            <table className="w-full text-left text-xs text-[#1A1A1A]">
+              <thead className="bg-white text-[#666666] border-b border-[#E5E5E5]">
                 <tr>
                   <th className="p-2.5 font-medium">Snapshot File</th>
                   <th className="p-2.5 font-medium">Timestamp</th>
@@ -248,32 +248,32 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
                   <th className="p-2.5 font-medium text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-700/40">
+              <tbody className="divide-y divide-[#E5E5E5]/40">
                 {backups.slice(0, 10).map((b) => (
-                  <tr key={b.filename} className="hover:bg-stone-700/30 transition">
-                    <td className="p-2.5 font-mono text-[11px] text-stone-200">
+                  <tr key={b.filename} className="hover:bg-stone-100/30 transition">
+                    <td className="p-2.5 font-mono text-[11px] text-[#1A1A1A]">
                       {b.filename}
                     </td>
-                    <td className="p-2.5 text-stone-400 flex items-center gap-1.5">
-                      <Clock className="w-3 h-3 text-stone-500" />
+                    <td className="p-2.5 text-[#666666] flex items-center gap-1.5">
+                      <Clock className="w-3 h-3 text-[#666666]" />
                       {new Date(b.timestamp).toLocaleString()}
                     </td>
                     <td className="p-2.5">
-                      <span className="px-2 py-0.5 rounded bg-stone-900 text-amber-300 font-mono text-[11px]">
+                      <span className="px-2 py-0.5 rounded bg-white text-[#C89211] font-mono text-[11px]">
                         {b.doorCount} doors
                       </span>
-                      <span className="ml-1.5 px-2 py-0.5 rounded bg-stone-900 text-stone-300 font-mono text-[11px]">
+                      <span className="ml-1.5 px-2 py-0.5 rounded bg-white text-[#1A1A1A] font-mono text-[11px]">
                         {b.articleCount} articles
                       </span>
                     </td>
-                    <td className="p-2.5 text-stone-400 font-mono text-[11px]">
+                    <td className="p-2.5 text-[#666666] font-mono text-[11px]">
                       {(b.sizeBytes / 1024).toFixed(1)} KB
                     </td>
                     <td className="p-2.5 text-right">
                       <button
                         onClick={() => handleRestoreLocal(b.filename)}
                         disabled={restoring === b.filename}
-                        className="px-2.5 py-1 rounded bg-stone-700 hover:bg-stone-600 text-white text-[11px] font-medium transition disabled:opacity-50"
+                        className="px-2.5 py-1 rounded bg-stone-100 hover:bg-stone-200 text-white text-[11px] font-medium transition disabled:opacity-50"
                       >
                         {restoring === b.filename ? 'Restoring...' : 'Restore'}
                       </button>

@@ -1,0 +1,194 @@
+{
+  "entities": {
+    "Door": {
+      "title": "Door",
+      "description": "Handcrafted door catalog item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "material": { "type": "string" },
+        "startingPrice": { "type": "number" },
+        "description": { "type": "string" },
+        "featured": { "type": "boolean" },
+        "popular": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "images": { "type": "array" }
+      },
+      "required": ["id", "name", "category", "startingPrice"]
+    },
+    "DoorMaterial": {
+      "title": "DoorMaterial",
+      "description": "Wood material option for door calculator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ratePerSqFt": { "type": "number" },
+        "description": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "ratePerSqFt"]
+    },
+    "PolishFinish": {
+      "title": "PolishFinish",
+      "description": "Protective polish finish option for calculator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ratePerSqFt": { "type": "number" },
+        "description": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "ratePerSqFt"]
+    },
+    "ChaukhatFrame": {
+      "title": "ChaukhatFrame",
+      "description": "Chaukhat frame option for calculator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "description": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "HardwareItem": {
+      "title": "HardwareItem",
+      "description": "Hardware and fittings option for calculator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "description": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "HomeBanner": {
+      "title": "HomeBanner",
+      "description": "Homepage promotional carousel banner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "image": { "type": "string" },
+        "slot": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "title", "slot"]
+    },
+    "Article": {
+      "title": "Article",
+      "description": "Door buying and maintenance guide article",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "content": { "type": "string" },
+        "published": { "type": "boolean" }
+      },
+      "required": ["id", "title", "slug"]
+    },
+    "DeliveryState": {
+      "title": "DeliveryState",
+      "description": "All India delivery state configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "available": { "type": "boolean" },
+        "deliveryDays": { "type": "string" }
+      },
+      "required": ["id", "name", "available"]
+    },
+    "DeliveryStory": {
+      "title": "DeliveryStory",
+      "description": "Verified customer delivery proof story",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "stateId": { "type": "string" },
+        "city": { "type": "string" },
+        "orderTitle": { "type": "string" },
+        "published": { "type": "boolean" }
+      },
+      "required": ["id", "stateId", "orderTitle"]
+    },
+    "BusinessSettings": {
+      "title": "BusinessSettings",
+      "description": "Global business contact, founder, and brand settings",
+      "type": "object",
+      "properties": {
+        "brandName": { "type": "string" },
+        "phone": { "type": "string" },
+        "whatsappNumber": { "type": "string" },
+        "address": { "type": "string" }
+      }
+    },
+    "SystemDatabase": {
+      "title": "SystemDatabase",
+      "description": "Full authoritative state document containing synchronized collections",
+      "type": "object",
+      "properties": {
+        "version": { "type": "number" },
+        "lastModified": { "type": "string" },
+        "data": { "type": "object" }
+      }
+    }
+  },
+  "firestore": {
+    "/doors/{doorId}": {
+      "schema": "Door",
+      "description": "Public catalog of door designs"
+    },
+    "/materials/{materialId}": {
+      "schema": "DoorMaterial",
+      "description": "Configurable materials for price calculation"
+    },
+    "/finishes/{finishId}": {
+      "schema": "PolishFinish",
+      "description": "Configurable polish finishes for price calculation"
+    },
+    "/frames/{frameId}": {
+      "schema": "ChaukhatFrame",
+      "description": "Configurable chaukhat frames for price calculation"
+    },
+    "/hardware/{hardwareId}": {
+      "schema": "HardwareItem",
+      "description": "Configurable hardware fittings for price calculation"
+    },
+    "/banners/{bannerId}": {
+      "schema": "HomeBanner",
+      "description": "Promotional homepage banners"
+    },
+    "/articles/{articleId}": {
+      "schema": "Article",
+      "description": "Wood wisdom articles and buyer guides"
+    },
+    "/delivery_states/{stateId}": {
+      "schema": "DeliveryState",
+      "description": "All India delivery state configurations"
+    },
+    "/delivery_stories/{storyId}": {
+      "schema": "DeliveryStory",
+      "description": "Customer delivery proof stories"
+    },
+    "/settings/{settingId}": {
+      "schema": "BusinessSettings",
+      "description": "Business settings and owner profile"
+    },
+    "/admin_store/{storeId}": {
+      "schema": "SystemDatabase",
+      "description": "Authoritative database master store snapshot"
+    }
+  }
+}

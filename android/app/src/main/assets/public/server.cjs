@@ -24,10 +24,10 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 // server.ts
 var import_config2 = require("dotenv/config");
 var import_express = __toESM(require("express"), 1);
-var import_path2 = __toESM(require("path"), 1);
-var import_fs2 = __toESM(require("fs"), 1);
+var import_path3 = __toESM(require("path"), 1);
+var import_fs3 = __toESM(require("fs"), 1);
 var import_crypto = __toESM(require("crypto"), 1);
-var import_multer = __toESM(require("multer"), 1);
+var import_multer2 = __toESM(require("multer"), 1);
 var import_vite = require("vite");
 
 // server/db.ts
@@ -114,6 +114,234 @@ function syncUploadedImages() {
     }
   }
 }
+var INITIAL_TRACKING_ORDERS = [
+  {
+    id: "ord-101",
+    trackingId: "JHD-2026-H8K24",
+    customerName: "Rahul Patil",
+    customerPhone: "+91 98224 88712",
+    customerEmail: "rahul.patil@example.com",
+    customerCity: "Pune",
+    customerAddress: "Bungalow No. 7, Baner Hills, Pune, Maharashtra 411045",
+    productName: "Royal Sagwan Carved Main Door",
+    productCategory: "Sagwan Door",
+    productImage: "https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80",
+    woodType: "Sagwan (CP Teak)",
+    finishType: "Natural Teak Wood Polish",
+    quantity: 1,
+    dimensions: {
+      widthInch: 36,
+      heightInch: 78,
+      sqFt: 19.5
+    },
+    totalAmount: 18500,
+    advancePaid: 1e4,
+    status: "active",
+    currentStageId: "mfg_25",
+    manufacturingPercent: 25,
+    deliveryStatusText: "In Workshop (Manufacturing)",
+    stages: [
+      {
+        id: "order_confirmed",
+        name: "Order Confirmed",
+        customerDescription: "Your order has been confirmed by Jai Hanuman Door.",
+        status: "completed",
+        isMilestone: false,
+        startedAt: "2026-09-28T09:30:00.000Z",
+        completedAt: "2026-09-28T10:15:00.000Z",
+        customerNote: "Order verified and technical measurements confirmed for Baner residence.",
+        updatedAt: "2026-09-28T10:15:00.000Z"
+      },
+      {
+        id: "transferred_to_workshop",
+        name: "Transferred to Workshop",
+        customerDescription: "Your order has been transferred to our manufacturing workshop.",
+        status: "completed",
+        isMilestone: false,
+        startedAt: "2026-09-28T11:00:00.000Z",
+        completedAt: "2026-09-28T12:00:00.000Z",
+        customerNote: "Job card #JHD-W-881 issued to master craftsman Santosh Suthar.",
+        updatedAt: "2026-09-28T12:00:00.000Z"
+      },
+      {
+        id: "wood_selection",
+        name: "Wood Selection",
+        customerDescription: "Wood is being selected according to your order specifications.",
+        status: "completed",
+        isMilestone: false,
+        startedAt: "2026-09-29T08:00:00.000Z",
+        completedAt: "2026-09-29T16:30:00.000Z",
+        customerNote: "Selected premium Grade-A seasoned Central Province Teak with 11% moisture balance.",
+        updatedAt: "2026-09-29T16:30:00.000Z"
+      },
+      {
+        id: "mfg_25",
+        name: "25% Manufacturing Completed",
+        customerDescription: "Initial manufacturing work on your door has been completed.",
+        status: "completed",
+        isMilestone: true,
+        milestonePercent: 25,
+        startedAt: "2026-09-30T09:00:00.000Z",
+        completedAt: "2026-10-01T15:00:00.000Z",
+        customerNote: "Frame timber planed, perimeter core joined and base panel dimensioning completed.",
+        updatedAt: "2026-10-01T15:00:00.000Z"
+      },
+      {
+        id: "mfg_50",
+        name: "50% Manufacturing Completed",
+        customerDescription: "Half of the door manufacturing work has been completed.",
+        status: "in_progress",
+        isMilestone: true,
+        milestonePercent: 50,
+        startedAt: "2026-10-02T08:30:00.000Z",
+        customerNote: "Joinery mortise & tenon interlocking in progress.",
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "mfg_75",
+        name: "75% Manufacturing Completed",
+        customerDescription: "Most of the main manufacturing work has been completed.",
+        status: "pending",
+        isMilestone: true,
+        milestonePercent: 75,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "carving_design",
+        name: "Carving & Design Work",
+        customerDescription: "Carving and designer work is in progress, if applicable to your order.",
+        status: "pending",
+        isMilestone: false,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "finishing_polishing",
+        name: "Finishing & Polishing",
+        customerDescription: "Your door is undergoing finishing and polishing.",
+        status: "pending",
+        isMilestone: false,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "mfg_100",
+        name: "100% Door Ready",
+        customerDescription: "Your door manufacturing is complete and the product is ready.",
+        status: "pending",
+        isMilestone: true,
+        milestonePercent: 100,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "transferred_to_showroom",
+        name: "Transferred to Showroom",
+        customerDescription: "Your completed door has arrived at Jai Hanuman Door showroom.",
+        status: "pending",
+        isMilestone: false,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "searching_delivery_partner",
+        name: "Searching for Delivery Partner",
+        customerDescription: "We are arranging a suitable delivery or transport partner for your order.",
+        status: "pending",
+        isMilestone: false,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "delivery_partner_confirmed",
+        name: "Delivery Partner Confirmed",
+        customerDescription: "Your delivery or transport partner has been confirmed.",
+        status: "pending",
+        isMilestone: false,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "dispatched",
+        name: "Dispatched",
+        customerDescription: "Your order has been dispatched from our showroom.",
+        status: "pending",
+        isMilestone: false,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "on_the_way",
+        name: "On the Way to Your Address",
+        customerDescription: "Your order is on its way to the delivery address.",
+        status: "pending",
+        isMilestone: false,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      },
+      {
+        id: "delivered",
+        name: "Delivered",
+        customerDescription: "Your order has been delivered.",
+        status: "pending",
+        isMilestone: false,
+        updatedAt: "2026-10-02T08:30:00.000Z"
+      }
+    ],
+    media: [
+      {
+        id: "med-1",
+        stageId: "wood_selection",
+        url: "https://images.unsplash.com/photo-1546484396-fb3fc6f95f98?auto=format&fit=crop&w=1200&q=80",
+        type: "image",
+        caption: "Central Province seasoned Teak planks selected for frame & core",
+        isCustomerVisible: true,
+        uploadedAt: "2026-09-29T16:00:00.000Z"
+      },
+      {
+        id: "med-2",
+        stageId: "mfg_25",
+        url: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80",
+        type: "image",
+        caption: "25% milestone reached: Core framing and precision mortise jointing",
+        isCustomerVisible: true,
+        uploadedAt: "2026-10-01T14:30:00.000Z"
+      }
+    ],
+    delivery: {
+      workshopTransferDate: "2026-09-28T12:00:00.000Z",
+      transferNotes: "Workshop Unit 2, Artisan Bay #4"
+    },
+    estimatedCompletionDate: "2026-10-10",
+    expectedDispatchDate: "2026-10-12",
+    workshopNotes: "Client requested extra care on bottom teak moisture sealant coat.",
+    adminInternalNotes: "Customer advance received via UPI \u20B910,000 on 28 Sep. Balance \u20B98,500 on delivery.",
+    auditHistory: [
+      {
+        id: "aud-1",
+        timestamp: "2026-09-28T10:15:00.000Z",
+        action: "Created order & confirmed",
+        actor: "Admin (shivshahidoors@gmail.com)",
+        details: "Initial order created with Tracking ID JHD-2026-H8K24"
+      },
+      {
+        id: "aud-2",
+        timestamp: "2026-09-28T12:00:00.000Z",
+        action: "Transferred to workshop",
+        actor: "Admin (shivshahidoors@gmail.com)",
+        details: "Transferred to Workshop Unit 2"
+      },
+      {
+        id: "aud-3",
+        timestamp: "2026-09-29T16:30:00.000Z",
+        action: "Completed wood selection",
+        actor: "Admin (shivshahidoors@gmail.com)",
+        details: "Selected Grade-A Sagwan wood & uploaded proof photo"
+      },
+      {
+        id: "aud-4",
+        timestamp: "2026-10-01T15:00:00.000Z",
+        action: "25% Manufacturing Completed",
+        actor: "Admin (shivshahidoors@gmail.com)",
+        details: "Milestone 25% marked completed and progress photo added"
+      }
+    ],
+    createdAt: "2026-09-28T10:15:00.000Z",
+    updatedAt: "2026-10-02T08:30:00.000Z"
+  }
+];
 var INITIAL_DATA = {
   doors: [
     {
@@ -652,7 +880,8 @@ Multiply Width in inches by Height in inches, then divide by 144:
   articleViews: [],
   articleLikes: [],
   articleShares: [],
-  aiWoodDetectorLogs: []
+  aiWoodDetectorLogs: [],
+  trackingOrders: INITIAL_TRACKING_ORDERS
 };
 var inMemoryDb = null;
 var lastBackupTime = 0;
@@ -783,7 +1012,8 @@ function normalizeDatabaseSchema(existingData) {
     articleLikes: Array.isArray(existingData.articleLikes) ? existingData.articleLikes : [],
     articleShares: Array.isArray(existingData.articleShares) ? existingData.articleShares : [],
     aiWoodDetectorLogs: Array.isArray(existingData.aiWoodDetectorLogs) ? existingData.aiWoodDetectorLogs : [],
-    woodReferences: Array.isArray(existingData.woodReferences) ? existingData.woodReferences : []
+    woodReferences: Array.isArray(existingData.woodReferences) ? existingData.woodReferences : [],
+    trackingOrders: Array.isArray(existingData.trackingOrders) ? existingData.trackingOrders : INITIAL_DATA.trackingOrders || []
   };
 }
 function getDb() {
@@ -953,7 +1183,8 @@ function importDatabaseBackup(backupPayload) {
     articleComments: Array.isArray(incomingData.articleComments) ? incomingData.articleComments : currentDb.articleComments,
     articleViews: Array.isArray(incomingData.articleViews) ? incomingData.articleViews : currentDb.articleViews,
     articleLikes: Array.isArray(incomingData.articleLikes) ? incomingData.articleLikes : currentDb.articleLikes,
-    articleShares: Array.isArray(incomingData.articleShares) ? incomingData.articleShares : currentDb.articleShares
+    articleShares: Array.isArray(incomingData.articleShares) ? incomingData.articleShares : currentDb.articleShares,
+    trackingOrders: Array.isArray(incomingData.trackingOrders) ? incomingData.trackingOrders : currentDb.trackingOrders || []
   };
   saveDb(restoredDb);
   return {
@@ -2415,6 +2646,829 @@ function startScheduledNotificationWorker() {
   console.log("Background push notification scheduler started (Asia/Kolkata timezone support)");
 }
 
+// server/trackingService.ts
+var import_fs2 = __toESM(require("fs"), 1);
+var import_path2 = __toESM(require("path"), 1);
+var import_multer = __toESM(require("multer"), 1);
+
+// src/types.ts
+var ORDER_TRACKING_STAGES = [
+  {
+    id: "order_confirmed",
+    stepNumber: 1,
+    name: "Order Confirmed",
+    customerDescription: "Your order has been confirmed by Jai Hanuman Door.",
+    category: "order",
+    isMilestone: false,
+    allowNotApplicable: false
+  },
+  {
+    id: "transferred_to_workshop",
+    stepNumber: 2,
+    name: "Transferred to Workshop",
+    customerDescription: "Your order has been transferred to our manufacturing workshop.",
+    category: "workshop",
+    isMilestone: false,
+    allowNotApplicable: false
+  },
+  {
+    id: "wood_selection",
+    stepNumber: 3,
+    name: "Wood Selection",
+    customerDescription: "Wood is being selected according to your order specifications.",
+    category: "workshop",
+    isMilestone: false,
+    allowNotApplicable: false
+  },
+  {
+    id: "mfg_25",
+    stepNumber: 4,
+    name: "25% Manufacturing Completed",
+    customerDescription: "Initial manufacturing work on your door has been completed.",
+    category: "manufacturing",
+    isMilestone: true,
+    milestonePercent: 25,
+    allowNotApplicable: false
+  },
+  {
+    id: "mfg_50",
+    stepNumber: 5,
+    name: "50% Manufacturing Completed",
+    customerDescription: "Half of the door manufacturing work has been completed.",
+    category: "manufacturing",
+    isMilestone: true,
+    milestonePercent: 50,
+    allowNotApplicable: false
+  },
+  {
+    id: "mfg_75",
+    stepNumber: 6,
+    name: "75% Manufacturing Completed",
+    customerDescription: "Most of the main manufacturing work has been completed.",
+    category: "manufacturing",
+    isMilestone: true,
+    milestonePercent: 75,
+    allowNotApplicable: false
+  },
+  {
+    id: "carving_design",
+    stepNumber: 7,
+    name: "Carving & Design Work",
+    customerDescription: "Carving and designer work is in progress, if applicable to your order.",
+    category: "manufacturing",
+    isMilestone: false,
+    allowNotApplicable: true
+  },
+  {
+    id: "finishing_polishing",
+    stepNumber: 8,
+    name: "Finishing & Polishing",
+    customerDescription: "Your door is undergoing finishing and polishing.",
+    category: "finishing",
+    isMilestone: false,
+    allowNotApplicable: true
+  },
+  {
+    id: "mfg_100",
+    stepNumber: 9,
+    name: "100% Door Ready",
+    customerDescription: "Your door manufacturing is complete and the product is ready.",
+    category: "manufacturing",
+    isMilestone: true,
+    milestonePercent: 100,
+    allowNotApplicable: false
+  },
+  {
+    id: "transferred_to_showroom",
+    stepNumber: 10,
+    name: "Transferred to Showroom",
+    customerDescription: "Your completed door has arrived at Jai Hanuman Door showroom.",
+    category: "showroom",
+    isMilestone: false,
+    allowNotApplicable: true
+  },
+  {
+    id: "searching_delivery_partner",
+    stepNumber: 11,
+    name: "Searching for Delivery Partner",
+    customerDescription: "We are arranging a suitable delivery or transport partner for your order.",
+    category: "delivery",
+    isMilestone: false,
+    allowNotApplicable: true
+  },
+  {
+    id: "delivery_partner_confirmed",
+    stepNumber: 12,
+    name: "Delivery Partner Confirmed",
+    customerDescription: "Your delivery or transport partner has been confirmed.",
+    category: "delivery",
+    isMilestone: false,
+    allowNotApplicable: true
+  },
+  {
+    id: "dispatched",
+    stepNumber: 13,
+    name: "Dispatched",
+    customerDescription: "Your order has been dispatched from our showroom.",
+    category: "delivery",
+    isMilestone: false,
+    allowNotApplicable: true
+  },
+  {
+    id: "on_the_way",
+    stepNumber: 14,
+    name: "On the Way to Your Address",
+    customerDescription: "Your order is on its way to the delivery address.",
+    category: "delivery",
+    isMilestone: false,
+    allowNotApplicable: true
+  },
+  {
+    id: "delivered",
+    stepNumber: 15,
+    name: "Delivered",
+    customerDescription: "Your order has been delivered.",
+    category: "delivery",
+    isMilestone: false,
+    allowNotApplicable: false
+  }
+];
+
+// server/trackingService.ts
+function generateUniqueTrackingId(existingOrders) {
+  const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
+  const chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const existingSet = new Set((existingOrders || []).map((o) => o.trackingId.toUpperCase()));
+  for (let attempt = 0; attempt < 1e3; attempt++) {
+    let code = "";
+    for (let i = 0; i < 5; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const candidate = `JHD-${currentYear}-${code}`;
+    if (!existingSet.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `JHD-${currentYear}-${Date.now().toString(36).toUpperCase().slice(-5)}`;
+}
+function createDefaultStages() {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  return ORDER_TRACKING_STAGES.map((st, index) => ({
+    id: st.id,
+    name: st.name,
+    customerDescription: st.customerDescription,
+    status: index === 0 ? "completed" : "pending",
+    isMilestone: st.isMilestone,
+    milestonePercent: st.milestonePercent,
+    startedAt: index === 0 ? now : void 0,
+    completedAt: index === 0 ? now : void 0,
+    customerNote: index === 0 ? "Your order has been officially verified and recorded at Jai Hanuman Door." : void 0,
+    updatedAt: now
+  }));
+}
+function calculateManufacturingPercent(stages) {
+  if (!Array.isArray(stages)) return 0;
+  const stageMap = new Map(stages.map((s) => [s.id, s.status]));
+  if (stageMap.get("mfg_100") === "completed") return 100;
+  if (stageMap.get("mfg_75") === "completed") return 75;
+  if (stageMap.get("mfg_50") === "completed") return 50;
+  if (stageMap.get("mfg_25") === "completed") return 25;
+  return 0;
+}
+function calculateDeliveryStatusText(order) {
+  if (order.status === "cancelled") return "Cancelled";
+  if (order.status === "on_hold") return "On Hold";
+  const stageMap = new Map((order.stages || []).map((s) => [s.id, s.status]));
+  if (stageMap.get("delivered") === "completed") return "Delivered";
+  if (stageMap.get("on_the_way") === "in_progress" || stageMap.get("on_the_way") === "completed") {
+    return "On the Way to Your Address";
+  }
+  if (stageMap.get("dispatched") === "in_progress" || stageMap.get("dispatched") === "completed") {
+    return "Dispatched from Showroom";
+  }
+  if (stageMap.get("delivery_partner_confirmed") === "in_progress" || stageMap.get("delivery_partner_confirmed") === "completed") {
+    return "Delivery Partner Confirmed";
+  }
+  if (stageMap.get("searching_delivery_partner") === "in_progress") {
+    return "Arranging Delivery Partner";
+  }
+  if (stageMap.get("transferred_to_showroom") === "completed" || stageMap.get("transferred_to_showroom") === "in_progress") {
+    return "At Showroom (Jai Hanuman Door)";
+  }
+  if (stageMap.get("mfg_100") === "completed") {
+    return "100% Ready (At Workshop)";
+  }
+  return "In Workshop (Manufacturing)";
+}
+function sanitizeForPublicView(order, officialWhatsApp = "7887412884") {
+  let maskedName = "Valued Customer";
+  if (order.customerName && order.customerName.trim()) {
+    const parts = order.customerName.trim().split(/\s+/);
+    if (parts.length > 1) {
+      maskedName = `${parts[0]} ${parts[parts.length - 1].charAt(0).toUpperCase()}.`;
+    } else {
+      maskedName = parts[0];
+    }
+  }
+  const currentStageDef = ORDER_TRACKING_STAGES.find((s) => s.id === order.currentStageId) || ORDER_TRACKING_STAGES[0];
+  const currentStageRec = order.stages?.find((s) => s.id === order.currentStageId);
+  const publicStages = ORDER_TRACKING_STAGES.map((def) => {
+    const rec = order.stages?.find((s) => s.id === def.id);
+    return {
+      id: def.id,
+      stepNumber: def.stepNumber,
+      name: def.name,
+      customerDescription: def.customerDescription,
+      status: rec?.status || "pending",
+      isMilestone: def.isMilestone,
+      milestonePercent: def.milestonePercent,
+      startedAt: rec?.startedAt,
+      completedAt: rec?.completedAt,
+      customerNote: rec?.customerNote || void 0,
+      notApplicableReason: rec?.status === "not_applicable" ? rec.notApplicableReason : void 0
+    };
+  });
+  const publicMedia = (order.media || []).filter((m) => m.isCustomerVisible !== false).map((m) => ({
+    id: m.id,
+    stageId: m.stageId,
+    url: m.url,
+    type: m.type,
+    caption: m.caption,
+    uploadedAt: m.uploadedAt
+  }));
+  return {
+    trackingId: order.trackingId,
+    customerName: maskedName,
+    customerCity: order.customerCity || void 0,
+    productName: order.productName,
+    productCategory: order.productCategory,
+    productImage: order.productImage,
+    woodType: order.woodType,
+    finishType: order.finishType,
+    quantity: order.quantity || 1,
+    dimensions: order.dimensions,
+    orderDate: order.createdAt,
+    lastUpdated: order.updatedAt,
+    status: order.status,
+    statusReason: order.statusReason,
+    currentStage: {
+      id: currentStageDef.id,
+      name: currentStageDef.name,
+      description: currentStageDef.customerDescription,
+      status: currentStageRec?.status || "in_progress"
+    },
+    manufacturingPercent: order.manufacturingPercent,
+    deliveryStatusText: order.deliveryStatusText,
+    stages: publicStages,
+    media: publicMedia,
+    delivery: order.delivery ? {
+      deliveryPartnerName: order.delivery.deliveryPartnerName,
+      transportCompany: order.delivery.transportCompany,
+      lrNumber: order.delivery.lrNumber,
+      trackingUrl: order.delivery.trackingUrl,
+      dispatchedAt: order.delivery.dispatchedAt,
+      estimatedDeliveryAt: order.delivery.estimatedDeliveryAt,
+      deliveredAt: order.delivery.deliveredAt,
+      showroomTransferDate: order.delivery.showroomTransferDate
+    } : void 0,
+    estimatedCompletionDate: order.estimatedCompletionDate,
+    expectedDispatchDate: order.expectedDispatchDate,
+    officialWhatsApp,
+    officialPhone: "+91 78874 12884"
+  };
+}
+var storage = import_multer.default.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, UPLOAD_DIR);
+  },
+  filename: (_req, file, cb) => {
+    const ext = import_path2.default.extname(file.originalname).toLowerCase();
+    const cleanExt = [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".webm", ".gif"].includes(ext) ? ext : ".jpg";
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `track-${uniqueSuffix}${cleanExt}`);
+  }
+});
+var mediaUpload = (0, import_multer.default)({
+  storage,
+  limits: { fileSize: 40 * 1024 * 1024 },
+  // 40MB for photo & short progress clip
+  fileFilter: (_req, file, cb) => {
+    const allowed = /jpeg|jpg|png|webp|gif|mp4|webm|quicktime/;
+    const extname = allowed.test(import_path2.default.extname(file.originalname).toLowerCase());
+    const mimetype = allowed.test(file.mimetype) || file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/");
+    if (extname && mimetype) {
+      return cb(null, true);
+    }
+    cb(new Error("Only images (JPG, PNG, WebP) and videos (MP4, WebM) are allowed"));
+  }
+});
+function initTrackingRoutes(app2, verifyAdminToken2) {
+  const publicRateLimitMap = /* @__PURE__ */ new Map();
+  const isRateLimited = (ip) => {
+    const now = Date.now();
+    const record = publicRateLimitMap.get(ip);
+    if (!record || now > record.resetAt) {
+      publicRateLimitMap.set(ip, { count: 1, resetAt: now + 6e4 });
+      return false;
+    }
+    record.count++;
+    return record.count > 60;
+  };
+  app2.get("/api/tracking/:trackingId", (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || "unknown";
+    if (isRateLimited(clientIp)) {
+      return res.status(429).json({
+        error: "Too many tracking requests. Please try again after 1 minute."
+      });
+    }
+    const rawId = req.params.trackingId;
+    if (!rawId || typeof rawId !== "string" || rawId.trim().length < 3) {
+      return res.status(400).json({ error: "Valid Tracking ID is required." });
+    }
+    const cleanId = rawId.trim().toUpperCase();
+    const db = getDb();
+    const orders = db.trackingOrders || [];
+    const order = orders.find(
+      (o) => o.trackingId.toUpperCase() === cleanId || o.id.toLowerCase() === rawId.trim().toLowerCase()
+    );
+    if (!order) {
+      return res.status(404).json({
+        error: "No order found with this Tracking ID. Please verify your ID or contact Jai Hanuman Door on WhatsApp."
+      });
+    }
+    const whatsappNumber = db.settings?.whatsappNumber || "7887412884";
+    const publicView = sanitizeForPublicView(order, whatsappNumber);
+    return res.json({ success: true, tracking: publicView });
+  });
+  app2.get("/api/admin/tracking-orders", verifyAdminToken2, (req, res) => {
+    const db = getDb();
+    let orders = [...db.trackingOrders || []];
+    const { search, status, stage } = req.query;
+    if (status && typeof status === "string" && status !== "all") {
+      orders = orders.filter((o) => o.status === status);
+    }
+    if (stage && typeof stage === "string" && stage !== "all") {
+      orders = orders.filter((o) => o.currentStageId === stage);
+    }
+    if (search && typeof search === "string" && search.trim()) {
+      const q = search.trim().toLowerCase();
+      orders = orders.filter(
+        (o) => o.trackingId.toLowerCase().includes(q) || o.customerName.toLowerCase().includes(q) || o.customerPhone.toLowerCase().includes(q) || o.productName.toLowerCase().includes(q) || o.customerCity && o.customerCity.toLowerCase().includes(q)
+      );
+    }
+    orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    res.json({
+      success: true,
+      orders,
+      totalCount: orders.length
+    });
+  });
+  app2.get("/api/admin/tracking-orders/:id", verifyAdminToken2, (req, res) => {
+    const { id } = req.params;
+    const db = getDb();
+    const order = (db.trackingOrders || []).find(
+      (o) => o.id === id || o.trackingId.toUpperCase() === id.toUpperCase()
+    );
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    res.json({ success: true, order });
+  });
+  app2.post("/api/admin/tracking-orders", verifyAdminToken2, (req, res) => {
+    try {
+      const {
+        customerName,
+        customerPhone,
+        customerEmail,
+        customerCity,
+        customerAddress,
+        productName,
+        productCategory,
+        productImage,
+        woodType,
+        finishType,
+        quantity,
+        dimensions,
+        totalAmount,
+        advancePaid,
+        linkedQuotationId,
+        linkedEnquiryId,
+        estimatedCompletionDate,
+        expectedDispatchDate,
+        workshopNotes,
+        showroomNotes,
+        adminInternalNotes
+      } = req.body;
+      if (!customerName || !customerName.trim()) {
+        return res.status(400).json({ error: "Customer Name is required" });
+      }
+      if (!productName || !productName.trim()) {
+        return res.status(400).json({ error: "Product Name is required" });
+      }
+      const db = getDb();
+      const existingOrders = db.trackingOrders || [];
+      const trackingId = generateUniqueTrackingId(existingOrders);
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const stages = createDefaultStages();
+      const mfgPercent = calculateManufacturingPercent(stages);
+      const deliveryStatus = calculateDeliveryStatusText({
+        status: "active",
+        currentStageId: "order_confirmed",
+        stages
+      });
+      const newOrder = {
+        id: `ord-${Date.now()}`,
+        trackingId,
+        customerName: customerName.trim(),
+        customerPhone: (customerPhone || "").trim(),
+        customerEmail: (customerEmail || "").trim() || void 0,
+        customerCity: (customerCity || "").trim() || "Pune",
+        customerAddress: (customerAddress || "").trim() || void 0,
+        productName: productName.trim(),
+        productCategory: (productCategory || "Main Door").trim(),
+        productImage: productImage || "https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80",
+        woodType: (woodType || "Sagwan (Teak Wood)").trim(),
+        finishType: (finishType || "Natural Teak Wood Polish").trim(),
+        quantity: Math.max(1, Number(quantity) || 1),
+        dimensions: dimensions || { widthInch: 36, heightInch: 78, sqFt: 19.5 },
+        totalAmount: Number(totalAmount) || 0,
+        advancePaid: Number(advancePaid) || 0,
+        linkedQuotationId: linkedQuotationId || void 0,
+        linkedEnquiryId: linkedEnquiryId || void 0,
+        status: "active",
+        currentStageId: "order_confirmed",
+        manufacturingPercent: mfgPercent,
+        deliveryStatusText: deliveryStatus,
+        stages,
+        media: [],
+        delivery: {},
+        estimatedCompletionDate: estimatedCompletionDate || void 0,
+        expectedDispatchDate: expectedDispatchDate || void 0,
+        workshopNotes: (workshopNotes || "").trim() || void 0,
+        showroomNotes: (showroomNotes || "").trim() || void 0,
+        adminInternalNotes: (adminInternalNotes || "").trim() || void 0,
+        auditHistory: [
+          {
+            id: `aud-${Date.now()}`,
+            timestamp: now,
+            action: "Order Created",
+            stageId: "order_confirmed",
+            actor: "Admin (shivshahidoors@gmail.com)",
+            details: `Created trackable order ${trackingId} for ${customerName.trim()} (${productName.trim()})`
+          }
+        ],
+        createdAt: now,
+        updatedAt: now
+      };
+      db.trackingOrders = [newOrder, ...existingOrders];
+      saveDb(db, {
+        entity: "orders",
+        action: "create",
+        details: `Created trackable order ${trackingId}`
+      });
+      res.status(201).json({ success: true, order: newOrder });
+    } catch (err) {
+      console.error("Error creating tracking order:", err);
+      res.status(500).json({ error: err.message || "Failed to create tracking order" });
+    }
+  });
+  app2.put("/api/admin/tracking-orders/:id", verifyAdminToken2, (req, res) => {
+    try {
+      const { id } = req.params;
+      const db = getDb();
+      const orders = db.trackingOrders || [];
+      const index = orders.findIndex((o) => o.id === id || o.trackingId.toUpperCase() === id.toUpperCase());
+      if (index === -1) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const existing = orders[index];
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const updated = {
+        ...existing,
+        ...req.body,
+        id: existing.id,
+        trackingId: existing.trackingId,
+        // Tracking ID cannot be altered
+        stages: existing.stages,
+        // Handled by separate stage endpoint
+        media: existing.media,
+        // Handled by media endpoint
+        auditHistory: [
+          ...existing.auditHistory,
+          {
+            id: `aud-${Date.now()}`,
+            timestamp: now,
+            action: "Order Updated",
+            actor: "Admin (shivshahidoors@gmail.com)",
+            details: req.body.updateSummary || "Updated general order details"
+          }
+        ],
+        updatedAt: now
+      };
+      updated.manufacturingPercent = calculateManufacturingPercent(updated.stages);
+      updated.deliveryStatusText = calculateDeliveryStatusText(updated);
+      orders[index] = updated;
+      db.trackingOrders = orders;
+      saveDb(db);
+      res.json({ success: true, order: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message || "Failed to update order" });
+    }
+  });
+  app2.put("/api/admin/tracking-orders/:id/stage", verifyAdminToken2, (req, res) => {
+    try {
+      const { id } = req.params;
+      const { stageId, status, customerNote, adminNote, notApplicableReason, moveNext } = req.body;
+      if (!stageId || !status) {
+        return res.status(400).json({ error: "stageId and status are required" });
+      }
+      const validStatuses = ["pending", "in_progress", "completed", "on_hold", "not_applicable"];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: "Invalid status" });
+      }
+      const db = getDb();
+      const orders = db.trackingOrders || [];
+      const orderIndex = orders.findIndex((o) => o.id === id || o.trackingId.toUpperCase() === id.toUpperCase());
+      if (orderIndex === -1) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const order = orders[orderIndex];
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const stageIndex = order.stages.findIndex((s) => s.id === stageId);
+      if (stageIndex === -1) {
+        return res.status(404).json({ error: "Stage not found in order" });
+      }
+      const stage = order.stages[stageIndex];
+      const oldStatus = stage.status;
+      stage.status = status;
+      stage.updatedAt = now;
+      if (customerNote !== void 0) stage.customerNote = customerNote;
+      if (adminNote !== void 0) stage.adminNote = adminNote;
+      if (notApplicableReason !== void 0) stage.notApplicableReason = notApplicableReason;
+      if (status === "in_progress" && !stage.startedAt) {
+        stage.startedAt = now;
+      }
+      if (status === "completed" && !stage.completedAt) {
+        stage.completedAt = now;
+      }
+      if (status === "pending") {
+        stage.completedAt = void 0;
+      }
+      if (moveNext || status === "completed" && order.currentStageId === stageId) {
+        const nextStage = order.stages.slice(stageIndex + 1).find((s) => s.status !== "not_applicable");
+        if (nextStage) {
+          order.currentStageId = nextStage.id;
+          if (nextStage.status === "pending") {
+            nextStage.status = "in_progress";
+            nextStage.startedAt = now;
+            nextStage.updatedAt = now;
+          }
+        }
+      } else if (status === "in_progress") {
+        order.currentStageId = stageId;
+      }
+      if (stageId === "delivered" && status === "completed") {
+        order.status = "completed";
+        if (!order.delivery) order.delivery = {};
+        order.delivery.deliveredAt = now;
+      }
+      order.manufacturingPercent = calculateManufacturingPercent(order.stages);
+      order.deliveryStatusText = calculateDeliveryStatusText(order);
+      order.updatedAt = now;
+      const auditDetails = `Stage '${stage.name}' changed from ${oldStatus} to ${status}${customerNote ? ` (Note: ${customerNote})` : ""}`;
+      order.auditHistory.push({
+        id: `aud-${Date.now()}`,
+        timestamp: now,
+        action: `Stage: ${stage.name}`,
+        stageId,
+        actor: "Admin (shivshahidoors@gmail.com)",
+        details: auditDetails
+      });
+      orders[orderIndex] = order;
+      db.trackingOrders = orders;
+      saveDb(db, {
+        entity: "orders",
+        action: "update",
+        details: `Updated stage ${stageId} for order ${order.trackingId}`
+      });
+      res.json({ success: true, order });
+    } catch (err) {
+      console.error("Error updating stage:", err);
+      res.status(500).json({ error: err.message || "Failed to update stage" });
+    }
+  });
+  app2.post(
+    "/api/admin/tracking-orders/:id/media",
+    verifyAdminToken2,
+    mediaUpload.single("file"),
+    (req, res) => {
+      try {
+        const { id } = req.params;
+        const { stageId, caption, isCustomerVisible } = req.body;
+        if (!req.file) {
+          return res.status(400).json({ error: "No media file provided" });
+        }
+        try {
+          const backupPath = import_path2.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
+          import_fs2.default.copyFileSync(req.file.path, backupPath);
+        } catch {
+        }
+        const db = getDb();
+        const orders = db.trackingOrders || [];
+        const orderIndex = orders.findIndex((o) => o.id === id || o.trackingId.toUpperCase() === id.toUpperCase());
+        if (orderIndex === -1) {
+          return res.status(404).json({ error: "Order not found" });
+        }
+        const order = orders[orderIndex];
+        const isVideo = req.file.mimetype.startsWith("video/") || req.file.filename.endsWith(".mp4") || req.file.filename.endsWith(".webm");
+        const mediaUrl = `/uploads/${req.file.filename}`;
+        const now = (/* @__PURE__ */ new Date()).toISOString();
+        const newMedia = {
+          id: `med-${Date.now()}`,
+          stageId: stageId || order.currentStageId,
+          url: mediaUrl,
+          type: isVideo ? "video" : "image",
+          caption: (caption || "").trim() || void 0,
+          isCustomerVisible: isCustomerVisible === "false" ? false : true,
+          uploadedAt: now
+        };
+        order.media = [...order.media || [], newMedia];
+        order.updatedAt = now;
+        order.auditHistory.push({
+          id: `aud-${Date.now()}`,
+          timestamp: now,
+          action: "Media Uploaded",
+          stageId: newMedia.stageId,
+          actor: "Admin (shivshahidoors@gmail.com)",
+          details: `Uploaded ${isVideo ? "video" : "photo"} for stage ${newMedia.stageId}`
+        });
+        orders[orderIndex] = order;
+        db.trackingOrders = orders;
+        saveDb(db);
+        res.status(201).json({ success: true, media: newMedia, order });
+      } catch (err) {
+        console.error("Error uploading tracking media:", err);
+        res.status(500).json({ error: err.message || "Failed to upload media" });
+      }
+    }
+  );
+  app2.delete("/api/admin/tracking-orders/:id/media/:mediaId", verifyAdminToken2, (req, res) => {
+    try {
+      const { id, mediaId } = req.params;
+      const db = getDb();
+      const orders = db.trackingOrders || [];
+      const orderIndex = orders.findIndex((o) => o.id === id || o.trackingId.toUpperCase() === id.toUpperCase());
+      if (orderIndex === -1) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const order = orders[orderIndex];
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      order.media = (order.media || []).filter((m) => m.id !== mediaId);
+      order.updatedAt = now;
+      order.auditHistory.push({
+        id: `aud-${Date.now()}`,
+        timestamp: now,
+        action: "Media Deleted",
+        actor: "Admin (shivshahidoors@gmail.com)",
+        details: `Deleted media item ${mediaId}`
+      });
+      orders[orderIndex] = order;
+      db.trackingOrders = orders;
+      saveDb(db);
+      res.json({ success: true, order });
+    } catch (err) {
+      res.status(500).json({ error: err.message || "Failed to delete media" });
+    }
+  });
+  app2.put("/api/admin/tracking-orders/:id/delivery", verifyAdminToken2, (req, res) => {
+    try {
+      const { id } = req.params;
+      const deliveryData = req.body;
+      const db = getDb();
+      const orders = db.trackingOrders || [];
+      const orderIndex = orders.findIndex((o) => o.id === id || o.trackingId.toUpperCase() === id.toUpperCase());
+      if (orderIndex === -1) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const order = orders[orderIndex];
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      order.delivery = {
+        ...order.delivery,
+        ...deliveryData
+      };
+      order.updatedAt = now;
+      order.auditHistory.push({
+        id: `aud-${Date.now()}`,
+        timestamp: now,
+        action: "Delivery Info Updated",
+        actor: "Admin (shivshahidoors@gmail.com)",
+        details: `Updated delivery partner / dispatch info: ${deliveryData.deliveryPartnerName || deliveryData.transportCompany || "Details updated"}`
+      });
+      orders[orderIndex] = order;
+      db.trackingOrders = orders;
+      saveDb(db);
+      res.json({ success: true, order });
+    } catch (err) {
+      res.status(500).json({ error: err.message || "Failed to update delivery info" });
+    }
+  });
+  app2.post("/api/admin/tracking-orders/:id/deliver", verifyAdminToken2, (req, res) => {
+    try {
+      const { id } = req.params;
+      const { deliveryNotes } = req.body;
+      const db = getDb();
+      const orders = db.trackingOrders || [];
+      const orderIndex = orders.findIndex((o) => o.id === id || o.trackingId.toUpperCase() === id.toUpperCase());
+      if (orderIndex === -1) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const order = orders[orderIndex];
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const deliveredStage = order.stages.find((s) => s.id === "delivered");
+      if (deliveredStage) {
+        deliveredStage.status = "completed";
+        deliveredStage.completedAt = now;
+        deliveredStage.updatedAt = now;
+        if (deliveryNotes) deliveredStage.customerNote = deliveryNotes;
+      }
+      order.status = "completed";
+      order.currentStageId = "delivered";
+      if (!order.delivery) order.delivery = {};
+      order.delivery.deliveredAt = now;
+      order.deliveryStatusText = "Delivered";
+      order.updatedAt = now;
+      order.auditHistory.push({
+        id: `aud-${Date.now()}`,
+        timestamp: now,
+        action: "Order Delivered",
+        stageId: "delivered",
+        actor: "Admin (shivshahidoors@gmail.com)",
+        details: `Order marked as successfully delivered to customer. ${deliveryNotes ? `Note: ${deliveryNotes}` : ""}`
+      });
+      orders[orderIndex] = order;
+      db.trackingOrders = orders;
+      saveDb(db);
+      res.json({ success: true, order });
+    } catch (err) {
+      res.status(500).json({ error: err.message || "Failed to mark as delivered" });
+    }
+  });
+  app2.post("/api/admin/tracking-orders/:id/cancel", verifyAdminToken2, (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      if (!reason || !reason.trim()) {
+        return res.status(400).json({ error: "Cancellation reason is required" });
+      }
+      const db = getDb();
+      const orders = db.trackingOrders || [];
+      const orderIndex = orders.findIndex((o) => o.id === id || o.trackingId.toUpperCase() === id.toUpperCase());
+      if (orderIndex === -1) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      const order = orders[orderIndex];
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      order.status = "cancelled";
+      order.statusReason = reason.trim();
+      order.deliveryStatusText = "Cancelled";
+      order.updatedAt = now;
+      order.auditHistory.push({
+        id: `aud-${Date.now()}`,
+        timestamp: now,
+        action: "Order Cancelled",
+        actor: "Admin (shivshahidoors@gmail.com)",
+        details: `Order cancelled. Reason: ${reason.trim()}`
+      });
+      orders[orderIndex] = order;
+      db.trackingOrders = orders;
+      saveDb(db);
+      res.json({ success: true, order });
+    } catch (err) {
+      res.status(500).json({ error: err.message || "Failed to cancel order" });
+    }
+  });
+  app2.delete("/api/admin/tracking-orders/:id", verifyAdminToken2, (req, res) => {
+    try {
+      const { id } = req.params;
+      const db = getDb();
+      const orders = db.trackingOrders || [];
+      const order = orders.find((o) => o.id === id || o.trackingId.toUpperCase() === id.toUpperCase());
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      db.trackingOrders = orders.filter((o) => o.id !== order.id);
+      saveDb(db, {
+        entity: "orders",
+        action: "delete",
+        details: `Deleted order ${order.trackingId} (${order.customerName})`
+      });
+      res.json({ success: true, message: `Order ${order.trackingId} deleted successfully` });
+    } catch (err) {
+      res.status(500).json({ error: err.message || "Failed to delete order" });
+    }
+  });
+}
+
 // server.ts
 var app = (0, import_express.default)();
 var PORT = Number(process.env.PORT) || 3e3;
@@ -2463,19 +3517,19 @@ app.use(import_express.default.json({ limit: "50mb" }));
 app.use(import_express.default.urlencoded({ extended: true, limit: "50mb" }));
 app.use("/uploads", import_express.default.static(UPLOAD_DIR));
 app.use("/uploads", import_express.default.static(UPLOAD_BACKUP_DIR));
-var storage = import_multer.default.diskStorage({
+var storage2 = import_multer2.default.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, UPLOAD_DIR);
   },
   filename: (_req, file, cb) => {
-    const ext = import_path2.default.extname(file.originalname) || ".jpg";
-    const cleanName = import_path2.default.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const ext = import_path3.default.extname(file.originalname) || ".jpg";
+    const cleanName = import_path3.default.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e6);
     cb(null, `${cleanName}-${uniqueSuffix}${ext}`);
   }
 });
-var upload = (0, import_multer.default)({
-  storage,
+var upload = (0, import_multer2.default)({
+  storage: storage2,
   limits: { fileSize: 15 * 1024 * 1024 },
   // 15 MB
   fileFilter: (_req, file, cb) => {
@@ -2486,8 +3540,8 @@ var upload = (0, import_multer.default)({
     }
   }
 });
-var memoryUpload = (0, import_multer.default)({
-  storage: import_multer.default.memoryStorage(),
+var memoryUpload = (0, import_multer2.default)({
+  storage: import_multer2.default.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
   // 15 MB
   fileFilter: (_req, file, cb) => {
@@ -2514,13 +3568,14 @@ var verifyAdminToken = (req, res, next) => {
   }
   next();
 };
+initTrackingRoutes(app, verifyAdminToken);
 app.post("/api/upload", upload.single("file"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No image file uploaded" });
   }
   try {
-    const backupPath = import_path2.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
-    import_fs2.default.copyFileSync(req.file.path, backupPath);
+    const backupPath = import_path3.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
+    import_fs3.default.copyFileSync(req.file.path, backupPath);
   } catch (err) {
     console.warn("\u26A0\uFE0F Could not mirror uploaded file to persistent backup dir:", err);
   }
@@ -2539,8 +3594,8 @@ app.post("/api/upload-multiple", upload.array("files", 10), (req, res) => {
   const multerFiles = req.files;
   multerFiles.forEach((f) => {
     try {
-      const backupPath = import_path2.default.join(UPLOAD_BACKUP_DIR, f.filename);
-      import_fs2.default.copyFileSync(f.path, backupPath);
+      const backupPath = import_path3.default.join(UPLOAD_BACKUP_DIR, f.filename);
+      import_fs3.default.copyFileSync(f.path, backupPath);
     } catch {
     }
   });
@@ -2804,17 +3859,17 @@ app.get("/api/media/render", (req, res) => {
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
   if (rawUrl.startsWith("/uploads/") || rawUrl.startsWith("uploads/")) {
-    const filename = import_path2.default.basename(rawUrl.split("?")[0]);
-    const safeFilePath = import_path2.default.join(UPLOAD_DIR, filename);
-    if (import_fs2.default.existsSync(safeFilePath)) {
+    const filename = import_path3.default.basename(rawUrl.split("?")[0]);
+    const safeFilePath = import_path3.default.join(UPLOAD_DIR, filename);
+    if (import_fs3.default.existsSync(safeFilePath)) {
       return res.sendFile(safeFilePath);
     }
     return res.status(404).send("Image not found");
   }
   if (rawUrl.startsWith("/assets/") || rawUrl.startsWith("assets/")) {
-    const filename = import_path2.default.basename(rawUrl.split("?")[0]);
-    const safeFilePath = import_path2.default.join(process.cwd(), "public", "assets", filename);
-    if (import_fs2.default.existsSync(safeFilePath)) {
+    const filename = import_path3.default.basename(rawUrl.split("?")[0]);
+    const safeFilePath = import_path3.default.join(process.cwd(), "public", "assets", filename);
+    if (import_fs3.default.existsSync(safeFilePath)) {
       return res.sendFile(safeFilePath);
     }
   }
@@ -2828,9 +3883,9 @@ app.get("/api/admin/media/download-original", verifyAdminToken, (req, res) => {
   if (!target) {
     return res.status(400).json({ error: "filename or url is required" });
   }
-  const baseName = import_path2.default.basename(target);
-  const filePath = import_path2.default.join(UPLOAD_DIR, baseName);
-  if (import_fs2.default.existsSync(filePath)) {
+  const baseName = import_path3.default.basename(target);
+  const filePath = import_path3.default.join(UPLOAD_DIR, baseName);
+  if (import_fs3.default.existsSync(filePath)) {
     res.setHeader("Content-Disposition", `attachment; filename="original-${baseName}"`);
     return res.sendFile(filePath);
   }
@@ -3082,7 +4137,8 @@ app.get("/api/admin/all-data", verifyAdminToken, (_req, res) => {
     articles: db.articles,
     quotes: db.quotes,
     settings: db.settings,
-    teamMembers: (db.teamMembers || []).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+    teamMembers: (db.teamMembers || []).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)),
+    trackingOrders: db.trackingOrders || []
   });
 });
 app.post("/api/admin/doors", verifyAdminToken, (req, res) => {
@@ -4482,15 +5538,15 @@ var handleSitemapRequest = (_req, res) => {
     console.error("\u274C Error dynamically generating /sitemap.xml:", err);
     const appDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
     const staticCandidates = [
-      import_path2.default.join(process.cwd(), "dist", "sitemap.xml"),
-      import_path2.default.join(process.cwd(), "public", "sitemap.xml"),
-      import_path2.default.join(appDir, "dist", "sitemap.xml"),
-      import_path2.default.join(appDir, "public", "sitemap.xml")
+      import_path3.default.join(process.cwd(), "dist", "sitemap.xml"),
+      import_path3.default.join(process.cwd(), "public", "sitemap.xml"),
+      import_path3.default.join(appDir, "dist", "sitemap.xml"),
+      import_path3.default.join(appDir, "public", "sitemap.xml")
     ];
     for (const p of staticCandidates) {
-      if (import_fs2.default.existsSync(p)) {
+      if (import_fs3.default.existsSync(p)) {
         try {
-          const staticXml = import_fs2.default.readFileSync(p, "utf8");
+          const staticXml = import_fs3.default.readFileSync(p, "utf8");
           return res.status(200).send(staticXml);
         } catch {
         }
@@ -4520,12 +5576,12 @@ app.get(["/robots.txt", "/robots.txt/"], handleRobotsRequest);
 function findDistDirectory() {
   const appDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
   const candidatePaths = [
-    import_path2.default.join(process.cwd(), "dist"),
-    import_path2.default.join(appDir, "dist"),
-    import_path2.default.resolve(appDir)
+    import_path3.default.join(process.cwd(), "dist"),
+    import_path3.default.join(appDir, "dist"),
+    import_path3.default.resolve(appDir)
   ];
   for (const candidate of candidatePaths) {
-    if (import_fs2.default.existsSync(import_path2.default.join(candidate, "index.html"))) {
+    if (import_fs3.default.existsSync(import_path3.default.join(candidate, "index.html"))) {
       return candidate;
     }
   }
@@ -4572,7 +5628,7 @@ async function startServer() {
     console.log(`\u{1F4C1} Static files found at: ${distPath}. Serving in PRODUCTION mode.`);
     app.use(import_express.default.static(distPath, { maxAge: "1d", index: false }));
     app.get("/", (_req, res) => {
-      res.sendFile(import_path2.default.join(distPath, "index.html"));
+      res.sendFile(import_path3.default.join(distPath, "index.html"));
     });
     app.all("/api/*", (req, res) => {
       res.status(404).json({
@@ -4594,7 +5650,7 @@ async function startServer() {
       if (/\.(xml|txt|json|js|css|map|png|jpg|jpeg|svg|webp|ico|woff|woff2|ttf|eot)$/i.test(url)) {
         return res.status(404).type("text/plain").send("Resource not found");
       }
-      res.sendFile(import_path2.default.join(distPath, "index.html"));
+      res.sendFile(import_path3.default.join(distPath, "index.html"));
     });
   } else {
     console.error('\u274C Production mode active but dist/index.html was not found! Please run "npm run build".');

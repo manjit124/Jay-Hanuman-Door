@@ -473,7 +473,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
   }, [articles, searchQuery, statusFilter, categoryFilter]);
 
   return (
-    <div className="space-y-6 text-stone-100">
+    <div className="space-y-6 text-[#1A1A1A]">
       {/* Toast & Error Banners */}
       {toastMessage && (
         <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center justify-between shadow-lg">
@@ -500,15 +500,15 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
       )}
 
       {/* Top Header & Sub-Tab Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#E5E5E5]">
         <div>
           <div className="flex items-center gap-2">
-            <FileText className="w-6 h-6 text-amber-500" />
+            <FileText className="w-6 h-6 text-[#C89211]" />
             <h2 className="font-serif text-2xl font-bold text-white tracking-tight">
               Content & Article Hub
             </h2>
           </div>
-          <p className="text-xs text-stone-400 mt-1">
+          <p className="text-xs text-[#666666] mt-1">
             Publish educational door guides, inspect engagement metrics, moderate comments, and integrate YouTube videos.
           </p>
         </div>
@@ -517,16 +517,16 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
           <button
             onClick={loadAllData}
             disabled={loading}
-            className="p-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 transition-colors"
+            className="p-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] transition-colors"
             title="Reload Data"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-500' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#C89211]' : ''}`} />
           </button>
 
           <button
             id="admin-write-new-guide-btn"
             onClick={handleOpenCreate}
-            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-950/50 transition-all active:scale-95"
+            className="px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-950/50 transition-all active:scale-95"
           >
             <Plus className="w-4 h-4" />
             Write New Guide
@@ -535,13 +535,13 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
       </div>
 
       {/* Sub-Tabs Selector */}
-      <div className="flex items-center gap-2 border-b border-stone-800 pb-2 overflow-x-auto text-xs">
+      <div className="flex items-center gap-2 border-b border-[#E5E5E5] pb-2 overflow-x-auto text-xs">
         <button
           onClick={() => setSubTab('articles')}
           className={`px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
             subTab === 'articles'
-              ? 'bg-amber-500 text-stone-950 shadow-sm'
-              : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800/60'
+              ? 'bg-[#C89211] text-white shadow-sm'
+              : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-[#F8F8F6]'
           }`}
         >
           <FileText className="w-3.5 h-3.5" />
@@ -552,8 +552,8 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
           onClick={() => setSubTab('comments')}
           className={`px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap relative ${
             subTab === 'comments'
-              ? 'bg-amber-500 text-stone-950 shadow-sm'
-              : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800/60'
+              ? 'bg-[#C89211] text-white shadow-sm'
+              : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-[#F8F8F6]'
           }`}
         >
           <MessageSquare className="w-3.5 h-3.5" />
@@ -569,8 +569,8 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
           onClick={() => setSubTab('analytics')}
           className={`px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
             subTab === 'analytics'
-              ? 'bg-amber-500 text-stone-950 shadow-sm'
-              : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800/60'
+              ? 'bg-[#C89211] text-white shadow-sm'
+              : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-[#F8F8F6]'
           }`}
         >
           <BarChart3 className="w-3.5 h-3.5" />
@@ -581,8 +581,8 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
           onClick={() => setSubTab('categories')}
           className={`px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap ${
             subTab === 'categories'
-              ? 'bg-amber-500 text-stone-950 shadow-sm'
-              : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800/60'
+              ? 'bg-[#C89211] text-white shadow-sm'
+              : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-[#F8F8F6]'
           }`}
         >
           <Tag className="w-3.5 h-3.5" />
@@ -598,13 +598,13 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
           {/* Filters Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="relative">
-              <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-[#666666] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Search articles by title, author, keyword..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-100 text-xs focus:outline-none focus:border-amber-500 transition-colors"
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211] transition-colors"
               />
             </div>
 
@@ -612,7 +612,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               <select
                 value={statusFilter}
                 onChange={e => setStatusFilter(e.target.value as any)}
-                className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-300 text-xs focus:outline-none focus:border-amber-500"
+                className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
               >
                 <option value="all">All Statuses</option>
                 <option value="published">Published</option>
@@ -626,7 +626,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               <select
                 value={categoryFilter}
                 onChange={e => setCategoryFilter(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-300 text-xs focus:outline-none focus:border-amber-500"
+                className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
               >
                 <option value="all">All Categories</option>
                 {categories.map(c => (
@@ -640,12 +640,12 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
 
           {/* Articles Table / Cards */}
           {filteredArticles.length === 0 ? (
-            <div className="p-8 text-center rounded-2xl bg-stone-900/50 border border-stone-800 text-stone-400 space-y-3">
+            <div className="p-8 text-center rounded-2xl bg-white border border-[#E5E5E5] text-[#666666] space-y-3">
               <FileText className="w-8 h-8 text-stone-600 mx-auto" />
               <p className="text-sm font-medium">No articles matched your criteria</p>
               <button
                 onClick={handleOpenCreate}
-                className="px-3 py-1.5 rounded-lg bg-amber-600 text-stone-950 font-bold text-xs"
+                className="px-3 py-1.5 rounded-lg bg-[#C89211] text-white font-bold text-xs"
               >
                 Create First Article
               </button>
@@ -655,14 +655,14 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               {filteredArticles.map(art => (
                 <div
                   key={art.id}
-                  className="p-4 rounded-2xl bg-stone-900 border border-stone-800/80 hover:border-stone-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
+                  className="p-4 rounded-2xl bg-white border border-[#E5E5E5] hover:border-[#E5E5E5] transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
                 >
                   {/* Article Info */}
                   <div className="flex items-start gap-3.5 flex-1">
                     <img
                       src={art.image}
                       alt={art.title}
-                      className="w-20 h-14 rounded-xl object-cover border border-stone-800 shrink-0 bg-stone-950"
+                      className="w-20 h-14 rounded-xl object-cover border border-[#E5E5E5] shrink-0 bg-[#F8F8F6]"
                       onError={e => {
                         (e.target as HTMLImageElement).src =
                           'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80';
@@ -671,7 +671,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
 
                     <div className="space-y-1 flex-1">
                       <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                        <span className="px-2 py-0.5 rounded-md bg-stone-800 text-amber-400 font-semibold border border-stone-700">
+                        <span className="px-2 py-0.5 rounded-md bg-[#F8F8F6] text-[#C89211] font-semibold border border-[#E5E5E5]">
                           {art.category || 'Door Guide'}
                         </span>
 
@@ -680,10 +680,10 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                             art.status === 'published' || art.published
                               ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/50'
                               : art.status === 'scheduled'
-                              ? 'bg-amber-950 text-amber-400 border border-amber-800/50'
+                              ? 'bg-amber-950 text-[#C89211] border border-amber-800/50'
                               : art.status === 'archived'
                               ? 'bg-rose-950 text-rose-400 border border-rose-800/50'
-                              : 'bg-stone-800 text-stone-400'
+                              : 'bg-[#F8F8F6] text-[#666666]'
                           }`}
                         >
                           {art.status || (art.published ? 'published' : 'draft')}
@@ -696,34 +696,34 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                           </span>
                         )}
 
-                        <span className="text-stone-500">
+                        <span className="text-[#666666]">
                           {art.author} • {art.readTime || '4 min read'}
                         </span>
                       </div>
 
-                      <h3 className="font-serif text-base font-bold text-stone-100 hover:text-amber-400 transition-colors line-clamp-1">
+                      <h3 className="font-serif text-base font-bold text-[#1A1A1A] hover:text-[#C89211] transition-colors line-clamp-1">
                         {art.title}
                       </h3>
 
-                      <p className="text-xs text-stone-400 line-clamp-1">
+                      <p className="text-xs text-[#666666] line-clamp-1">
                         {art.excerpt || art.content?.substring(0, 120)}
                       </p>
 
                       {/* Engagement Metrics Badges */}
-                      <div className="flex items-center gap-4 text-xs font-mono pt-1 text-stone-400">
-                        <span className="flex items-center gap-1 hover:text-amber-400 transition-colors" title="Views">
-                          <Eye className="w-3.5 h-3.5 text-stone-500" />
-                          <strong className="text-stone-200">{(art.views || 0).toLocaleString('en-IN')}</strong> Views
+                      <div className="flex items-center gap-4 text-xs font-mono pt-1 text-[#666666]">
+                        <span className="flex items-center gap-1 hover:text-[#C89211] transition-colors" title="Views">
+                          <Eye className="w-3.5 h-3.5 text-[#666666]" />
+                          <strong className="text-[#1A1A1A]">{(art.views || 0).toLocaleString('en-IN')}</strong> Views
                         </span>
 
                         <span className="flex items-center gap-1 hover:text-rose-400 transition-colors" title="Likes">
                           <Heart className="w-3.5 h-3.5 text-rose-500" />
-                          <strong className="text-stone-200">{(art.likes || 0).toLocaleString('en-IN')}</strong> Likes
+                          <strong className="text-[#1A1A1A]">{(art.likes || 0).toLocaleString('en-IN')}</strong> Likes
                         </span>
 
                         <span className="flex items-center gap-1 hover:text-sky-400 transition-colors" title="Approved Comments">
                           <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
-                          <strong className="text-stone-200">{(art.commentCount || 0).toLocaleString('en-IN')}</strong> Comments
+                          <strong className="text-[#1A1A1A]">{(art.commentCount || 0).toLocaleString('en-IN')}</strong> Comments
                           {art.pendingCommentsCount && art.pendingCommentsCount > 0 ? (
                             <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-bold">
                               {art.pendingCommentsCount} new
@@ -733,7 +733,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
 
                         <span className="flex items-center gap-1 hover:text-emerald-400 transition-colors" title="Shares">
                           <Share2 className="w-3.5 h-3.5 text-emerald-400" />
-                          <strong className="text-stone-200">{(art.shares || 0).toLocaleString('en-IN')}</strong> Shares
+                          <strong className="text-[#1A1A1A]">{(art.shares || 0).toLocaleString('en-IN')}</strong> Shares
                         </span>
                       </div>
                     </div>
@@ -743,7 +743,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                   <div className="flex items-center gap-2 self-end md:self-center shrink-0">
                     <button
                       onClick={() => handleOpenEdit(art)}
-                      className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+                      className="px-3 py-1.5 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] font-semibold text-xs flex items-center gap-1.5 transition-colors"
                       title="Edit Article"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -779,8 +779,8 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                   onClick={() => setCommentStatusFilter(st)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
                     commentStatusFilter === st
-                      ? 'bg-amber-500 text-stone-950 font-bold'
-                      : 'bg-stone-900 text-stone-400 hover:text-stone-200 border border-stone-800'
+                      ? 'bg-[#C89211] text-white font-bold'
+                      : 'bg-white text-[#666666] hover:text-[#1A1A1A] border border-[#E5E5E5]'
                   }`}
                 >
                   {st} ({commentCounts[st] ?? 0})
@@ -791,7 +791,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
 
           {/* Comments List */}
           {comments.length === 0 ? (
-            <div className="p-8 text-center rounded-2xl bg-stone-900/50 border border-stone-800 text-stone-400 space-y-2">
+            <div className="p-8 text-center rounded-2xl bg-white border border-[#E5E5E5] text-[#666666] space-y-2">
               <MessageSquare className="w-8 h-8 text-stone-600 mx-auto" />
               <p className="text-sm font-medium">No comments found in this status category</p>
             </div>
@@ -800,35 +800,35 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               {comments.map(c => (
                 <div
                   key={c.id}
-                  className="p-4 rounded-2xl bg-stone-900 border border-stone-800 space-y-3"
+                  className="p-4 rounded-2xl bg-white border border-[#E5E5E5] space-y-3"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-amber-600 text-stone-950 font-bold text-xs flex items-center justify-center">
+                        <span className="w-6 h-6 rounded-full bg-[#C89211] text-white font-bold text-xs flex items-center justify-center">
                           {c.authorName.charAt(0).toUpperCase()}
                         </span>
-                        <span className="font-bold text-sm text-stone-200">{c.authorName}</span>
+                        <span className="font-bold text-sm text-[#1A1A1A]">{c.authorName}</span>
                         {c.authorEmail && (
-                          <span className="text-xs text-stone-500">({c.authorEmail})</span>
+                          <span className="text-xs text-[#666666]">({c.authorEmail})</span>
                         )}
                         <span
                           className={`px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase ${
                             c.status === 'approved'
                               ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/40'
                               : c.status === 'pending'
-                              ? 'bg-amber-950 text-amber-400 border border-amber-800/40'
+                              ? 'bg-amber-950 text-[#C89211] border border-amber-800/40'
                               : c.status === 'spam'
                               ? 'bg-rose-950 text-rose-400 border border-rose-800/40'
-                              : 'bg-stone-800 text-stone-400'
+                              : 'bg-[#F8F8F6] text-[#666666]'
                           }`}
                         >
                           {c.status}
                         </span>
                       </div>
 
-                      <div className="text-xs text-stone-400">
-                        Article: <strong className="text-amber-400">{c.articleTitle}</strong> •{' '}
+                      <div className="text-xs text-[#666666]">
+                        Article: <strong className="text-[#C89211]">{c.articleTitle}</strong> •{' '}
                         {new Date(c.createdAt).toLocaleDateString('en-IN', {
                           day: '2-digit',
                           month: 'short',
@@ -854,7 +854,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                       {c.status !== 'hidden' && (
                         <button
                           onClick={() => handleModerateComment(c.id, 'hidden')}
-                          className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs"
+                          className="px-2.5 py-1 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs"
                         >
                           Hide
                         </button>
@@ -863,7 +863,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                       {c.status !== 'spam' && (
                         <button
                           onClick={() => handleModerateComment(c.id, 'spam')}
-                          className="px-2.5 py-1 rounded-lg bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 text-xs"
+                          className="px-2.5 py-1 rounded-lg bg-[#FFF7E3] hover:bg-amber-900/60 text-[#C89211] text-xs"
                         >
                           Spam
                         </button>
@@ -880,33 +880,33 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                   </div>
 
                   {/* Comment Body */}
-                  <div className="p-3 rounded-xl bg-stone-950/70 border border-stone-800/60 text-stone-200 text-xs leading-relaxed whitespace-pre-wrap">
+                  <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs leading-relaxed whitespace-pre-wrap">
                     {c.content}
                   </div>
 
                   {/* Existing Admin Reply */}
                   {c.adminReply && (
-                    <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-500/30 text-xs space-y-1">
-                      <div className="flex items-center gap-2 font-bold text-amber-400">
+                    <div className="p-3 rounded-xl bg-amber-950/20 border border-[#C89211]/30 text-xs space-y-1">
+                      <div className="flex items-center gap-2 font-bold text-[#C89211]">
                         <CornerDownRight className="w-3.5 h-3.5" />
                         <span>Official Reply ({c.adminReply.authorName})</span>
-                        <span className="text-[10px] text-stone-500 font-normal">
+                        <span className="text-[10px] text-[#666666] font-normal">
                           {new Date(c.adminReply.repliedAt).toLocaleDateString('en-IN')}
                         </span>
                       </div>
-                      <p className="text-stone-300 pl-5">{c.adminReply.text}</p>
+                      <p className="text-[#1A1A1A] pl-5">{c.adminReply.text}</p>
                     </div>
                   )}
 
                   {/* Reply Button or Form */}
                   {replyingToCommentId === c.id ? (
-                    <div className="space-y-2 pt-2 border-t border-stone-800">
+                    <div className="space-y-2 pt-2 border-t border-[#E5E5E5]">
                       <textarea
                         rows={3}
                         value={replyText}
                         onChange={e => setReplyText(e.target.value)}
                         placeholder="Type official reply to this customer..."
-                        className="w-full p-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+                        className="w-full p-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
                       />
                       <div className="flex justify-end gap-2">
                         <button
@@ -914,13 +914,13 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                             setReplyingToCommentId(null);
                             setReplyText('');
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-stone-800 text-stone-300 text-xs"
+                          className="px-3 py-1.5 rounded-lg bg-[#F8F8F6] text-[#1A1A1A] text-xs"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={() => handleSendReply(c.id)}
-                          className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1"
+                          className="px-3 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1"
                         >
                           <Send className="w-3.5 h-3.5" />
                           Send Official Reply
@@ -933,7 +933,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                         setReplyingToCommentId(c.id);
                         setReplyText(c.adminReply?.text || '');
                       }}
-                      className="text-xs font-semibold text-amber-500 hover:text-amber-400 flex items-center gap-1"
+                      className="text-xs font-semibold text-[#C89211] hover:text-[#C89211] flex items-center gap-1"
                     >
                       <CornerDownRight className="w-3.5 h-3.5" />
                       {c.adminReply ? 'Edit Official Reply' : 'Reply as Wood Specialist'}
@@ -953,67 +953,67 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
         <div className="space-y-6">
           {/* Top Metrics Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 space-y-1">
-              <div className="flex items-center justify-between text-stone-400 text-xs">
+            <div className="p-4 rounded-2xl bg-white border border-[#E5E5E5] space-y-1">
+              <div className="flex items-center justify-between text-[#666666] text-xs">
                 <span>Total Published</span>
-                <FileText className="w-4 h-4 text-amber-500" />
+                <FileText className="w-4 h-4 text-[#C89211]" />
               </div>
               <div className="text-2xl font-bold font-mono text-white">
                 {analytics.totalArticles}
               </div>
-              <p className="text-[10px] text-stone-500">Live & Draft Guides</p>
+              <p className="text-[10px] text-[#666666]">Live & Draft Guides</p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 space-y-1">
-              <div className="flex items-center justify-between text-stone-400 text-xs">
+            <div className="p-4 rounded-2xl bg-white border border-[#E5E5E5] space-y-1">
+              <div className="flex items-center justify-between text-[#666666] text-xs">
                 <span>Total Views</span>
-                <Eye className="w-4 h-4 text-amber-500" />
+                <Eye className="w-4 h-4 text-[#C89211]" />
               </div>
               <div className="text-2xl font-bold font-mono text-white">
                 {analytics.totalViews.toLocaleString('en-IN')}
               </div>
-              <p className="text-[10px] text-stone-500">Deduplicated reads</p>
+              <p className="text-[10px] text-[#666666]">Deduplicated reads</p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 space-y-1">
-              <div className="flex items-center justify-between text-stone-400 text-xs">
+            <div className="p-4 rounded-2xl bg-white border border-[#E5E5E5] space-y-1">
+              <div className="flex items-center justify-between text-[#666666] text-xs">
                 <span>Total Likes</span>
                 <Heart className="w-4 h-4 text-rose-500" />
               </div>
               <div className="text-2xl font-bold font-mono text-white">
                 {analytics.totalLikes.toLocaleString('en-IN')}
               </div>
-              <p className="text-[10px] text-stone-500">Reader appreciation</p>
+              <p className="text-[10px] text-[#666666]">Reader appreciation</p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 space-y-1">
-              <div className="flex items-center justify-between text-stone-400 text-xs">
+            <div className="p-4 rounded-2xl bg-white border border-[#E5E5E5] space-y-1">
+              <div className="flex items-center justify-between text-[#666666] text-xs">
                 <span>Approved Comments</span>
                 <MessageSquare className="w-4 h-4 text-sky-400" />
               </div>
               <div className="text-2xl font-bold font-mono text-white">
                 {analytics.totalComments.toLocaleString('en-IN')}
               </div>
-              <p className="text-[10px] text-stone-500">User discussions</p>
+              <p className="text-[10px] text-[#666666]">User discussions</p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 space-y-1">
-              <div className="flex items-center justify-between text-stone-400 text-xs">
+            <div className="p-4 rounded-2xl bg-white border border-[#E5E5E5] space-y-1">
+              <div className="flex items-center justify-between text-[#666666] text-xs">
                 <span>Total Shares</span>
                 <Share2 className="w-4 h-4 text-emerald-400" />
               </div>
               <div className="text-2xl font-bold font-mono text-white">
                 {analytics.totalShares.toLocaleString('en-IN')}
               </div>
-              <p className="text-[10px] text-stone-500">WhatsApp & Social</p>
+              <p className="text-[10px] text-[#666666]">WhatsApp & Social</p>
             </div>
           </div>
 
           {/* Top Rankings Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Top 5 Most Viewed */}
-            <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-3">
-              <h3 className="font-serif text-sm font-bold text-amber-400 flex items-center gap-2">
+            <div className="p-5 rounded-2xl bg-white border border-[#E5E5E5] space-y-3">
+              <h3 className="font-serif text-sm font-bold text-[#C89211] flex items-center gap-2">
                 <Eye className="w-4 h-4" />
                 Most Viewed Articles
               </h3>
@@ -1021,13 +1021,13 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 {analytics.topViewed.map((art, idx) => (
                   <div
                     key={art.id}
-                    className="p-2.5 rounded-xl bg-stone-950 flex items-center justify-between text-xs"
+                    className="p-2.5 rounded-xl bg-[#F8F8F6] flex items-center justify-between text-xs"
                   >
-                    <span className="font-medium text-stone-200 line-clamp-1 flex items-center gap-2">
-                      <span className="font-mono text-amber-500 font-bold">#{idx + 1}</span>
+                    <span className="font-medium text-[#1A1A1A] line-clamp-1 flex items-center gap-2">
+                      <span className="font-mono text-[#C89211] font-bold">#{idx + 1}</span>
                       {art.title}
                     </span>
-                    <span className="font-mono text-amber-400 font-bold ml-2 shrink-0">
+                    <span className="font-mono text-[#C89211] font-bold ml-2 shrink-0">
                       {(art.views || 0).toLocaleString('en-IN')} views
                     </span>
                   </div>
@@ -1036,7 +1036,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
             </div>
 
             {/* Top 5 Most Liked */}
-            <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-3">
+            <div className="p-5 rounded-2xl bg-white border border-[#E5E5E5] space-y-3">
               <h3 className="font-serif text-sm font-bold text-rose-400 flex items-center gap-2">
                 <Heart className="w-4 h-4" />
                 Most Liked Articles
@@ -1045,9 +1045,9 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 {analytics.topLiked.map((art, idx) => (
                   <div
                     key={art.id}
-                    className="p-2.5 rounded-xl bg-stone-950 flex items-center justify-between text-xs"
+                    className="p-2.5 rounded-xl bg-[#F8F8F6] flex items-center justify-between text-xs"
                   >
-                    <span className="font-medium text-stone-200 line-clamp-1 flex items-center gap-2">
+                    <span className="font-medium text-[#1A1A1A] line-clamp-1 flex items-center gap-2">
                       <span className="font-mono text-rose-500 font-bold">#{idx + 1}</span>
                       {art.title}
                     </span>
@@ -1060,7 +1060,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
             </div>
 
             {/* Top 5 Most Shared */}
-            <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-3">
+            <div className="p-5 rounded-2xl bg-white border border-[#E5E5E5] space-y-3">
               <h3 className="font-serif text-sm font-bold text-emerald-400 flex items-center gap-2">
                 <Share2 className="w-4 h-4" />
                 Most Shared on WhatsApp & Social
@@ -1069,9 +1069,9 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 {analytics.topShared.map((art, idx) => (
                   <div
                     key={art.id}
-                    className="p-2.5 rounded-xl bg-stone-950 flex items-center justify-between text-xs"
+                    className="p-2.5 rounded-xl bg-[#F8F8F6] flex items-center justify-between text-xs"
                   >
-                    <span className="font-medium text-stone-200 line-clamp-1 flex items-center gap-2">
+                    <span className="font-medium text-[#1A1A1A] line-clamp-1 flex items-center gap-2">
                       <span className="font-mono text-emerald-500 font-bold">#{idx + 1}</span>
                       {art.title}
                     </span>
@@ -1084,7 +1084,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
             </div>
 
             {/* Top 5 Most Commented */}
-            <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-3">
+            <div className="p-5 rounded-2xl bg-white border border-[#E5E5E5] space-y-3">
               <h3 className="font-serif text-sm font-bold text-sky-400 flex items-center gap-2">
                 <MessageSquare className="w-4 h-4" />
                 Most Discussed Guides
@@ -1093,9 +1093,9 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 {analytics.topCommented.map((art, idx) => (
                   <div
                     key={art.id}
-                    className="p-2.5 rounded-xl bg-stone-950 flex items-center justify-between text-xs"
+                    className="p-2.5 rounded-xl bg-[#F8F8F6] flex items-center justify-between text-xs"
                   >
-                    <span className="font-medium text-stone-200 line-clamp-1 flex items-center gap-2">
+                    <span className="font-medium text-[#1A1A1A] line-clamp-1 flex items-center gap-2">
                       <span className="font-mono text-sky-400 font-bold">#{idx + 1}</span>
                       {art.title}
                     </span>
@@ -1126,7 +1126,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 setNewCatDescription('');
                 setIsCategoryModalOpen(true);
               }}
-              className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1"
+              className="px-3 py-1.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1"
             >
               <Plus className="w-3.5 h-3.5" />
               Add Category
@@ -1137,12 +1137,12 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
             {categories.map(c => (
               <div
                 key={c.id}
-                className="p-4 rounded-2xl bg-stone-900 border border-stone-800 flex items-start justify-between gap-3 text-xs"
+                className="p-4 rounded-2xl bg-white border border-[#E5E5E5] flex items-start justify-between gap-3 text-xs"
               >
                 <div>
-                  <h4 className="font-bold text-stone-100">{c.name}</h4>
-                  <p className="text-stone-400 text-[11px] mt-1">{c.description || 'No description'}</p>
-                  <span className="text-[10px] text-amber-500 mt-2 block font-mono">
+                  <h4 className="font-bold text-[#1A1A1A]">{c.name}</h4>
+                  <p className="text-[#666666] text-[11px] mt-1">{c.description || 'No description'}</p>
+                  <span className="text-[10px] text-[#C89211] mt-2 block font-mono">
                     Slug: {c.slug}
                   </span>
                 </div>
@@ -1155,7 +1155,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                       setNewCatDescription(c.description || '');
                       setIsCategoryModalOpen(true);
                     }}
-                    className="p-1.5 rounded bg-stone-800 text-stone-300 hover:text-white"
+                    className="p-1.5 rounded bg-[#F8F8F6] text-[#1A1A1A] hover:text-white"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
@@ -1181,34 +1181,34 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
       {/* ARTICLE EDITOR MODAL (Full featured: Basic, Content, Media, CTA, SEO) */}
       {/* ========================================================================= */}
       {isEditorOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
-          <div className="relative w-full max-w-4xl bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl text-stone-100 overflow-hidden my-4 max-h-[94vh] flex flex-col">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-[#F8F8F6] backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-4xl bg-white border border-[#E5E5E5] rounded-2xl shadow-2xl text-[#1A1A1A] overflow-hidden my-4 max-h-[94vh] flex flex-col">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-800 bg-stone-900/95 sticky top-0 z-10">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] bg-white sticky top-0 z-10">
               <div>
                 <h3 className="font-serif text-lg sm:text-xl font-bold text-white">
                   {editingArticleId ? 'Edit Wood Guide' : 'Compose New Wood Buying Guide'}
                 </h3>
-                <p className="text-xs text-stone-400">
+                <p className="text-xs text-[#666666]">
                   Rich formatting, YouTube embed, SEO optimization, and call-to-action triggers
                 </p>
               </div>
               <button
                 onClick={() => setIsEditorOpen(false)}
-                className="p-1.5 rounded-lg text-stone-400 hover:text-stone-100 hover:bg-stone-800 transition-colors"
+                className="p-1.5 rounded-lg text-[#666666] hover:text-[#1A1A1A] hover:bg-[#F8F8F6] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Tab selector within Editor */}
-            <div className="flex items-center gap-2 px-6 pt-3 border-b border-stone-800 bg-stone-950 text-xs overflow-x-auto">
+            <div className="flex items-center gap-2 px-6 pt-3 border-b border-[#E5E5E5] bg-[#F8F8F6] text-xs overflow-x-auto">
               <button
                 onClick={() => setActiveEditorTab('basic')}
                 className={`pb-2.5 px-2 font-semibold border-b-2 transition-all whitespace-nowrap ${
                   activeEditorTab === 'basic'
-                    ? 'border-amber-500 text-amber-400'
-                    : 'border-transparent text-stone-400 hover:text-stone-200'
+                    ? 'border-amber-500 text-[#C89211]'
+                    : 'border-transparent text-[#666666] hover:text-[#1A1A1A]'
                 }`}
               >
                 1. Basic Details
@@ -1218,8 +1218,8 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 onClick={() => setActiveEditorTab('content')}
                 className={`pb-2.5 px-2 font-semibold border-b-2 transition-all whitespace-nowrap ${
                   activeEditorTab === 'content'
-                    ? 'border-amber-500 text-amber-400'
-                    : 'border-transparent text-stone-400 hover:text-stone-200'
+                    ? 'border-amber-500 text-[#C89211]'
+                    : 'border-transparent text-[#666666] hover:text-[#1A1A1A]'
                 }`}
               >
                 2. Full Content & Formatting
@@ -1229,8 +1229,8 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 onClick={() => setActiveEditorTab('media')}
                 className={`pb-2.5 px-2 font-semibold border-b-2 transition-all whitespace-nowrap ${
                   activeEditorTab === 'media'
-                    ? 'border-amber-500 text-amber-400'
-                    : 'border-transparent text-stone-400 hover:text-stone-200'
+                    ? 'border-amber-500 text-[#C89211]'
+                    : 'border-transparent text-[#666666] hover:text-[#1A1A1A]'
                 }`}
               >
                 3. Images & YouTube Video
@@ -1240,8 +1240,8 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 onClick={() => setActiveEditorTab('cta')}
                 className={`pb-2.5 px-2 font-semibold border-b-2 transition-all whitespace-nowrap ${
                   activeEditorTab === 'cta'
-                    ? 'border-amber-500 text-amber-400'
-                    : 'border-transparent text-stone-400 hover:text-stone-200'
+                    ? 'border-amber-500 text-[#C89211]'
+                    : 'border-transparent text-[#666666] hover:text-[#1A1A1A]'
                 }`}
               >
                 4. Related Doors & CTA
@@ -1251,8 +1251,8 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 onClick={() => setActiveEditorTab('seo')}
                 className={`pb-2.5 px-2 font-semibold border-b-2 transition-all whitespace-nowrap ${
                   activeEditorTab === 'seo'
-                    ? 'border-amber-500 text-amber-400'
-                    : 'border-transparent text-stone-400 hover:text-stone-200'
+                    ? 'border-amber-500 text-[#C89211]'
+                    : 'border-transparent text-[#666666] hover:text-[#1A1A1A]'
                 }`}
               >
                 5. SEO & Notifications
@@ -1265,7 +1265,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               {activeEditorTab === 'basic' && (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-stone-300 font-semibold mb-1">
+                    <label className="block text-[#1A1A1A] font-semibold mb-1">
                       Article Title <span className="text-red-400">*</span>
                     </label>
                     <input
@@ -1285,13 +1285,13 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                         }));
                       }}
                       placeholder="e.g. Authentic Sagwan vs Plywood Doors: 7 Crucial Differences"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-sm focus:outline-none focus:border-amber-500"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-sm focus:outline-none focus:border-[#C89211]"
                     />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-stone-300 font-semibold mb-1">
+                      <label className="block text-[#1A1A1A] font-semibold mb-1">
                         URL Slug
                       </label>
                       <input
@@ -1299,18 +1299,18 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                         value={formData.slug}
                         onChange={e => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
                         placeholder="e.g. sagwan-vs-plywood-doors"
-                        className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-200 font-mono text-xs"
+                        className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] font-mono text-xs"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-stone-300 font-semibold mb-1">
+                      <label className="block text-[#1A1A1A] font-semibold mb-1">
                         Category
                       </label>
                       <select
                         value={formData.category}
                         onChange={e => setFormData({ ...formData, category: e.target.value })}
-                        className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-200"
+                        className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A]"
                       >
                         {categories.map(c => (
                           <option key={c.id} value={c.name}>
@@ -1323,7 +1323,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-stone-300 font-semibold mb-1">
+                      <label className="block text-[#1A1A1A] font-semibold mb-1">
                         Author Name
                       </label>
                       <input
@@ -1331,12 +1331,12 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                         value={formData.author}
                         onChange={e => setFormData({ ...formData, author: e.target.value })}
                         placeholder="e.g. Shivshahi Wood Experts"
-                        className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-200"
+                        className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A]"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-stone-300 font-semibold mb-1">
+                      <label className="block text-[#1A1A1A] font-semibold mb-1">
                         Author Bio / Credential
                       </label>
                       <input
@@ -1344,13 +1344,13 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                         value={formData.authorBio}
                         onChange={e => setFormData({ ...formData, authorBio: e.target.value })}
                         placeholder="e.g. Master wood carver & seasoning specialist with 25+ years experience"
-                        className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-200"
+                        className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A]"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-stone-300 font-semibold mb-1">
+                    <label className="block text-[#1A1A1A] font-semibold mb-1">
                       Short Summary / Excerpt (Shows on cards & search results)
                     </label>
                     <textarea
@@ -1365,12 +1365,12 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                         }));
                       }}
                       placeholder="Brief overview explaining what the customer will learn in this door buying guide..."
-                      className="w-full px-3.5 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-200 leading-relaxed"
+                      className="w-full px-3.5 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] leading-relaxed"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-stone-300 font-semibold mb-1">
+                    <label className="block text-[#1A1A1A] font-semibold mb-1">
                       Tags (Comma separated)
                     </label>
                     <input
@@ -1378,7 +1378,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                       value={formData.tagsInput}
                       onChange={e => setFormData({ ...formData, tagsInput: e.target.value })}
                       placeholder="Sagwan Door, Main Entrance, Teak Wood, Kiln Seasoned"
-                      className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-200"
+                      className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A]"
                     />
                   </div>
                 </div>
@@ -1387,19 +1387,19 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               {/* TAB 2: CONTENT & FORMATTING */}
               {activeEditorTab === 'content' && (
                 <div className="space-y-4">
-                  <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-500/20 text-[11px] text-amber-300 leading-relaxed">
+                  <div className="p-3 rounded-xl bg-amber-950/20 border border-[#C89211]/30 text-[11px] text-[#C89211] leading-relaxed">
                     💡 <strong>Pro Woodworking Formatting:</strong>
-                    <ul className="list-disc pl-4 mt-1 space-y-0.5 text-stone-400">
-                      <li>Use <code className="text-amber-400">## Heading 2</code> or <code className="text-amber-400">### Heading 3</code> to create Table of Contents automatically.</li>
-                      <li>Use bullet points <code className="text-amber-400">- Feature</code> for specifications.</li>
+                    <ul className="list-disc pl-4 mt-1 space-y-0.5 text-[#666666]">
+                      <li>Use <code className="text-[#C89211]">## Heading 2</code> or <code className="text-[#C89211]">### Heading 3</code> to create Table of Contents automatically.</li>
+                      <li>Use bullet points <code className="text-[#C89211]">- Feature</code> for specifications.</li>
                       <li>Double line breaks create readable paragraphs.</li>
                     </ul>
                   </div>
 
                   <div>
                     <div className="flex justify-between items-center mb-1">
-                      <label className="text-stone-300 font-semibold">Full Article Body</label>
-                      <span className="text-stone-500 font-mono">
+                      <label className="text-[#1A1A1A] font-semibold">Full Article Body</label>
+                      <span className="text-[#666666] font-mono">
                         {formData.content.trim().split(/\s+/).filter(Boolean).length} words • {autoCalculateReadTime(formData.content)}
                       </span>
                     </div>
@@ -1415,7 +1415,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                         }));
                       }}
                       placeholder="Write your comprehensive wood guide here..."
-                      className="w-full p-4 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 font-sans text-sm leading-relaxed focus:outline-none focus:border-amber-500"
+                      className="w-full p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] font-sans text-sm leading-relaxed focus:outline-none focus:border-[#C89211]"
                     />
                   </div>
                 </div>
@@ -1425,12 +1425,12 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               {activeEditorTab === 'media' && (
                 <div className="space-y-6">
                   {/* Featured Cover Image */}
-                  <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 space-y-3">
-                    <label className="block text-stone-200 font-bold">
+                  <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
+                    <label className="block text-[#1A1A1A] font-bold">
                       Main Featured Cover Image
                     </label>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                      <div className="w-32 h-20 rounded-xl overflow-hidden bg-stone-900 border border-stone-700 shrink-0">
+                      <div className="w-32 h-20 rounded-xl overflow-hidden bg-white border border-[#E5E5E5] shrink-0">
                         <img
                           src={formData.image}
                           alt="Cover preview"
@@ -1440,7 +1440,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
 
                       <div className="space-y-2 flex-1">
                         <div className="flex items-center gap-2">
-                          <label className="cursor-pointer px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5 transition-all">
+                          <label className="cursor-pointer px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition-all">
                             <Upload className="w-3.5 h-3.5" />
                             {uploadingImage ? 'Uploading...' : 'Upload Cover Image File'}
                             <input
@@ -1458,27 +1458,27 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                           value={formData.image}
                           onChange={e => setFormData({ ...formData, image: e.target.value })}
                           placeholder="Or paste image URL"
-                          className="w-full px-3 py-1.5 rounded-lg bg-stone-900 border border-stone-700 text-stone-300 text-xs font-mono"
+                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono"
                         />
                       </div>
                     </div>
                   </div>
 
                   {/* YouTube Video Integration */}
-                  <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 space-y-3">
+                  <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
                     <div className="flex items-center gap-2">
                       <Youtube className="w-5 h-5 text-red-500" />
-                      <h4 className="font-bold text-stone-200">
+                      <h4 className="font-bold text-[#1A1A1A]">
                         YouTube Video Integration
                       </h4>
                     </div>
-                    <p className="text-[11px] text-stone-400">
+                    <p className="text-[11px] text-[#666666]">
                       Embed a woodworking video tutorial or factory tour directly inside this article.
                     </p>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-stone-300 mb-1">YouTube URL or Video ID</label>
+                        <label className="block text-[#1A1A1A] mb-1">YouTube URL or Video ID</label>
                         <input
                           type="text"
                           value={formData.youtubeUrl}
@@ -1492,36 +1492,36 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                             });
                           }}
                           placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                          className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-stone-300 mb-1">Extracted Video ID</label>
+                        <label className="block text-[#1A1A1A] mb-1">Extracted Video ID</label>
                         <input
                           type="text"
                           value={formData.youtubeVideoId}
                           onChange={e => setFormData({ ...formData, youtubeVideoId: e.target.value.trim() })}
                           placeholder="e.g. dQw4w9WgXcQ"
-                          className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-amber-400 font-mono"
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#C89211] font-mono"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-stone-300 mb-1">Video Title / Caption (Optional)</label>
+                      <label className="block text-[#1A1A1A] mb-1">Video Title / Caption (Optional)</label>
                       <input
                         type="text"
                         value={formData.youtubeTitle}
                         onChange={e => setFormData({ ...formData, youtubeTitle: e.target.value })}
                         placeholder="e.g. Master Craftsman Teak Seasoning Process (Live Workshop Tour)"
-                        className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                       />
                     </div>
 
                     {/* Video Player Live Preview */}
                     {formData.youtubeVideoId && (
-                      <div className="mt-3 aspect-video rounded-xl overflow-hidden border border-stone-800 bg-stone-900">
+                      <div className="mt-3 aspect-video rounded-xl overflow-hidden border border-[#E5E5E5] bg-white">
                         <iframe
                           src={`https://www.youtube-nocookie.com/embed/${formData.youtubeVideoId}`}
                           title="YouTube video preview"
@@ -1534,16 +1534,16 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                   </div>
 
                   {/* Additional Gallery Photos */}
-                  <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 space-y-3">
+                  <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
                     <div className="flex justify-between items-center">
                       <div>
-                        <h4 className="font-bold text-stone-200">Article Photo Gallery</h4>
-                        <p className="text-[11px] text-stone-400">
+                        <h4 className="font-bold text-[#1A1A1A]">Article Photo Gallery</h4>
+                        <p className="text-[11px] text-[#666666]">
                           Upload multiple high-res photos showcasing grain textures, joints, or finished installations.
                         </p>
                       </div>
 
-                      <label className="cursor-pointer px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-amber-400 font-semibold text-xs flex items-center gap-1.5">
+                      <label className="cursor-pointer px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] font-semibold text-xs flex items-center gap-1.5">
                         <Upload className="w-3.5 h-3.5" />
                         {uploadingGallery ? 'Uploading...' : 'Add Gallery Photos'}
                         <input
@@ -1562,7 +1562,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                         {formData.gallery.map((img, idx) => (
                           <div
                             key={idx}
-                            className="relative group rounded-xl overflow-hidden border border-stone-800 bg-stone-900 aspect-video"
+                            className="relative group rounded-xl overflow-hidden border border-[#E5E5E5] bg-white aspect-video"
                           >
                             <img src={img.url} alt="" className="w-full h-full object-cover" />
                             <button
@@ -1572,7 +1572,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                                   gallery: prev.gallery.filter((_, i) => i !== idx),
                                 }));
                               }}
-                              className="absolute top-1 right-1 p-1 rounded bg-stone-950/80 text-rose-400 hover:text-rose-300"
+                              className="absolute top-1 right-1 p-1 rounded bg-[#F8F8F6] text-rose-400 hover:text-rose-300"
                               title="Remove photo"
                             >
                               <X className="w-3.5 h-3.5" />
@@ -1589,11 +1589,11 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               {activeEditorTab === 'cta' && (
                 <div className="space-y-6">
                   {/* Related Doors Multi-select */}
-                  <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 space-y-3">
-                    <h4 className="font-bold text-stone-200">
+                  <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
+                    <h4 className="font-bold text-[#1A1A1A]">
                       Link Related Doors from Catalog
                     </h4>
-                    <p className="text-[11px] text-stone-400">
+                    <p className="text-[11px] text-[#666666]">
                       Customers reading this guide can view and calculate pricing directly for these doors.
                     </p>
 
@@ -1613,8 +1613,8 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                             }}
                             className={`p-2.5 rounded-xl border cursor-pointer flex items-center justify-between gap-2 transition-all ${
                               isSelected
-                                ? 'bg-amber-950/30 border-amber-500/60 text-amber-300'
-                                : 'bg-stone-900/60 border-stone-800 text-stone-300 hover:border-stone-700'
+                                ? 'bg-amber-950/30 border-amber-500/60 text-[#C89211]'
+                                : 'bg-white border-[#E5E5E5] text-[#1A1A1A] hover:border-[#E5E5E5]'
                             }`}
                           >
                             <div className="flex items-center gap-2 overflow-hidden">
@@ -1635,9 +1635,9 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                   </div>
 
                   {/* Call To Action Box Configuration */}
-                  <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 space-y-3">
+                  <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
                     <div className="flex items-center justify-between">
-                      <h4 className="font-bold text-stone-200">
+                      <h4 className="font-bold text-[#1A1A1A]">
                         Interactive Call-to-Action (CTA) Banner
                       </h4>
                       <label className="flex items-center gap-2 cursor-pointer">
@@ -1650,9 +1650,9 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                               cta: { ...formData.cta, enabled: e.target.checked },
                             })
                           }
-                          className="w-4 h-4 rounded text-amber-600 bg-stone-900 border-stone-700"
+                          className="w-4 h-4 rounded text-amber-600 bg-white border-[#E5E5E5]"
                         />
-                        <span className="text-xs text-stone-300">Enable CTA</span>
+                        <span className="text-xs text-[#1A1A1A]">Enable CTA</span>
                       </label>
                     </div>
 
@@ -1660,7 +1660,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                       <div className="space-y-3 pt-2">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-stone-300 mb-1">Action Type</label>
+                            <label className="block text-[#1A1A1A] mb-1">Action Type</label>
                             <select
                               value={formData.cta.type}
                               onChange={e =>
@@ -1669,7 +1669,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                                   cta: { ...formData.cta, type: e.target.value as any },
                                 })
                               }
-                              className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                              className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                             >
                               <option value="calculator">Open Door Price Calculator</option>
                               <option value="contact">Chat on WhatsApp</option>
@@ -1678,7 +1678,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                           </div>
 
                           <div>
-                            <label className="block text-stone-300 mb-1">Button Label</label>
+                            <label className="block text-[#1A1A1A] mb-1">Button Label</label>
                             <input
                               type="text"
                               value={formData.cta.buttonText}
@@ -1689,13 +1689,13 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                                 })
                               }
                               placeholder="e.g. Calculate Door Price For Your Size"
-                              className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                              className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                             />
                           </div>
                         </div>
 
                         <div>
-                          <label className="block text-stone-300 mb-1">CTA Headline</label>
+                          <label className="block text-[#1A1A1A] mb-1">CTA Headline</label>
                           <input
                             type="text"
                             value={formData.cta.title}
@@ -1706,12 +1706,12 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                               })
                             }
                             placeholder="e.g. Need Sagwan Doors in Pune or Western Maharashtra?"
-                            className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-stone-300 mb-1">CTA Subtitle</label>
+                          <label className="block text-[#1A1A1A] mb-1">CTA Subtitle</label>
                           <input
                             type="text"
                             value={formData.cta.subtitle}
@@ -1722,7 +1722,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                               })
                             }
                             placeholder="e.g. Direct factory rates, kiln seasoned timber with 10-year anti-warp warranty."
-                            className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                           />
                         </div>
                       </div>
@@ -1735,16 +1735,16 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               {activeEditorTab === 'seo' && (
                 <div className="space-y-6">
                   {/* SEO Configuration */}
-                  <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 space-y-3">
-                    <h4 className="font-bold text-stone-200 flex items-center gap-1.5">
-                      <Globe className="w-4 h-4 text-amber-500" />
+                  <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
+                    <h4 className="font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                      <Globe className="w-4 h-4 text-[#C89211]" />
                       Search Engine Optimization (SEO)
                     </h4>
 
                     <div>
                       <div className="flex justify-between items-center mb-1">
-                        <label className="text-stone-300 font-semibold">SEO Meta Title</label>
-                        <span className="text-[10px] text-stone-500 font-mono">
+                        <label className="text-[#1A1A1A] font-semibold">SEO Meta Title</label>
+                        <span className="text-[10px] text-[#666666] font-mono">
                           {formData.seo.seoTitle.length} / 60 chars
                         </span>
                       </div>
@@ -1758,14 +1758,14 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                           })
                         }
                         placeholder="Sagwan Wood Door Maintenance Guide | Jai Hanuman Door"
-                        className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                       />
                     </div>
 
                     <div>
                       <div className="flex justify-between items-center mb-1">
-                        <label className="text-stone-300 font-semibold">Meta Description</label>
-                        <span className="text-[10px] text-stone-500 font-mono">
+                        <label className="text-[#1A1A1A] font-semibold">Meta Description</label>
+                        <span className="text-[10px] text-[#666666] font-mono">
                           {formData.seo.metaDescription.length} / 160 chars
                         </span>
                       </div>
@@ -1779,12 +1779,12 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                           })
                         }
                         placeholder="Learn essential maintenance tips for 100% seasoned CP Sagwan Teak Wood Doors..."
-                        className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-stone-300 mb-1">Primary Focus Keyword</label>
+                      <label className="block text-[#1A1A1A] mb-1">Primary Focus Keyword</label>
                       <input
                         type="text"
                         value={formData.seo.focusKeyword}
@@ -1795,20 +1795,20 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                           })
                         }
                         placeholder="e.g. Sagwan Door Maintenance, Teak Wood Doors Pune"
-                        className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                       />
                     </div>
                   </div>
 
                   {/* Publishing Status & Controls */}
-                  <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 space-y-4">
-                    <h4 className="font-bold text-stone-200">
+                  <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-4">
+                    <h4 className="font-bold text-[#1A1A1A]">
                       Publishing Status & Push Notifications
                     </h4>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-stone-300 font-semibold mb-1">Status</label>
+                        <label className="block text-[#1A1A1A] font-semibold mb-1">Status</label>
                         <select
                           value={formData.status}
                           onChange={e =>
@@ -1817,7 +1817,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                               status: e.target.value as any,
                             })
                           }
-                          className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200"
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                         >
                           <option value="published">Published (Visible immediately)</option>
                           <option value="draft">Draft (Private admin only)</option>
@@ -1828,33 +1828,33 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
 
                       {formData.status === 'scheduled' && (
                         <div>
-                          <label className="block text-stone-300 font-semibold mb-1">
+                          <label className="block text-[#1A1A1A] font-semibold mb-1">
                             Scheduled Date & Time (IST)
                           </label>
                           <input
                             type="datetime-local"
                             value={formData.scheduledAt}
                             onChange={e => setFormData({ ...formData, scheduledAt: e.target.value })}
-                            className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200 font-mono"
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono"
                           />
                         </div>
                       )}
                     </div>
 
                     {/* Push notification toggle */}
-                    <div className="pt-2 border-t border-stone-800">
-                      <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-stone-900 border border-stone-800 hover:border-amber-500/50 transition-colors">
+                    <div className="pt-2 border-t border-[#E5E5E5]">
+                      <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-white border border-[#E5E5E5] hover:border-amber-500/50 transition-colors">
                         <input
                           type="checkbox"
                           checked={formData.notifySubscribers}
                           onChange={e => setFormData({ ...formData, notifySubscribers: e.target.checked })}
-                          className="w-4 h-4 mt-0.5 rounded text-amber-600 bg-stone-950 border-stone-700 shrink-0"
+                          className="w-4 h-4 mt-0.5 rounded text-amber-600 bg-[#F8F8F6] border-[#E5E5E5] shrink-0"
                         />
                         <div>
-                          <span className="font-bold text-stone-200 block text-xs">
+                          <span className="font-bold text-[#1A1A1A] block text-xs">
                             🔔 Send Push Notification to All Subscribers
                           </span>
-                          <span className="text-[11px] text-stone-400">
+                          <span className="text-[11px] text-[#666666]">
                             Broadcasts an immediate push notification to customers with a deep link to this guide.
                             (Note: Per system policy, notifications are NEVER sent automatically unless explicitly chosen here).
                           </span>
@@ -1867,10 +1867,10 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center justify-between px-6 py-4 border-t border-stone-800 bg-stone-900/95 sticky bottom-0 z-10">
+            <div className="flex items-center justify-between px-6 py-4 border-t border-[#E5E5E5] bg-white sticky bottom-0 z-10">
               <button
                 onClick={() => setIsEditorOpen(false)}
-                className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold"
+                className="px-4 py-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold"
               >
                 Cancel
               </button>
@@ -1879,7 +1879,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                 id="admin-save-article-btn"
                 onClick={handleSaveArticle}
                 disabled={actionLoading}
-                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-amber-950/50 active:scale-95 transition-all disabled:opacity-50"
+                className="px-5 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-amber-950/50 active:scale-95 transition-all disabled:opacity-50"
               >
                 {actionLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 {editingArticleId ? 'Update Article' : 'Publish Article'}
@@ -1891,9 +1891,9 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
 
       {/* Category Creation / Edit Modal */}
       {isCategoryModalOpen && (
-        <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-stone-900 border border-stone-800 rounded-2xl p-6 space-y-4 text-xs">
-            <div className="flex justify-between items-center font-serif text-lg font-bold text-white border-b border-stone-800 pb-3">
+        <div className="fixed inset-0 z-50 bg-[#F8F8F6] backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-4 text-xs">
+            <div className="flex justify-between items-center font-serif text-lg font-bold text-white border-b border-[#E5E5E5] pb-3">
               <span>{editingCategory ? 'Edit Category' : 'Create Article Category'}</span>
               <button onClick={() => setIsCategoryModalOpen(false)}>
                 <X className="w-4 h-4" />
@@ -1902,32 +1902,32 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
 
             <div className="space-y-3">
               <div>
-                <label className="block text-stone-300 mb-1 font-semibold">Category Name</label>
+                <label className="block text-[#1A1A1A] mb-1 font-semibold">Category Name</label>
                 <input
                   type="text"
                   value={newCatName}
                   onChange={e => setNewCatName(e.target.value)}
                   placeholder="e.g. Sagwan Teak Wood"
-                  className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-100"
+                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A]"
                 />
               </div>
 
               <div>
-                <label className="block text-stone-300 mb-1 font-semibold">Description (Optional)</label>
+                <label className="block text-[#1A1A1A] mb-1 font-semibold">Description (Optional)</label>
                 <textarea
                   rows={3}
                   value={newCatDescription}
                   onChange={e => setNewCatDescription(e.target.value)}
                   placeholder="Articles covering teak grain grades, seasoning methods, and comparisons..."
-                  className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-100"
+                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A]"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-stone-800">
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#E5E5E5]">
               <button
                 onClick={() => setIsCategoryModalOpen(false)}
-                className="px-4 py-2 rounded-xl bg-stone-800 text-stone-300 font-semibold"
+                className="px-4 py-2 rounded-xl bg-[#F8F8F6] text-[#1A1A1A] font-semibold"
               >
                 Cancel
               </button>
@@ -1949,7 +1949,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                   showToast('Category saved');
                   loadAllData();
                 }}
-                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold"
+                className="px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold"
               >
                 Save Category
               </button>

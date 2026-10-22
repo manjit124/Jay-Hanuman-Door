@@ -48,6 +48,14 @@ export function getWhatsAppUrl(phone?: string, message?: string): string {
 }
 
 /**
+ * Builds standard tel: URL for phone calls
+ */
+export function getPhoneTelUrl(phone?: string): string {
+  const digits = (phone || DEFAULT_WHATSAPP_NUMBER).replace(/[^0-9+]/g, '');
+  return `tel:${digits}`;
+}
+
+/**
  * Returns the official shop location URL on Google Maps
  */
 export function getGoogleMapsUrl(customUrl?: string): string {

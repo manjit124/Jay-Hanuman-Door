@@ -355,24 +355,24 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
   return (
     <div id="admin-team-management-tab" className="space-y-6">
       {/* Header with Stats & Actions */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20">
+            <div className="w-9 h-9 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
               <Users className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-serif text-lg sm:text-xl font-bold text-stone-100">
+              <h2 className="font-serif text-lg sm:text-xl font-bold text-[#1A1A1A]">
                 Team & Leadership Management
               </h2>
-              <p className="text-xs text-stone-400">
+              <p className="text-xs text-[#666666]">
                 Configure founders, executive leadership, workshop heads, and master craftsmen displayed on the home page.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3 mt-3 text-xs">
-            <span className="px-2.5 py-0.5 rounded-full bg-stone-800 text-stone-300 border border-stone-700 font-medium">
+            <span className="px-2.5 py-0.5 rounded-full bg-[#F8F8F6] text-[#1A1A1A] border border-[#E5E5E5] font-medium">
               Total: <strong>{sortedMembers.length}</strong>
             </span>
             <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium flex items-center gap-1">
@@ -380,7 +380,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
               Active: <strong>{activeCount}</strong>
             </span>
             {inactiveCount > 0 && (
-              <span className="px-2.5 py-0.5 rounded-full bg-stone-800 text-stone-400 border border-stone-700 font-medium flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full bg-[#F8F8F6] text-[#666666] border border-[#E5E5E5] font-medium flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-stone-500"></span>
                 Inactive (Hidden): <strong>{inactiveCount}</strong>
               </span>
@@ -393,7 +393,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
             id="admin-reload-team-btn"
             onClick={() => onReload()}
             disabled={loading}
-            className="px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs flex items-center gap-1.5 border border-stone-700 transition-colors"
+            className="px-3 py-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] font-semibold text-xs flex items-center gap-1.5 border border-[#E5E5E5] transition-colors"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
@@ -402,7 +402,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
           <button
             id="admin-add-team-btn"
             onClick={handleOpenAdd}
-            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-2 shadow-sm transition-all"
+            className="px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all"
           >
             <Plus className="w-4 h-4" />
             <span>Add Team Member</span>
@@ -426,21 +426,21 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
       )}
 
       {/* Team Members List */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl overflow-hidden shadow-sm">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-sm">
         {sortedMembers.length === 0 ? (
           <div className="p-12 text-center space-y-4">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-stone-800/80 text-stone-500 flex items-center justify-center">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-[#F8F8F6] text-[#666666] flex items-center justify-center">
               <Users className="w-7 h-7" />
             </div>
             <div className="max-w-sm mx-auto">
-              <h3 className="font-serif text-base font-bold text-stone-200">No Team Members Added Yet</h3>
-              <p className="text-xs text-stone-400 mt-1">
+              <h3 className="font-serif text-base font-bold text-[#1A1A1A]">No Team Members Added Yet</h3>
+              <p className="text-xs text-[#666666] mt-1">
                 Add your company founder, workshop manager, or master craftsman to showcase leadership and build buyer trust.
               </p>
             </div>
             <button
               onClick={handleOpenAdd}
-              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs inline-flex items-center gap-2 shadow transition-all"
+              className="px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs inline-flex items-center gap-2 shadow transition-all"
             >
               <Plus className="w-4 h-4" />
               <span>Add First Member</span>
@@ -448,8 +448,8 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-stone-300">
-              <thead className="bg-stone-950 text-stone-400 uppercase tracking-wider text-[10px] font-semibold border-b border-stone-800">
+            <table className="w-full text-left text-xs text-[#1A1A1A]">
+              <thead className="bg-[#F8F8F6] text-[#666666] uppercase tracking-wider text-[10px] font-semibold border-b border-[#E5E5E5]">
                 <tr>
                   <th className="py-3.5 px-4 w-12 text-center">Order</th>
                   <th className="py-3.5 px-4">Member Profile</th>
@@ -458,12 +458,12 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                   <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-800">
+              <tbody className="divide-y divide-[#E5E5E5]">
                 {sortedMembers.map((member, index) => (
                   <tr
                     key={member.id}
-                    className={`hover:bg-stone-850/60 transition-colors ${
-                      !member.active ? 'opacity-60 bg-stone-950/40' : ''
+                    className={`hover:bg-[#F7F7F7]/60 transition-colors ${
+                      !member.active ? 'opacity-60 bg-[#F8F8F6]' : ''
                     }`}
                   >
                     {/* Order Controls */}
@@ -473,18 +473,18 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                           onClick={() => handleMove(index, 'up')}
                           disabled={index === 0}
                           title="Move up"
-                          className="p-1 rounded hover:bg-stone-700 text-stone-400 hover:text-amber-400 disabled:opacity-20 disabled:hover:bg-transparent"
+                          className="p-1 rounded hover:bg-stone-100 text-[#666666] hover:text-[#C89211] disabled:opacity-20 disabled:hover:bg-transparent"
                         >
                           <ArrowUp className="w-3.5 h-3.5" />
                         </button>
-                        <span className="font-mono font-bold text-amber-500 text-xs">
+                        <span className="font-mono font-bold text-[#C89211] text-xs">
                           {member.displayOrder}
                         </span>
                         <button
                           onClick={() => handleMove(index, 'down')}
                           disabled={index === sortedMembers.length - 1}
                           title="Move down"
-                          className="p-1 rounded hover:bg-stone-700 text-stone-400 hover:text-amber-400 disabled:opacity-20 disabled:hover:bg-transparent"
+                          className="p-1 rounded hover:bg-stone-100 text-[#666666] hover:text-[#C89211] disabled:opacity-20 disabled:hover:bg-transparent"
                         >
                           <ArrowDown className="w-3.5 h-3.5" />
                         </button>
@@ -494,7 +494,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     {/* Member Profile Info */}
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-14 rounded-xl overflow-hidden bg-stone-800 border border-stone-700 shrink-0">
+                        <div className="w-12 h-14 rounded-xl overflow-hidden bg-[#F8F8F6] border border-[#E5E5E5] shrink-0">
                           <img
                             src={member.photo}
                             alt={member.name}
@@ -506,14 +506,14 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                           />
                         </div>
                         <div>
-                          <div className="font-serif font-bold text-stone-100 text-sm">
+                          <div className="font-serif font-bold text-[#1A1A1A] text-sm">
                             {member.name}
                           </div>
-                          <div className="text-amber-400 font-medium text-xs mt-0.5">
+                          <div className="text-[#C89211] font-medium text-xs mt-0.5">
                             {member.designation}
                           </div>
                           {member.shortBio && (
-                            <div className="text-[11px] text-stone-400 line-clamp-1 italic mt-1">
+                            <div className="text-[11px] text-[#666666] line-clamp-1 italic mt-1">
                               "{member.shortBio}"
                             </div>
                           )}
@@ -525,14 +525,14 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     <td className="py-3.5 px-4 hidden md:table-cell">
                       <div className="space-y-1">
                         {member.experience && (
-                          <div className="text-xs text-stone-300 flex items-center gap-1.5">
-                            <Briefcase className="w-3.5 h-3.5 text-amber-400" />
+                          <div className="text-xs text-[#1A1A1A] flex items-center gap-1.5">
+                            <Briefcase className="w-3.5 h-3.5 text-[#C89211]" />
                             <span>{member.experience}</span>
                           </div>
                         )}
                         {member.specialization && (
-                          <div className="text-xs text-stone-400 flex items-center gap-1.5">
-                            <Award className="w-3.5 h-3.5 text-amber-400" />
+                          <div className="text-xs text-[#666666] flex items-center gap-1.5">
+                            <Award className="w-3.5 h-3.5 text-[#C89211]" />
                             <span>{member.specialization}</span>
                           </div>
                         )}
@@ -547,7 +547,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all ${
                           member.active
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
-                            : 'bg-stone-800 text-stone-400 border border-stone-700 hover:bg-stone-700'
+                            : 'bg-[#F8F8F6] text-[#666666] border border-[#E5E5E5] hover:bg-stone-100'
                         }`}
                       >
                         {member.active ? (
@@ -571,7 +571,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                         <button
                           onClick={() => setPreviewMember(member)}
                           title="Preview Customer Profile"
-                          className="p-1.5 rounded-lg bg-stone-800 hover:bg-amber-600 hover:text-stone-950 text-stone-300 transition-colors"
+                          className="p-1.5 rounded-lg bg-[#F8F8F6] hover:bg-amber-600 hover:text-white text-[#1A1A1A] transition-colors"
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
@@ -580,7 +580,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                         <button
                           onClick={() => handleOpenEdit(member)}
                           title="Edit Profile"
-                          className="p-1.5 rounded-lg bg-stone-800 hover:bg-amber-600 hover:text-stone-950 text-stone-300 transition-colors"
+                          className="p-1.5 rounded-lg bg-[#F8F8F6] hover:bg-amber-600 hover:text-white text-[#1A1A1A] transition-colors"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
@@ -589,7 +589,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                         <button
                           onClick={() => handleDelete(member)}
                           title="Delete Profile"
-                          className="p-1.5 rounded-lg bg-stone-800 hover:bg-red-600 hover:text-white text-stone-300 transition-colors"
+                          className="p-1.5 rounded-lg bg-[#F8F8F6] hover:bg-red-600 hover:text-white text-[#1A1A1A] transition-colors"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -607,24 +607,24 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
       {isModalOpen && (
         <div
           id="admin-team-form-modal"
-          className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#F8F8F6] backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
           onClick={() => setIsModalOpen(false)}
         >
           <div
-            className="relative w-full max-w-2xl bg-stone-900 border border-amber-500/30 rounded-3xl shadow-2xl overflow-hidden text-stone-100 my-8"
+            className="relative w-full max-w-2xl bg-white border border-[#C89211]/30 rounded-3xl shadow-2xl overflow-hidden text-[#1A1A1A] my-8"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-800 bg-stone-950/60">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] bg-[#F8F8F6]">
               <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-amber-400" />
-                <h3 className="font-serif text-lg font-bold text-stone-100">
+                <Users className="w-5 h-5 text-[#C89211]" />
+                <h3 className="font-serif text-lg font-bold text-[#1A1A1A]">
                   {editingMember ? `Edit Team Member: ${editingMember.name}` : 'Add New Team Member'}
                 </h3>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white flex items-center justify-center transition-colors"
+                className="w-8 h-8 rounded-full bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] hover:text-white flex items-center justify-center transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -633,13 +633,13 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
             {/* Form */}
             <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
               {/* Profile Photo Section (Direct File Upload Only) */}
-              <div className="space-y-3 bg-stone-950/60 p-4 rounded-2xl border border-stone-800">
+              <div className="space-y-3 bg-[#F8F8F6] p-4 rounded-2xl border border-[#E5E5E5]">
                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-amber-400">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#C89211]">
                     Profile Photo
                   </label>
                   {uploadingPhoto && (
-                    <span className="text-[11px] text-amber-400 flex items-center gap-1.5 font-medium">
+                    <span className="text-[11px] text-[#C89211] flex items-center gap-1.5 font-medium">
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       Uploading photo...
                     </span>
@@ -648,7 +648,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
 
                 <div className="flex flex-col sm:flex-row items-center gap-4">
                   {/* 1. Current Profile Photo Preview */}
-                  <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-stone-800 border-2 border-amber-500/30 shrink-0 shadow-md">
+                  <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-[#F8F8F6] border-2 border-[#C89211]/30 shrink-0 shadow-md">
                     {formData.photo ? (
                       <img
                         src={formData.photo}
@@ -656,13 +656,13 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                         className="w-full h-full object-cover object-top"
                       />
                     ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-stone-500 p-2 text-center">
+                      <div className="w-full h-full flex flex-col items-center justify-center text-[#666666] p-2 text-center">
                         <ImageIcon className="w-6 h-6 mb-1 text-stone-600" />
                         <span className="text-[10px]">No Photo</span>
                       </div>
                     )}
                     {uploadingPhoto && (
-                      <div className="absolute inset-0 bg-stone-950/80 flex items-center justify-center text-amber-400 backdrop-blur-xs">
+                      <div className="absolute inset-0 bg-[#F8F8F6] flex items-center justify-center text-[#C89211] backdrop-blur-xs">
                         <Loader2 className="w-6 h-6 animate-spin" />
                       </div>
                     )}
@@ -678,8 +678,8 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     onDrop={onDropPhoto}
                     className={`flex-1 w-full border-2 border-dashed rounded-xl p-4 text-center transition-all ${
                       isDragOver
-                        ? 'border-amber-500 bg-amber-500/10'
-                        : 'border-stone-700 hover:border-amber-500/50 bg-stone-900/60'
+                        ? 'border-amber-500 bg-[#FFF7E3]'
+                        : 'border-[#E5E5E5] hover:border-amber-500/50 bg-white'
                     }`}
                   >
                     <input
@@ -690,19 +690,19 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                       className="hidden"
                     />
 
-                    <Upload className="w-6 h-6 text-amber-400 mx-auto mb-2" />
-                    <p className="text-xs text-stone-300 font-medium">
+                    <Upload className="w-6 h-6 text-[#C89211] mx-auto mb-2" />
+                    <p className="text-xs text-[#1A1A1A] font-medium">
                       Drag & drop person's photo here, or{' '}
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploadingPhoto}
-                        className="text-amber-400 underline hover:text-amber-300 font-semibold cursor-pointer disabled:opacity-50"
+                        className="text-[#C89211] underline hover:text-[#C89211] font-semibold cursor-pointer disabled:opacity-50"
                       >
                         browse files
                       </button>
                     </p>
-                    <p className="text-[11px] text-stone-500 mt-1">
+                    <p className="text-[11px] text-[#666666] mt-1">
                       Supported: JPG, JPEG, PNG, WEBP (Max 15MB)
                     </p>
 
@@ -713,9 +713,9 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
                           disabled={uploadingPhoto}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                          className="text-xs px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] font-medium transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                         >
-                          <RefreshCw className="w-3.5 h-3.5 text-stone-400" />
+                          <RefreshCw className="w-3.5 h-3.5 text-[#666666]" />
                           Replace Photo
                         </button>
                         <button
@@ -736,8 +736,8 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
               {/* Name & Designation */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                    Full Name <span className="text-amber-400">*</span>
+                  <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
+                    Full Name <span className="text-[#C89211]">*</span>
                   </label>
                   <input
                     type="text"
@@ -745,13 +745,13 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     value={formData.name}
                     onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))}
                     placeholder="e.g. Manjeet Prajapati"
-                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-stone-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl px-3.5 py-2 text-xs sm:text-sm text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                    Designation / Role <span className="text-amber-400">*</span>
+                  <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
+                    Designation / Role <span className="text-[#C89211]">*</span>
                   </label>
                   <input
                     type="text"
@@ -760,7 +760,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     value={formData.designation}
                     onChange={(e) => setFormData(p => ({ ...p, designation: e.target.value }))}
                     placeholder="e.g. Founder & CEO"
-                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-stone-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl px-3.5 py-2 text-xs sm:text-sm text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                   />
                   <datalist id="designation-suggestions">
                     {COMMON_DESIGNATIONS.map(role => (
@@ -773,7 +773,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
               {/* Experience & Specialization */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
                     Experience (Optional)
                   </label>
                   <input
@@ -781,12 +781,12 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     value={formData.experience}
                     onChange={(e) => setFormData(p => ({ ...p, experience: e.target.value }))}
                     placeholder="e.g. 10+ Years or 15 Years in Timber"
-                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-stone-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl px-3.5 py-2 text-xs sm:text-sm text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
                     Specialization / Expertise (Optional)
                   </label>
                   <input
@@ -794,14 +794,14 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     value={formData.specialization}
                     onChange={(e) => setFormData(p => ({ ...p, specialization: e.target.value }))}
                     placeholder="e.g. Sagwan Door Manufacturing & Carving"
-                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-stone-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl px-3.5 py-2 text-xs sm:text-sm text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                   />
                 </div>
               </div>
 
               {/* Short Bio for Carousel Card */}
               <div>
-                <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
                   Short Bio / Quote (Displayed on Carousel Card)
                 </label>
                 <textarea
@@ -809,13 +809,13 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                   value={formData.shortBio}
                   onChange={(e) => setFormData(p => ({ ...p, shortBio: e.target.value }))}
                   placeholder="e.g. Dedicated to delivering premium wooden doors with authentic teak craftsmanship and enduring trust."
-                  className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-stone-100 focus:border-amber-500 focus:outline-none"
+                  className="w-full bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl px-3.5 py-2 text-xs sm:text-sm text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                 />
               </div>
 
               {/* Full Biography for Detailed Modal View */}
               <div>
-                <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
                   Full Biography (Displayed in Detailed Profile View)
                 </label>
                 <textarea
@@ -823,14 +823,14 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                   value={formData.fullBio}
                   onChange={(e) => setFormData(p => ({ ...p, fullBio: e.target.value }))}
                   placeholder="Detailed background, industry experience, craftsmanship standards, and dedication to wood architecture."
-                  className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-stone-100 focus:border-amber-500 focus:outline-none"
+                  className="w-full bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl px-3.5 py-2 text-xs sm:text-sm text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                 />
               </div>
 
               {/* Key Responsibilities & Milestones */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
                     Responsibilities (One per line)
                   </label>
                   <textarea
@@ -838,12 +838,12 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     value={formData.responsibilitiesText}
                     onChange={(e) => setFormData(p => ({ ...p, responsibilitiesText: e.target.value }))}
                     placeholder="Timber selection & seasoning&#10;Workshop quality supervision&#10;Client architectural consultations"
-                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl px-3.5 py-2 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
                     Achievements / Milestones (One per line)
                   </label>
                   <textarea
@@ -851,89 +851,89 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     value={formData.achievementsText}
                     onChange={(e) => setFormData(p => ({ ...p, achievementsText: e.target.value }))}
                     placeholder="10,000+ custom doors engineered&#10;State woodworking award 2024&#10;Pioneered vacuum pressure treatment"
-                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-100 focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl px-3.5 py-2 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                   />
                 </div>
               </div>
 
               {/* Optional Social / Contact Links */}
-              <div className="space-y-3 bg-stone-950/40 p-4 rounded-2xl border border-stone-800">
-                <span className="block text-xs font-semibold uppercase tracking-wider text-amber-400">
+              <div className="space-y-3 bg-[#F8F8F6] p-4 rounded-2xl border border-[#E5E5E5]">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-[#C89211]">
                   Optional Contact & Social Links
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex items-center gap-2">
-                    <Linkedin className="w-4 h-4 text-stone-400 shrink-0" />
+                    <Linkedin className="w-4 h-4 text-[#666666] shrink-0" />
                     <input
                       type="url"
                       value={formData.linkedin}
                       onChange={(e) => setFormData(p => ({ ...p, linkedin: e.target.value }))}
                       placeholder="LinkedIn Profile URL"
-                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-1.5 text-xs text-stone-200 focus:border-amber-500 focus:outline-none"
+                      className="w-full bg-white border border-[#E5E5E5] rounded-xl px-3 py-1.5 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                     />
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Instagram className="w-4 h-4 text-stone-400 shrink-0" />
+                    <Instagram className="w-4 h-4 text-[#666666] shrink-0" />
                     <input
                       type="url"
                       value={formData.instagram}
                       onChange={(e) => setFormData(p => ({ ...p, instagram: e.target.value }))}
                       placeholder="Instagram Profile URL"
-                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-1.5 text-xs text-stone-200 focus:border-amber-500 focus:outline-none"
+                      className="w-full bg-white border border-[#E5E5E5] rounded-xl px-3 py-1.5 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                     />
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Facebook className="w-4 h-4 text-stone-400 shrink-0" />
+                    <Facebook className="w-4 h-4 text-[#666666] shrink-0" />
                     <input
                       type="url"
                       value={formData.facebook}
                       onChange={(e) => setFormData(p => ({ ...p, facebook: e.target.value }))}
                       placeholder="Facebook Profile URL"
-                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-1.5 text-xs text-stone-200 focus:border-amber-500 focus:outline-none"
+                      className="w-full bg-white border border-[#E5E5E5] rounded-xl px-3 py-1.5 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                     />
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Youtube className="w-4 h-4 text-stone-400 shrink-0" />
+                    <Youtube className="w-4 h-4 text-[#666666] shrink-0" />
                     <input
                       type="url"
                       value={formData.youtube}
                       onChange={(e) => setFormData(p => ({ ...p, youtube: e.target.value }))}
                       placeholder="YouTube Video / Channel URL"
-                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-1.5 text-xs text-stone-200 focus:border-amber-500 focus:outline-none"
+                      className="w-full bg-white border border-[#E5E5E5] rounded-xl px-3 py-1.5 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                     />
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-stone-400 shrink-0" />
+                    <Mail className="w-4 h-4 text-[#666666] shrink-0" />
                     <input
                       type="email"
                       value={formData.email}
                       onChange={(e) => setFormData(p => ({ ...p, email: e.target.value }))}
                       placeholder="Business Email"
-                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-1.5 text-xs text-stone-200 focus:border-amber-500 focus:outline-none"
+                      className="w-full bg-white border border-[#E5E5E5] rounded-xl px-3 py-1.5 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                     />
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Video className="w-4 h-4 text-stone-400 shrink-0" />
+                    <Video className="w-4 h-4 text-[#666666] shrink-0" />
                     <input
                       type="url"
                       value={formData.videoUrl}
                       onChange={(e) => setFormData(p => ({ ...p, videoUrl: e.target.value }))}
                       placeholder="Intro / Workshop Video URL"
-                      className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-1.5 text-xs text-stone-200 focus:border-amber-500 focus:outline-none"
+                      className="w-full bg-white border border-[#E5E5E5] rounded-xl px-3 py-1.5 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Display Order & Active Toggle */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-stone-950/60 border border-stone-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5]">
                 <div className="flex items-center gap-3">
-                  <label className="text-xs font-semibold text-stone-300">
+                  <label className="text-xs font-semibold text-[#1A1A1A]">
                     Display Order:
                   </label>
                   <input
@@ -941,12 +941,12 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     min="1"
                     value={formData.displayOrder}
                     onChange={(e) => setFormData(p => ({ ...p, displayOrder: parseInt(e.target.value) || 1 }))}
-                    className="w-20 bg-stone-900 border border-stone-700 rounded-xl px-3 py-1 text-xs text-amber-400 font-bold focus:border-amber-500 focus:outline-none text-center"
+                    className="w-20 bg-white border border-[#E5E5E5] rounded-xl px-3 py-1 text-xs text-[#C89211] font-bold focus:border-[#C89211] focus:outline-none text-center"
                   />
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <label className="text-xs font-semibold text-stone-300 cursor-pointer" htmlFor="member-active-toggle">
+                  <label className="text-xs font-semibold text-[#1A1A1A] cursor-pointer" htmlFor="member-active-toggle">
                     Visible on Customer Site:
                   </label>
                   <button
@@ -954,7 +954,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                     id="member-active-toggle"
                     onClick={() => setFormData(p => ({ ...p, active: !p.active }))}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                      formData.active ? 'bg-amber-600' : 'bg-stone-800'
+                      formData.active ? 'bg-amber-600' : 'bg-[#F8F8F6]'
                     }`}
                   >
                     <span
@@ -967,11 +967,11 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-stone-800">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#E5E5E5]">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs transition-colors"
+                  className="px-4 py-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] font-semibold text-xs transition-colors"
                 >
                   Cancel
                 </button>
@@ -979,7 +979,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                 <button
                   type="submit"
                   disabled={loading || uploadingPhoto}
-                  className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-2 shadow transition-all disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-2 shadow transition-all disabled:opacity-50"
                 >
                   {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                   <span>{editingMember ? 'Save Changes' : 'Create Team Member'}</span>

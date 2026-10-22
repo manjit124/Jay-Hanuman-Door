@@ -70,33 +70,33 @@ Message: ${notes || 'Need quote and catalog'}`;
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
         
         {/* Left: Contact Info & Workshop Details (5 Cols) */}
-        <div className="lg:col-span-5 bg-stone-900 text-stone-100 rounded-2xl border border-stone-800 p-6 sm:p-8 flex flex-col justify-between shadow-xl">
+        <div className="lg:col-span-5 bg-white text-[#1A1A1A] rounded-2xl border border-[#E5E5E5] p-6 sm:p-8 flex flex-col justify-between shadow-sm">
           <div className="space-y-6">
             <div>
-              <span className="px-2.5 py-1 rounded text-[11px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase tracking-wide">
+              <span className="px-2.5 py-1 rounded text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase tracking-wide">
                 Direct Manufacturer
               </span>
-              <h3 className="font-serif text-2xl font-bold text-white mt-2">
+              <h3 className="font-serif text-2xl font-bold text-[#1A1A1A] mt-2">
                 {settings.businessName || 'Jai Hanuman Door'}
               </h3>
-              <p className="text-xs text-stone-400 mt-1">
+              <p className="text-xs text-[#666666] mt-1">
                 {settings.tagline || 'Specialist in Handcrafted Sagwan & Teak Doors'}
               </p>
             </div>
 
             <div className="space-y-4 text-xs sm:text-sm">
               {/* Address & Shop Location */}
-              <div className="p-3.5 rounded-xl bg-stone-950/70 border border-stone-800">
+              <div className="p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
                 <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-stone-800 text-amber-400 flex items-center justify-center flex-shrink-0 mt-0.5 border border-stone-700">
+                  <div className="w-8 h-8 rounded-lg bg-[#FFF7E3] text-[#C89211] flex items-center justify-center flex-shrink-0 mt-0.5 border border-[#C89211]/20">
                     <MapPin className="w-4 h-4" />
                   </div>
                   <div className="flex-1">
-                    <div className="flex items-center gap-1.5 font-bold text-stone-200">
+                    <div className="flex items-center gap-1.5 font-bold text-[#1A1A1A]">
                       <span>📍</span>
                       <span>Jai Hanuman Door (Factory & Display)</span>
                     </div>
-                    <p className="text-stone-400 text-xs mt-0.5 leading-relaxed">
+                    <p className="text-[#666666] text-xs mt-0.5 leading-relaxed">
                       {settings.address || 'Near Old Timber Market, Industrial Estate, Pune, Maharashtra 411002, India'}
                     </p>
                     <a
@@ -104,11 +104,21 @@ Message: ${notes || 'Need quote and catalog'}`;
                       href={googleMapsUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold transition-colors mt-2.5"
+                      className="inline-flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-[#FFF8E8] hover:bg-[#FFF2D4] border border-[#C89211] text-left transition-all duration-200 shadow-xs hover:shadow-sm group mt-3 min-w-[210px] max-w-full"
+                      title="Open Shop Location in Google Maps"
                     >
-                      <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                      <span>View Shop Location</span>
-                      <ExternalLink className="w-3 h-3 text-amber-400/80" />
+                      <div className="w-8 h-8 rounded-lg bg-white border border-[#C89211]/30 flex items-center justify-center text-[#C89211] shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                        <MapPin className="w-4.5 h-4.5 text-[#C89211] fill-[#C89211]/20" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-xs sm:text-sm text-[#222222] leading-tight">
+                          Shop Location
+                        </div>
+                        <div className="text-[10px] sm:text-[11px] text-[#C89211] font-semibold flex items-center gap-1 mt-0.5 leading-none">
+                          <span>View on Google Maps</span>
+                          <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+                        </div>
+                      </div>
                     </a>
                   </div>
                 </div>
@@ -116,12 +126,12 @@ Message: ${notes || 'Need quote and catalog'}`;
 
               {/* Phone */}
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-stone-800 text-amber-400 flex items-center justify-center flex-shrink-0 mt-0.5 border border-stone-700">
+                <div className="w-8 h-8 rounded-lg bg-[#FFF7E3] text-[#C89211] flex items-center justify-center flex-shrink-0 mt-0.5 border border-[#C89211]/20">
                   <Phone className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-bold text-stone-200">Phone Support</div>
-                  <a href={`tel:${settings.phone}`} className="text-amber-400 font-mono text-xs hover:underline block mt-0.5 font-semibold">
+                  <div className="font-bold text-[#1A1A1A]">Phone Support</div>
+                  <a href={`tel:${settings.phone}`} className="text-[#C89211] font-mono text-xs hover:underline block mt-0.5 font-semibold">
                     {settings.phone || '+91 98220 12345'}
                   </a>
                 </div>
@@ -129,17 +139,17 @@ Message: ${notes || 'Need quote and catalog'}`;
 
               {/* WhatsApp */}
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-emerald-950/80 text-emerald-400 flex items-center justify-center flex-shrink-0 mt-0.5 border border-emerald-800/60">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#16803A] flex items-center justify-center flex-shrink-0 mt-0.5 border border-emerald-200">
                   <MessageCircle className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-bold text-stone-200">Official WhatsApp</div>
+                  <div className="font-bold text-[#1A1A1A]">Official WhatsApp</div>
                   <a
                     id="section-whatsapp-link"
                     href={getWhatsAppUrl(settings.whatsappNumber, `Hello ${settings.businessName || 'Jai Hanuman Door'}, I have an enquiry.`)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-emerald-400 font-mono text-xs hover:underline block mt-0.5 font-semibold"
+                    className="text-[#16803A] font-mono text-xs hover:underline block mt-0.5 font-semibold"
                   >
                     {formatWhatsAppDisplay(settings.whatsappNumber)} (Instant Response)
                   </a>
@@ -148,12 +158,12 @@ Message: ${notes || 'Need quote and catalog'}`;
 
               {/* Email */}
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-stone-800 text-amber-400 flex items-center justify-center flex-shrink-0 mt-0.5 border border-stone-700">
+                <div className="w-8 h-8 rounded-lg bg-[#FFF7E3] text-[#C89211] flex items-center justify-center flex-shrink-0 mt-0.5 border border-[#C89211]/20">
                   <Mail className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-bold text-stone-200">Email Inquiries</div>
-                  <a href={`mailto:${settings.email}`} className="text-stone-300 text-xs hover:underline block mt-0.5">
+                  <div className="font-bold text-[#1A1A1A]">Email Inquiries</div>
+                  <a href={`mailto:${settings.email}`} className="text-[#666666] text-xs hover:underline block mt-0.5">
                     {settings.email || 'orders@shivshahidoors.com'}
                   </a>
                 </div>
@@ -161,12 +171,12 @@ Message: ${notes || 'Need quote and catalog'}`;
 
               {/* Working Hours */}
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-stone-800 text-amber-400 flex items-center justify-center flex-shrink-0 mt-0.5 border border-stone-700">
+                <div className="w-8 h-8 rounded-lg bg-[#FFF7E3] text-[#C89211] flex items-center justify-center flex-shrink-0 mt-0.5 border border-[#C89211]/20">
                   <Clock className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-bold text-stone-200">Working Hours</div>
-                  <p className="text-stone-400 text-xs mt-0.5">
+                  <div className="font-bold text-[#1A1A1A]">Working Hours</div>
+                  <p className="text-[#666666] text-xs mt-0.5">
                     Monday to Saturday: 9:00 AM – 8:00 PM<br />
                     Sunday: 10:00 AM – 3:00 PM (By Appointment)
                   </p>
@@ -175,12 +185,12 @@ Message: ${notes || 'Need quote and catalog'}`;
             </div>
           </div>
 
-          <div className="pt-6 border-t border-stone-800 mt-6 flex items-center justify-between text-xs text-stone-400">
-            <span className="flex items-center gap-1.5 text-emerald-400">
+          <div className="pt-6 border-t border-[#E5E5E5] mt-6 flex items-center justify-between text-xs text-[#666666]">
+            <span className="flex items-center gap-1.5 text-[#16803A]">
               <ShieldCheck className="w-4 h-4" /> Direct Manufacturer Warranty
             </span>
             {settings.gstNumber && (
-              <span className="font-mono text-[11px]">GST: {settings.gstNumber}</span>
+              <span className="font-mono text-[11px] text-[#C89211]">GST: {settings.gstNumber}</span>
             )}
           </div>
         </div>

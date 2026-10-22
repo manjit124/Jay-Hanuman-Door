@@ -100,18 +100,18 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
     <div id="admin-enquiries-tab" className="space-y-6">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-800 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E5E5E5] pb-5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase">
+            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase">
               Customer Enquiries Queue
             </span>
-            <span className="text-xs text-stone-400">Total: {enquiries.length}</span>
+            <span className="text-xs text-[#666666]">Total: {enquiries.length}</span>
           </div>
           <h3 className="font-serif text-xl sm:text-2xl font-bold text-white mt-1">
             Customer Inquiries & Leads
           </h3>
-          <p className="text-xs text-stone-400 mt-0.5">
+          <p className="text-xs text-[#666666] mt-0.5">
             Incoming door price inquiries, site measurement requests, and custom requirements submitted via Contact Us.
           </p>
         </div>
@@ -119,9 +119,9 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
         <button
           onClick={loadEnquiries}
           disabled={loading}
-          className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold flex items-center gap-1.5 transition-colors self-start sm:self-auto"
+          className="px-3 py-1.5 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold flex items-center gap-1.5 transition-colors self-start sm:self-auto"
         >
-          <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-amber-400' : ''}`} />
+          <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#C89211]' : ''}`} />
           <span>Refresh</span>
         </button>
       </div>
@@ -134,8 +134,8 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
             onClick={() => setStatusFilter('all')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
               statusFilter === 'all'
-                ? 'bg-amber-600 text-stone-950 font-bold'
-                : 'bg-stone-900 border border-stone-800 text-stone-300 hover:bg-stone-800'
+                ? 'bg-[#C89211] text-white font-bold'
+                : 'bg-white border border-[#E5E5E5] text-[#1A1A1A] hover:bg-[#F8F8F6]'
             }`}
           >
             All ({counts.all})
@@ -144,8 +144,8 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
             onClick={() => setStatusFilter('new')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
               statusFilter === 'new'
-                ? 'bg-amber-500 text-stone-950 font-bold'
-                : 'bg-stone-900 border border-stone-800 text-amber-400 hover:bg-stone-800'
+                ? 'bg-[#C89211] text-white font-bold'
+                : 'bg-white border border-[#E5E5E5] text-[#C89211] hover:bg-[#F8F8F6]'
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
@@ -155,8 +155,8 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
             onClick={() => setStatusFilter('contacted')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
               statusFilter === 'contacted'
-                ? 'bg-sky-500 text-stone-950 font-bold'
-                : 'bg-stone-900 border border-stone-800 text-sky-400 hover:bg-stone-800'
+                ? 'bg-sky-500 text-white font-bold'
+                : 'bg-white border border-[#E5E5E5] text-sky-400 hover:bg-[#F8F8F6]'
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
@@ -166,8 +166,8 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
             onClick={() => setStatusFilter('resolved')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
               statusFilter === 'resolved'
-                ? 'bg-emerald-500 text-stone-950 font-bold'
-                : 'bg-stone-900 border border-stone-800 text-emerald-400 hover:bg-stone-800'
+                ? 'bg-emerald-500 text-white font-bold'
+                : 'bg-white border border-[#E5E5E5] text-emerald-400 hover:bg-[#F8F8F6]'
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
@@ -176,25 +176,25 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
         </div>
 
         <div className="relative w-full sm:w-64">
-          <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-4 h-4 text-[#666666] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             placeholder="Search name, phone, city..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+            className="w-full pl-9 pr-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
           />
         </div>
       </div>
 
       {/* Enquiries List */}
       {filteredEnquiries.length === 0 ? (
-        <div className="p-12 text-center rounded-2xl bg-stone-900/50 border border-stone-800/80 space-y-3">
+        <div className="p-12 text-center rounded-2xl bg-white border border-[#E5E5E5] space-y-3">
           <Inbox className="w-12 h-12 text-stone-600 mx-auto" />
-          <h4 className="font-serif text-lg font-bold text-stone-300">
+          <h4 className="font-serif text-lg font-bold text-[#1A1A1A]">
             {searchTerm ? 'No enquiries match your search' : 'No enquiries found'}
           </h4>
-          <p className="text-xs text-stone-400 max-w-sm mx-auto">
+          <p className="text-xs text-[#666666] max-w-sm mx-auto">
             When customers submit inquiries or site measurement bookings via the Contact Us form, they will appear here instantly.
           </p>
         </div>
@@ -210,7 +210,7 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
             });
 
             const statusColors = {
-              new: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+              new: 'bg-[#FFF7E3] text-[#C89211] border-[#C89211]/40',
               contacted: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
               resolved: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
             };
@@ -223,23 +223,23 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
             return (
               <div
                 key={enquiry.id}
-                className="p-5 rounded-2xl bg-stone-900 border border-stone-800 hover:border-stone-700 transition-colors shadow-lg space-y-4"
+                className="p-5 rounded-2xl bg-white border border-[#E5E5E5] hover:border-[#E5E5E5] transition-colors shadow-lg space-y-4"
               >
                 {/* Top Row: Name, Status Badge, Timestamp */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-800/80 pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E5E5E5] pb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center font-serif font-bold text-base shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-[#C89211]/30 text-[#C89211] flex items-center justify-center font-serif font-bold text-base shrink-0">
                       {enquiry.name.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <h4 className="font-bold text-stone-100 text-sm flex items-center gap-2">
+                      <h4 className="font-bold text-[#1A1A1A] text-sm flex items-center gap-2">
                         <span>{enquiry.name}</span>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase ${statusColors[enquiry.status]}`}>
                           {enquiry.status}
                         </span>
                       </h4>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-stone-400 mt-0.5">
-                        <span className="flex items-center gap-1 font-mono text-amber-400 font-medium">
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-[#666666] mt-0.5">
+                        <span className="flex items-center gap-1 font-mono text-[#C89211] font-medium">
                           <Phone className="w-3 h-3" />
                           <a href={`tel:${enquiry.phone}`} className="hover:underline">
                             {enquiry.phone}
@@ -255,7 +255,7 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
                         )}
                         {enquiry.city && (
                           <span className="flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-stone-400" />
+                            <MapPin className="w-3 h-3 text-[#666666]" />
                             {enquiry.city}
                           </span>
                         )}
@@ -263,7 +263,7 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-stone-400 font-mono flex items-center gap-1.5 self-start sm:self-auto">
+                  <div className="text-[11px] text-[#666666] font-mono flex items-center gap-1.5 self-start sm:self-auto">
                     <Clock className="w-3 h-3" />
                     <span>{dateStr}</span>
                   </div>
@@ -272,17 +272,17 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
                 {/* Enquiry Details & Message */}
                 <div className="space-y-2 text-xs">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="px-2.5 py-1 rounded-lg bg-stone-950 border border-stone-800 text-amber-300 font-semibold">
+                    <span className="px-2.5 py-1 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5] text-[#C89211] font-semibold">
                       Purpose: {enquiry.enquiryType || 'General Inquiry'}
                     </span>
                     {enquiry.doorName && (
-                      <span className="px-2.5 py-1 rounded-lg bg-stone-950 border border-stone-800 text-stone-300">
+                      <span className="px-2.5 py-1 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A]">
                         Door: <strong>{enquiry.doorName}</strong>
                       </span>
                     )}
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-stone-950/70 border border-stone-800/80 text-stone-200 text-xs sm:text-sm leading-relaxed whitespace-pre-line">
+                  <div className="p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm leading-relaxed whitespace-pre-line">
                     {enquiry.message}
                   </div>
                 </div>
@@ -292,14 +292,14 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
                   
                   {/* Status update toggle */}
                   <div className="flex items-center gap-1.5 text-xs">
-                    <span className="text-stone-400 mr-1 text-[11px]">Set Status:</span>
+                    <span className="text-[#666666] mr-1 text-[11px]">Set Status:</span>
                     <button
                       disabled={updatingId === enquiry.id || enquiry.status === 'new'}
                       onClick={() => handleStatusChange(enquiry.id, 'new')}
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
                         enquiry.status === 'new'
-                          ? 'bg-amber-500/30 text-amber-300 border border-amber-500/50'
-                          : 'bg-stone-950 border border-stone-800 text-stone-400 hover:text-stone-200'
+                          ? 'bg-amber-500/30 text-[#C89211] border border-amber-500/50'
+                          : 'bg-[#F8F8F6] border border-[#E5E5E5] text-[#666666] hover:text-[#1A1A1A]'
                       }`}
                     >
                       New
@@ -310,7 +310,7 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
                         enquiry.status === 'contacted'
                           ? 'bg-sky-500/30 text-sky-300 border border-sky-500/50'
-                          : 'bg-stone-950 border border-stone-800 text-stone-400 hover:text-stone-200'
+                          : 'bg-[#F8F8F6] border border-[#E5E5E5] text-[#666666] hover:text-[#1A1A1A]'
                       }`}
                     >
                       Contacted
@@ -321,7 +321,7 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
                         enquiry.status === 'resolved'
                           ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
-                          : 'bg-stone-950 border border-stone-800 text-stone-400 hover:text-stone-200'
+                          : 'bg-[#F8F8F6] border border-[#E5E5E5] text-[#666666] hover:text-[#1A1A1A]'
                       }`}
                     >
                       Resolved
@@ -332,9 +332,9 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
                   <div className="flex items-center gap-2">
                     <a
                       href={`tel:${enquiry.phone}`}
-                      className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      className="px-3 py-1.5 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold flex items-center gap-1.5 transition-colors"
                     >
-                      <Phone className="w-3.5 h-3.5 text-amber-400" />
+                      <Phone className="w-3.5 h-3.5 text-[#C89211]" />
                       <span>Call</span>
                     </a>
 
@@ -350,7 +350,7 @@ export const AdminEnquiriesTab: React.FC<AdminEnquiriesTabProps> = ({ onShowToas
 
                     <button
                       onClick={() => handleDelete(enquiry.id, enquiry.name)}
-                      className="p-1.5 rounded-xl bg-stone-950 hover:bg-red-950/70 border border-stone-800 hover:border-red-800 text-stone-400 hover:text-red-400 transition-colors"
+                      className="p-1.5 rounded-xl bg-[#F8F8F6] hover:bg-red-950/70 border border-[#E5E5E5] hover:border-red-800 text-[#666666] hover:text-red-400 transition-colors"
                       title="Delete enquiry"
                     >
                       <Trash2 className="w-4 h-4" />

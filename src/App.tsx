@@ -17,6 +17,9 @@ import {
   Send,
   Heart,
   Sparkles,
+  Truck,
+  Package,
+  Box,
 } from 'lucide-react';
 import {
   Door,
@@ -31,10 +34,14 @@ import {
   CalculationResult,
   UserCalculationRecord,
   TeamMember,
+  IndiaDeliveryState,
+  DeliveryStory,
+  ChaukhatCalculationResult,
 } from './types.ts';
 import {
   fetchCatalog,
   fetchCalculatorData,
+  fetchPublicDeliveryData,
   getGuestFavorites,
   toggleGuestFavorite,
 } from './lib/api.ts';
@@ -44,19 +51,30 @@ import { HeroSlider } from './components/HeroSlider.tsx';
 import { DoorGallery } from './components/DoorGallery.tsx';
 import { DoorDetailModal } from './components/DoorDetailModal.tsx';
 import { DoorCalculator } from './components/DoorCalculator.tsx';
+import { ChaukhatCalculator } from './components/ChaukhatCalculator.tsx';
 import { QuotationModal } from './components/QuotationModal.tsx';
 import { ArticlesSection } from './components/ArticlesSection.tsx';
+import { ArticlesGuidesCarousel } from './components/ArticlesGuidesCarousel.tsx';
+import { AllIndiaDeliverySection } from './components/AllIndiaDeliverySection.tsx';
+import { DEFAULT_INDIA_STATES, DEFAULT_DELIVERY_STORIES } from './data/indiaDeliveryData.ts';
 import { AdminPanel } from './components/AdminPanel.tsx';
 import { UserProfileModal } from './components/UserProfileModal.tsx';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { TeamSection } from './components/TeamSection.tsx';
+import { OurStorySection } from './components/OurStorySection.tsx';
 import { useAdminGesture } from './hooks/useAdminGesture.ts';
 import { PrivacyPolicyPage } from './components/legal/PrivacyPolicyPage.tsx';
 import { AboutUsPage } from './components/legal/AboutUsPage.tsx';
 import { ContactUsPage } from './components/legal/ContactUsPage.tsx';
 import { DisclaimerPage } from './components/legal/DisclaimerPage.tsx';
 import { AIWoodDetector } from './components/AIWoodDetector.tsx';
+import { CustomerOrderTracking } from './components/CustomerOrderTracking.tsx';
+import { DoorVisualizerPage } from './components/visualizer/DoorVisualizerPage.tsx';
+import { PromotionalBannerCarousel } from './components/PromotionalBannerCarousel.tsx';
+import { HomepageBannerSlider } from './components/HomepageBannerSlider.tsx';
+import { ContentProtectionWarning } from './components/ContentProtectionWarning.tsx';
+import { useContentProtection } from './lib/contentProtection.ts';
 import {
   getCleanWhatsAppDigits,
   formatWhatsAppDisplay,
@@ -66,16 +84,36 @@ import {
 import { initSpaAnalytics } from './lib/analytics.ts';
 
 export const App: React.FC = () => {
-  // Navigation View State: 'home' | 'gallery' | 'calculator' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer' | 'wood-detector'
+  // Navigation View State: 'home' | 'gallery' | 'calculator' | 'visualizer' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer' | 'wood-detector' | 'tracking'
   const [activeView, setActiveView] = useState<
-    'home' | 'gallery' | 'calculator' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer' | 'wood-detector'
+    'home' | 'gallery' | 'calculator' | 'visualizer' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer' | 'wood-detector' | 'tracking'
   >('home');
+  const [visualizerDoor, setVisualizerDoor] = useState<Door | null>(null);
+  const [trackingInitialId, setTrackingInitialId] = useState<string>('');
 
   // Application Data States
   const [loading, setLoading] = useState(true);
   const [doors, setDoors] = useState<Door[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [banners, setBanners] = useState<HomeBanner[]>([]);
+
+  const mainBanners = useMemo(() => {
+    return (banners || []).filter(
+      b =>
+        b.bannerType === 'main' ||
+        b.slot === 'hero' ||
+        b.slot === 'main' ||
+        (!b.bannerType && (!b.slot || b.slot === 'hero' || b.slot === 'main'))
+    );
+  }, [banners]);
+
+  const promotionBanners = useMemo(() => {
+    return (banners || []).filter(
+      b =>
+        (b.bannerType === 'promotion' || (!b.bannerType && b.slot !== 'hero' && b.slot !== 'main')) &&
+        (b.slot === 'slot_1' || b.slot === 'slot_2' || b.slot === 'slot_a' || b.slot === 'slot_b')
+    );
+  }, [banners]);
   const [articles, setArticles] = useState<Article[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [settings, setSettings] = useState<BusinessSettings>({
@@ -98,11 +136,19 @@ export const App: React.FC = () => {
   const [frames, setFrames] = useState<ChaukhatFrame[]>([]);
   const [hardware, setHardware] = useState<HardwareItem[]>([]);
 
+  // All India Delivery state
+  const [deliveryStates, setDeliveryStates] = useState<IndiaDeliveryState[]>(DEFAULT_INDIA_STATES);
+  const [deliveryStories, setDeliveryStories] = useState<DeliveryStory[]>(DEFAULT_DELIVERY_STORIES);
+
   // Modals
   const [selectedDoorForDetail, setSelectedDoorForDetail] = useState<Door | null>(null);
   const [calculatorDoor, setCalculatorDoor] = useState<Door | null>(null);
+  const [calculatorOption, setCalculatorOption] = useState<'door' | 'chaukhat'>('door');
+  const [combinedChaukhat, setCombinedChaukhat] = useState<ChaukhatCalculationResult | null>(null);
+  const [activeDoorCalculation, setActiveDoorCalculation] = useState<CalculationResult | null>(null);
   const [quotationCalcResult, setQuotationCalcResult] = useState<CalculationResult | null>(null);
   const [quotationDoor, setQuotationDoor] = useState<Door | null>(null);
+  const [selectedArticleIdForView, setSelectedArticleIdForView] = useState<string | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [adminInitialTab, setAdminInitialTab] = useState<string>('dashboard');
@@ -116,6 +162,9 @@ export const App: React.FC = () => {
       setShowAdminPanel(true);
     },
   });
+
+  // Client-side content protection & Android FLAG_SECURE
+  useContentProtection(settings?.contentProtection, activeView);
 
   // Saved Doors & Estimates Modal State (Public Browser Storage)
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -136,6 +185,12 @@ export const App: React.FC = () => {
           setAdminInitialTab(sub);
           setShowAdminPanel(true);
         }
+      } else if (path.startsWith('/track') || path.startsWith('/order-track') || path.startsWith('/tracking')) {
+        const parts = path.split('/').filter(Boolean);
+        if (parts.length > 1 && parts[1] !== 'order' && parts[1] !== 'track') {
+          setTrackingInitialId(parts[1].toUpperCase());
+        }
+        setActiveView('tracking');
       } else if (path === '/privacy' || path === '/privacy-policy') {
         setActiveView('privacy');
       } else if (path === '/about' || path === '/about-us') {
@@ -146,8 +201,12 @@ export const App: React.FC = () => {
         setActiveView('disclaimer');
       } else if (path === '/catalog' || path === '/doors' || path === '/gallery') {
         setActiveView('gallery');
+      } else if (path === '/chaukhat' || path === '/chaukhat-calculator' || path === '/frame-calculator') {
+        setActiveView('calculator');
+        setCalculatorOption('chaukhat');
       } else if (path === '/calculator' || path === '/price-calculator') {
         setActiveView('calculator');
+        setCalculatorOption('door');
       } else if (
         path === '/wood-detector' ||
         path === '/ai-wood-detector' ||
@@ -167,23 +226,40 @@ export const App: React.FC = () => {
       } else if (
         path === '/visualizer' ||
         path.startsWith('/visualizer') ||
-        path === '/ai-visualizer' ||
-        path.startsWith('/ai-visualizer') ||
-        path === '/video-visualizer' ||
-        path.startsWith('/video-visualizer') ||
-        path === '/video-visualization' ||
-        path.startsWith('/video-visualization') ||
-        path === '/ai-video' ||
-        path.startsWith('/ai-video') ||
-        path === '/video' ||
-        path.startsWith('/video/')
+        path === '/3d' ||
+        path.startsWith('/3d') ||
+        path === '/ar' ||
+        path.startsWith('/ar') ||
+        path === '/3d-visualizer' ||
+        path === '/3d-fitting' ||
+        path === '/door-fitting' ||
+        path === '/ai-visualizer'
       ) {
-        // Safe redirect: legacy/removed Visualizer URLs gracefully redirect to Home or Door Catalog
-        if (window.history && window.history.replaceState) {
-          window.history.replaceState({}, '', '/');
+        const parts = path.split('/').filter(Boolean);
+        if (parts.length > 1 && parts[1] !== 'door' && parts[1] !== 'fitting' && parts[1] !== '3d' && parts[1] !== 'ar') {
+          const doorIdOrName = decodeURIComponent(parts[1]);
+          const found = doors.find(d => d.id === doorIdOrName || d.name.toLowerCase() === doorIdOrName.toLowerCase());
+          if (found) setVisualizerDoor(found);
         }
-        setActiveView('home');
+        setActiveView('visualizer');
       }
+      // Check query parameter ?track=... or ?door=...
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const trackParam = urlParams.get('track') || urlParams.get('trackingId') || urlParams.get('id');
+        if (trackParam) {
+          setTrackingInitialId(trackParam.toUpperCase());
+          setActiveView('tracking');
+        }
+        const doorParam = urlParams.get('door') || urlParams.get('doorId');
+        if (doorParam) {
+          const found = doors.find(d => d.id === doorParam || d.name.toLowerCase() === doorParam.toLowerCase());
+          if (found) {
+            setVisualizerDoor(found);
+            setActiveView('visualizer');
+          }
+        }
+      } catch {}
     };
 
     syncRouteFromPath();
@@ -213,6 +289,7 @@ export const App: React.FC = () => {
       privacy: 'Privacy Policy | Jai Hanuman Door',
       disclaimer: 'Disclaimer | Jai Hanuman Door',
       'wood-detector': 'AI Wood Detector – Lakdi Ki Pehchan | Jai Hanuman Door',
+      tracking: 'Track Order & Live Manufacturing Progress | Jai Hanuman Door',
     };
     if (viewTitles[activeView]) {
       document.title = viewTitles[activeView];
@@ -241,6 +318,20 @@ export const App: React.FC = () => {
       setFinishes(calcData.finishes || []);
       setFrames(calcData.frames || []);
       setHardware(calcData.hardware || []);
+
+      // Load All India Delivery public states and customer stories
+      fetchPublicDeliveryData()
+        .then(delData => {
+          if (delData.states && delData.states.length > 0) {
+            setDeliveryStates(delData.states);
+          }
+          if (delData.stories && delData.stories.length > 0) {
+            setDeliveryStories(delData.stories);
+          }
+        })
+        .catch(err => {
+          console.warn('Delivery data fallback in use:', err);
+        });
 
       // Check if deep-linked to a door directly
       if (typeof window !== 'undefined') {
@@ -392,17 +483,61 @@ export const App: React.FC = () => {
       home: '/',
       gallery: '/catalog',
       calculator: '/calculator',
+      visualizer: '/visualizer',
       articles: '/articles',
       about: '/about',
       contact: '/contact',
       privacy: '/privacy-policy',
       disclaimer: '/disclaimer',
+      'wood-detector': '/wood-detector',
+      tracking: '/track',
     };
     const targetPath = viewToPathMap[view] || '/';
     if (typeof window !== 'undefined' && window.history && window.history.pushState) {
       if (window.location.pathname !== targetPath) {
         window.history.pushState({}, '', targetPath);
       }
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenVisualizer = (door?: Door | null) => {
+    if (door) {
+      setVisualizerDoor(door);
+    }
+    navigateToView('visualizer');
+  };
+
+  const handleBannerAction = (action: string) => {
+    const clean = String(action || 'gallery').replace(/^[\/#]+/, '').toLowerCase();
+    if (action.startsWith('http://') || action.startsWith('https://')) {
+      window.open(action, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (clean === 'chaukhat' || clean === 'chaukhat-calculator') {
+      setCalculatorOption('chaukhat');
+      navigateToView('calculator');
+    } else if (clean === 'calculator' || clean === 'door-calculator') {
+      setCalculatorOption('door');
+      navigateToView('calculator');
+    } else if (clean === 'gallery' || clean === 'doors' || clean === 'catalog' || clean === 'catalogue') {
+      navigateToView('gallery');
+    } else if (clean === 'visualizer' || clean === '3d' || clean === 'ar') {
+      navigateToView('visualizer');
+    } else if (clean === 'wood-detector') {
+      navigateToView('wood-detector');
+    } else if (clean === 'tracking' || clean === 'track') {
+      navigateToView('tracking');
+    } else if (clean === 'articles' || clean === 'blog') {
+      navigateToView('articles');
+    } else if (clean === 'whatsapp') {
+      const waNumber = settings?.whatsappNumber || '7887412884';
+      const bName = settings?.businessName || 'Jai Hanuman Door';
+      window.open(getWhatsAppUrl(waNumber, `Hello ${bName}, I would like to inquire about your special promotional door offers.`), '_blank');
+    } else if (clean === 'contact') {
+      navigateToView('contact');
+    } else {
+      navigateToView((clean as any) || 'gallery');
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -443,7 +578,7 @@ export const App: React.FC = () => {
   const featuredDoors = doors.filter(d => d.featured).slice(0, 4);
 
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900 font-sans flex flex-col selection:bg-amber-500 selection:text-stone-950 pb-16 md:pb-0">
+    <div className="min-h-screen bg-white text-[#1A1A1A] font-sans flex flex-col selection:bg-[#FFF7E3] selection:text-[#C89211] pb-16 md:pb-0">
       
       {/* Navigation Bar */}
       <Navbar
@@ -465,53 +600,58 @@ export const App: React.FC = () => {
       <main className="flex-1">
         {/* VIEW 1: HOME SCREEN (Section 2) */}
         {activeView === 'home' && (
-          <div className="space-y-12 sm:space-y-16">
+          <div className="space-y-4 sm:space-y-8">
             
-            {/* Hero Banner Slider */}
-            <HeroSlider
-              banners={banners}
+            {/* Dynamic Homepage Banner Slider */}
+            <HomepageBannerSlider
+              banners={mainBanners}
               settings={settings}
               onNavigate={(view) => {
-                setActiveView(view);
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              onBannerAction={(action) => {
-                if (action === 'calculator') {
+                const target = view.replace(/^[\/#]+/, '').toLowerCase();
+                if (target === 'chaukhat' || target === 'chaukhat-calculator') {
+                  setCalculatorOption('chaukhat');
                   setActiveView('calculator');
-                } else if (action === 'gallery') {
+                } else if (target === 'calculator' || target === 'door-calculator') {
+                  setCalculatorOption('door');
+                  setActiveView('calculator');
+                } else if (target === 'doors' || target === 'catalogue' || target === 'catalog') {
                   setActiveView('gallery');
-                } else if (action === 'whatsapp') {
-                  window.open(getWhatsAppUrl(settings.whatsappNumber, `Hello ${settings.businessName}, I would like to inquire about handcrafted doors.`), '_blank');
+                } else if (target === 'ar' || target === '3d') {
+                  setActiveView('visualizer');
+                } else if (['home', 'gallery', 'calculator', 'visualizer', 'articles', 'contact', 'privacy', 'about', 'disclaimer', 'wood-detector', 'tracking'].includes(target)) {
+                  setActiveView(target as any);
+                } else {
+                  setActiveView('gallery');
                 }
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
             />
 
             {/* Quick Action Strip (Price Calculator & Catalog) */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="bg-gradient-to-r from-stone-900 via-stone-850 to-stone-900 text-stone-100 rounded-2xl p-6 sm:p-8 border border-stone-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
-                <div className="space-y-2 text-center md:text-left">
-                  <span className="px-2.5 py-1 rounded text-[11px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase tracking-wide">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+              <div className="bg-[#F8F8F6] text-[#1A1A1A] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 border border-[#E5E5E5] shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
+                <div className="space-y-1.5 text-center md:text-left">
+                  <span className="px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase tracking-wide">
                     Live Cost Calculator
                   </span>
-                  <h3 className="font-serif text-2xl sm:text-3xl font-extrabold text-white">
+                  <h3 className="font-serif text-lg sm:text-2xl lg:text-3xl font-extrabold text-[#1A1A1A]">
                     Calculate Approximate Door Price in 30 Seconds
                   </h3>
-                  <p className="text-stone-300 text-xs sm:text-sm max-w-xl leading-relaxed">
+                  <p className="text-[#666666] text-xs sm:text-sm max-w-xl leading-relaxed">
                     Select your custom door size in inches, choose 100% seasoned Sagwan or Sal wood, select Chaukhat frame and premium PU polish for an instant itemized factory quote.
                   </p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto flex-shrink-0">
+                <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 w-full md:w-auto flex-shrink-0">
                   <button
                     id="home-open-calc-cta"
                     onClick={() => {
                       setActiveView('calculator');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
-                    className="py-3.5 px-6 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-500 text-stone-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-950/40 transition-all active:scale-[0.98]"
+                    className="h-11 sm:h-12 px-5 sm:px-6 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
                   >
-                    <Calculator className="w-5 h-5" />
+                    <Calculator className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                     Open Price Calculator
                   </button>
 
@@ -521,27 +661,64 @@ export const App: React.FC = () => {
                       setActiveView('gallery');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
-                    className="py-3.5 px-5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 hover:text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-stone-700 transition-all"
+                    className="h-11 sm:h-12 px-4 sm:px-5 rounded-xl bg-white hover:bg-[#F8F8F6] text-[#1A1A1A] font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-[#E5E5E5] transition-all cursor-pointer shadow-sm"
                   >
-                    <Layers className="w-4 h-4 text-amber-400" />
+                    <Layers className="w-4 h-4 text-[#C89211]" />
                     Explore Catalog
                   </button>
                 </div>
               </div>
             </div>
 
+            {/* 3D & AR Door Fitting Studio Showcase Banner on Home Screen */}
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+              <div className="bg-gradient-to-r from-[#FFF7E3] via-white to-[#FFF7E3] border border-[#C89211]/40 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 shadow-sm flex flex-col lg:flex-row items-center justify-between gap-4 sm:gap-6 relative overflow-hidden group">
+                <div className="space-y-2 text-center lg:text-left z-10 max-w-2xl">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/40 uppercase tracking-wide">
+                    <Box className="w-3 h-3 text-[#C89211]" />
+                    <span>3D &amp; AR Innovation • Virtual Door Fitting Studio</span>
+                  </div>
+                  <h3 className="font-serif text-lg sm:text-2xl lg:text-3xl font-extrabold text-[#1A1A1A] leading-tight">
+                    See Doors in 3D &amp; Fit Directly into Your Home Entrance
+                  </h3>
+                  <p className="text-[#666666] text-xs sm:text-sm leading-relaxed">
+                    Rotate 360°, inspect genuine Sagwan wood grains, test PU polish finishes, swing doors open on hinges, and use your phone's AR camera or entrance photo to check proportions on your home wall before placing an order.
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-0.5 text-[11px] sm:text-xs text-[#C89211] font-semibold">
+                    <span className="flex items-center gap-1">✓ 360° Interactive 3D</span>
+                    <span className="flex items-center gap-1">✓ Live AR &amp; Photo Fitting</span>
+                    <span className="flex items-center gap-1">✓ Instant Factory Quotes</span>
+                  </div>
+                </div>
+
+                <div className="z-10 flex flex-col sm:flex-row items-center gap-2.5 w-full lg:w-auto flex-shrink-0">
+                  <button
+                    id="home-open-3d-visualizer-cta"
+                    onClick={() => {
+                      navigateToView('visualizer');
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="w-full sm:w-auto h-11 sm:h-12 px-5 sm:px-6 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+                  >
+                    <Box className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                    <span>Launch 3D &amp; AR Studio</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* AI Wood Detector Feature Banner on Home Screen */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="bg-gradient-to-r from-stone-900 via-stone-850 to-stone-900 border border-amber-500/40 rounded-2xl p-6 sm:p-8 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
-                <div className="space-y-2 text-center md:text-left z-10">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase tracking-wide">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+              <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6 relative overflow-hidden">
+                <div className="space-y-1.5 text-center md:text-left z-10">
+                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase tracking-wide">
+                    <Sparkles className="w-3 h-3 text-[#C89211]" />
                     <span>New AI Feature • AI Wood Detector</span>
                   </div>
-                  <h3 className="font-serif text-2xl sm:text-3xl font-extrabold text-white">
+                  <h3 className="font-serif text-lg sm:text-2xl lg:text-3xl font-extrabold text-[#1A1A1A]">
                     Aapke Darwaze Ki Lakdi Kaun Si Hai?
                   </h3>
-                  <p className="text-stone-300 text-xs sm:text-sm max-w-xl leading-relaxed">
+                  <p className="text-[#666666] text-xs sm:text-sm max-w-xl leading-relaxed">
                     Darwaze ki photo upload karein aur AI se lakdi ke baare mein jaanein. Grains, texture aur color tone ka instant AI visual estimate paayein.
                   </p>
                 </div>
@@ -553,23 +730,74 @@ export const App: React.FC = () => {
                       navigateToView('wood-detector');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
-                    className="w-full md:w-auto py-3.5 px-6 rounded-xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition-all active:scale-[0.98]"
+                    className="w-full md:w-auto h-11 sm:h-12 px-5 sm:px-6 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
                   >
-                    <Sparkles className="w-5 h-5 text-stone-950" />
+                    <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                     <span>AI Wood Detector Kholein</span>
                   </button>
                 </div>
               </div>
             </div>
 
+            {/* Live Order Tracking Banner on Home Screen */}
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+              <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 shadow-sm flex flex-col lg:flex-row items-center justify-between gap-4 sm:gap-6 relative overflow-hidden">
+                <div className="space-y-1.5 text-center lg:text-left z-10 max-w-xl">
+                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase tracking-wide">
+                    <Truck className="w-3 h-3 text-[#C89211]" />
+                    <span>Real-Time Manufacturing &amp; Dispatch</span>
+                  </div>
+                  <h3 className="font-serif text-lg sm:text-2xl lg:text-3xl font-extrabold text-[#1A1A1A]">
+                    Track Your Custom Door Order
+                  </h3>
+                  <p className="text-[#666666] text-xs sm:text-sm leading-relaxed">
+                    Check your 15 live craftsmanship stages from wood selection and workshop joinery to 100% door ready, polishing, and dispatch to your doorstep.
+                  </p>
+                </div>
+
+                <div className="z-10 w-full lg:w-auto flex flex-col sm:flex-row items-center gap-2.5">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.currentTarget;
+                      const input = form.elements.namedItem('homeTrackId') as HTMLInputElement;
+                      if (input && input.value.trim()) {
+                        setTrackingInitialId(input.value.trim().toUpperCase());
+                        navigateToView('tracking');
+                      } else {
+                        navigateToView('tracking');
+                      }
+                    }}
+                    className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto"
+                  >
+                    <div className="relative w-full sm:w-64">
+                      <input
+                        type="text"
+                        name="homeTrackId"
+                        placeholder="Tracking ID (e.g. JHD-2026-H8K24)"
+                        className="w-full px-3.5 py-2.5 bg-white border border-[#E5E5E5] rounded-xl text-[#1A1A1A] placeholder-[#999999] text-xs font-mono uppercase focus:outline-none focus:border-[#C89211] h-11"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full sm:w-auto h-11 px-5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer whitespace-nowrap"
+                    >
+                      <Truck className="w-4 h-4" />
+                      <span>Track Order</span>
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+
             {/* Door Categories Grid (Section 2 & 3) */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 sm:mb-8 gap-2 sm:gap-4">
                 <div>
-                  <span className="text-amber-600 font-semibold text-xs sm:text-sm tracking-wider uppercase">
+                  <span className="text-[#C89211] font-semibold text-xs tracking-wider uppercase">
                     Woodwork Collections
                   </span>
-                  <h2 className="font-serif text-2xl sm:text-3xl font-extrabold text-stone-900 tracking-tight mt-1">
+                  <h2 className="font-serif text-xl sm:text-3xl font-extrabold text-[#1A1A1A] tracking-tight mt-0.5">
                     Popular Door Categories
                   </h2>
                 </div>
@@ -578,10 +806,10 @@ export const App: React.FC = () => {
                     setActiveView('gallery');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  className="text-amber-700 hover:text-amber-800 font-semibold text-xs sm:text-sm flex items-center gap-1 group"
+                  className="text-[#C89211] hover:text-[#A0700B] font-semibold text-xs sm:text-sm flex items-center gap-1 group self-start sm:self-auto"
                 >
                   <span>View All Categories</span>
-                  <ArrowRight className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
+                  <ArrowRight className="w-3.5 h-3.5 transform group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>
 
@@ -619,6 +847,13 @@ export const App: React.FC = () => {
               </div>
             </div>
 
+            {/* PROMOTIONAL BANNER CAROUSEL (Slot 1: Direct From Manufacturer & Main Door Collections) */}
+            <PromotionalBannerCarousel
+              banners={promotionBanners}
+              slotId="slot_1"
+              onBannerAction={handleBannerAction}
+            />
+
             {/* Featured Doors Section (Section 2) */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
@@ -639,12 +874,12 @@ export const App: React.FC = () => {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
                 {(featuredDoors.length > 0 ? featuredDoors : doors.slice(0, 4)).map(door => (
                   <div
                     key={door.id}
                     id={`featured-card-${door.id}`}
-                    className="group bg-white rounded-2xl border border-stone-200/80 shadow-sm hover:shadow-xl hover:border-amber-300 transition-all duration-300 flex flex-col overflow-hidden"
+                    className="group bg-white rounded-xl sm:rounded-2xl border border-[#E5E5E5] shadow-sm hover:shadow-xl hover:border-[#C89211]/50 transition-all duration-300 flex flex-col overflow-hidden"
                   >
                     <div
                       className="relative aspect-[3/4] bg-stone-100 overflow-hidden cursor-pointer"
@@ -655,7 +890,7 @@ export const App: React.FC = () => {
                         alt={door.name}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
-                      <span className="absolute top-3 left-3 px-2.5 py-1 rounded text-[11px] font-semibold bg-stone-900/85 backdrop-blur-md text-amber-300 border border-stone-700/50">
+                      <span className="absolute top-2 sm:top-3 left-2 sm:left-3 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded text-[9px] sm:text-[11px] font-semibold bg-white/90 backdrop-blur-md text-[#1A1A1A] border border-[#E5E5E5] shadow-sm">
                         {door.category}
                       </span>
                       <button
@@ -665,57 +900,68 @@ export const App: React.FC = () => {
                           handleToggleFavorite(door.id);
                         }}
                         title={favoriteDoorIds.includes(door.id) ? 'Remove from Saved' : 'Save Door'}
-                        className={`absolute top-3 right-3 p-1.5 rounded-full backdrop-blur-md transition-all ${
+                        className={`absolute top-2 sm:top-3 right-2 sm:right-3 p-1 sm:p-1.5 rounded-full backdrop-blur-md transition-all ${
                           favoriteDoorIds.includes(door.id)
-                            ? 'bg-stone-900/90 text-rose-500 shadow-md ring-1 ring-rose-500/50'
-                            : 'bg-stone-900/60 hover:bg-stone-900/90 text-stone-300 hover:text-rose-400'
+                            ? 'bg-white text-rose-500 shadow-md ring-1 ring-rose-500/50'
+                            : 'bg-white/80 hover:bg-white text-[#666666] hover:text-rose-500 border border-[#E5E5E5]'
                         }`}
                       >
                         <Heart
-                          className={`w-4 h-4 ${
+                          className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${
                             favoriteDoorIds.includes(door.id) ? 'fill-rose-500 text-rose-500' : ''
                           }`}
                         />
                       </button>
                     </div>
 
-                    <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
+                    <div className="p-2.5 sm:p-5 flex-1 flex flex-col justify-between">
                       <div>
                         <h3
                           onClick={() => handleOpenDoorDetail(door)}
-                          className="font-serif text-base sm:text-lg font-bold text-stone-900 group-hover:text-amber-700 cursor-pointer transition-colors line-clamp-1"
+                          className="font-serif text-xs sm:text-lg font-bold text-[#1A1A1A] group-hover:text-[#C89211] cursor-pointer transition-colors line-clamp-1"
                         >
                           {door.name}
                         </h3>
-                        <p className="text-stone-500 text-xs mt-1 line-clamp-2 leading-relaxed">
+                        <p className="hidden sm:block text-[#666666] text-xs mt-1 line-clamp-2 leading-relaxed">
                           {door.description}
                         </p>
                       </div>
 
-                      <div className="pt-3 mt-3 border-t border-stone-100">
-                        <div className="flex items-baseline justify-between mb-3">
-                          <span className="text-xs text-stone-500">Starting from:</span>
-                          <span className="text-lg font-bold text-amber-700 font-mono">
+                      <div className="pt-2 sm:pt-3 mt-1.5 sm:mt-3 border-t border-[#E5E5E5]">
+                        <div className="flex items-baseline justify-between mb-1.5 sm:mb-3">
+                          <span className="text-[10px] sm:text-xs text-[#666666]">From:</span>
+                          <span className="text-xs sm:text-lg font-bold text-[#C89211] font-mono">
                             ₹{door.startingPrice.toLocaleString('en-IN')}
                           </span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1.5 sm:space-y-2">
                           <button
-                            onClick={() => handleOpenDoorDetail(door)}
-                            className="py-2 px-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                            id={`home-view-in-home-${door.id}`}
+                            onClick={() => handleOpenVisualizer(door)}
+                            className="w-full py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg sm:rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-[10px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 shadow-sm transition-all cursor-pointer"
                           >
-                            <Eye className="w-3.5 h-3.5 text-stone-600" />
-                            Details
+                            <Box className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" />
+                            <span className="truncate">View 3D/AR</span>
                           </button>
 
-                          <button
-                            onClick={() => handleCalculateDoor(door)}
-                            className="py-2 px-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all"
-                          >
-                            <Calculator className="w-3.5 h-3.5" />
-                            Calculate
-                          </button>
+                          <div className="grid grid-cols-2 gap-1 sm:gap-2">
+                            <button
+                              onClick={() => handleOpenDoorDetail(door)}
+                              className="py-1.5 sm:py-2 px-1 sm:px-2.5 rounded-lg sm:rounded-xl bg-[#F8F8F6] hover:bg-[#EFEFEF] text-[#1A1A1A] font-semibold text-[10px] sm:text-xs flex items-center justify-center gap-0.5 sm:gap-1.5 transition-colors border border-[#E5E5E5]"
+                            >
+                              <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#666666]" />
+                              <span>Details</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleCalculateDoor(door)}
+                              className="py-1.5 sm:py-2 px-1 sm:px-2.5 rounded-lg sm:rounded-xl bg-[#FFF7E3] hover:bg-[#FFECC0] text-[#C89211] font-semibold text-[10px] sm:text-xs flex items-center justify-center gap-0.5 sm:gap-1.5 border border-[#C89211]/30 transition-all cursor-pointer"
+                            >
+                              <Calculator className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#C89211]" />
+                              <span>Price</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -725,62 +971,62 @@ export const App: React.FC = () => {
             </div>
 
             {/* Why Choose Us / Trust Badges (Section 2) */}
-            <div className="bg-stone-100/80 border-y border-stone-200/80 py-12 sm:py-16">
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="text-center max-w-2xl mx-auto mb-10">
-                  <span className="text-amber-600 font-semibold text-xs sm:text-sm tracking-wider uppercase">
+            <div className="bg-[#F8F8F6] border-y border-[#E5E5E5] py-6 sm:py-14">
+              <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+                <div className="text-center max-w-2xl mx-auto mb-4 sm:mb-8">
+                  <span className="text-[#C89211] font-semibold text-xs tracking-wider uppercase">
                     Uncompromising Wood Standards
                   </span>
-                  <h2 className="font-serif text-2xl sm:text-3xl font-extrabold text-stone-900 tracking-tight mt-1">
+                  <h2 className="font-serif text-xl sm:text-3xl font-extrabold text-[#1A1A1A] tracking-tight mt-0.5">
                     Why Indian Homeowners Trust Our Doors
                   </h2>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-3">
-                    <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200/60">
-                      <TreePine className="w-6 h-6" />
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
+                  <div className="bg-white p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#E5E5E5] shadow-sm space-y-2">
+                    <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
+                      <TreePine className="w-5 h-5 sm:w-6 sm:h-6" />
                     </div>
-                    <h3 className="font-serif text-base font-bold text-stone-900">
+                    <h3 className="font-serif text-xs sm:text-base font-bold text-[#1A1A1A]">
                       100% Seasoned Timber
                     </h3>
-                    <p className="text-xs text-stone-600 leading-relaxed">
+                    <p className="text-[11px] sm:text-xs text-[#666666] leading-relaxed line-clamp-3 sm:line-clamp-none">
                       Kiln-dried wood with regulated moisture content below 10%, preventing seasonal warping and bending during Indian monsoons.
                     </p>
                   </div>
 
-                  <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-3">
-                    <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200/60">
-                      <ShieldCheck className="w-6 h-6" />
+                  <div className="bg-white p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#E5E5E5] shadow-sm space-y-2">
+                    <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
+                      <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
                     </div>
-                    <h3 className="font-serif text-base font-bold text-stone-900">
+                    <h3 className="font-serif text-xs sm:text-base font-bold text-[#1A1A1A]">
                       Termite & Borer Proof
                     </h3>
-                    <p className="text-xs text-stone-600 leading-relaxed">
+                    <p className="text-[11px] sm:text-xs text-[#666666] leading-relaxed line-clamp-3 sm:line-clamp-none">
                       Vacuum pressure chemical impregnation treatment to protect against termites and subterranean insect attack for decades.
                     </p>
                   </div>
 
-                  <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-3">
-                    <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200/60">
-                      <Award className="w-6 h-6" />
+                  <div className="bg-white p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#E5E5E5] shadow-sm space-y-2">
+                    <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
+                      <Award className="w-5 h-5 sm:w-6 sm:h-6" />
                     </div>
-                    <h3 className="font-serif text-base font-bold text-stone-900">
+                    <h3 className="font-serif text-xs sm:text-base font-bold text-[#1A1A1A]">
                       Direct Factory Pricing
                     </h3>
-                    <p className="text-xs text-stone-600 leading-relaxed">
+                    <p className="text-[11px] sm:text-xs text-[#666666] leading-relaxed line-clamp-3 sm:line-clamp-none">
                       No intermediaries or showroom overheads. You get authentic CP Sagwan wood direct from our manufacturing facility.
                     </p>
                   </div>
 
-                  <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-3">
-                    <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200/60">
-                      <Wrench className="w-6 h-6" />
+                  <div className="bg-white p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#E5E5E5] shadow-sm space-y-2">
+                    <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
+                      <Wrench className="w-5 h-5 sm:w-6 sm:h-6" />
                     </div>
-                    <h3 className="font-serif text-base font-bold text-stone-900">
+                    <h3 className="font-serif text-xs sm:text-base font-bold text-[#1A1A1A]">
                       Precision Custom Sizing
                     </h3>
-                    <p className="text-xs text-stone-600 leading-relaxed">
+                    <p className="text-[11px] sm:text-xs text-[#666666] leading-relaxed line-clamp-3 sm:line-clamp-none">
                       Whether standard 36×78" or custom bungalow archway entrances, every shutter and Chaukhat is made to the exact millimetre.
                     </p>
                   </div>
@@ -788,76 +1034,51 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Our Leadership Team Section */}
-            <TeamSection teamMembers={teamMembers} settings={settings} />
+            {/* PROMOTIONAL BANNER B (Below Why Indian Homeowners Trust Our Doors, Above Our Story) */}
+            <PromotionalBannerCarousel
+              banners={promotionBanners}
+              slotId="slot_2"
+              onBannerAction={handleBannerAction}
+            />
 
-            {/* Articles & Guides Preview */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex items-end justify-between mb-8">
-                <div>
-                  <span className="text-amber-600 font-semibold text-xs sm:text-sm tracking-wider uppercase">
-                    Wood Wisdom
-                  </span>
-                  <h2 className="font-serif text-2xl sm:text-3xl font-extrabold text-stone-900 tracking-tight mt-1">
-                    Door Buying & Maintenance Guides
-                  </h2>
-                </div>
-                <button
-                  onClick={() => {
-                    setActiveView('articles');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  className="text-amber-700 hover:text-amber-800 font-semibold text-xs sm:text-sm flex items-center gap-1 group"
-                >
-                  <span>View All Guides</span>
-                  <ArrowRight className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
-                </button>
-              </div>
+            {/* Our Story & Heritage Section */}
+            <OurStorySection teamMembers={teamMembers} settings={settings} />
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {articles.slice(0, 3).map(art => (
-                  <div
-                    key={art.id}
-                    onClick={() => {
-                      setActiveView('articles');
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
-                    className="cursor-pointer group bg-white rounded-2xl border border-stone-200/80 overflow-hidden shadow-sm hover:shadow-lg transition-all flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="aspect-[16/10] overflow-hidden bg-stone-100 relative">
-                        <img
-                          src={art.image}
-                          alt=""
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        />
-                        {art.category && (
-                          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-stone-900/80 backdrop-blur-sm text-amber-400 font-bold text-[10px] border border-amber-500/30">
-                            {art.category}
-                          </span>
-                        )}
-                      </div>
-                      <div className="p-5">
-                        <div className="text-[11px] text-amber-600 font-semibold mb-1">
-                          {art.readTime || '4 min read'}
-                        </div>
-                        <h3 className="font-serif text-base font-bold text-stone-900 group-hover:text-amber-700 transition-colors line-clamp-2">
-                          {art.title}
-                        </h3>
-                        <p className="text-xs text-stone-500 mt-2 line-clamp-2">
-                          {art.excerpt}
-                        </p>
-                      </div>
-                    </div>
+            {/* ALL INDIA DELIVERY SECTION (🇮🇳 Door Delivery Across India - Slidable State Cards & Stories) */}
+            <AllIndiaDeliverySection
+              states={deliveryStates}
+              stories={deliveryStories}
+              settings={settings}
+              onOpenCalculator={() => {
+                setActiveView('calculator');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="my-3 sm:my-5"
+            />
 
-                    <div className="px-5 pb-4 pt-2 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-400 font-mono">
-                      <span>👁 {(art.views || 0).toLocaleString('en-IN')} views</span>
-                      <span>❤️ {(art.likes || 0).toLocaleString('en-IN')} likes</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            {/* Articles & Guides Preview Carousel */}
+            <ArticlesGuidesCarousel
+              articles={articles}
+              settings={settings}
+              onViewAll={() => {
+                setSelectedArticleIdForView(null);
+                setActiveView('articles');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onSelectArticle={(art: Article) => {
+                setSelectedArticleIdForView(art.id);
+                setActiveView('articles');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="mt-2 mb-2"
+            />
+
+            {/* Design & Content Protection Warning Section */}
+            <ContentProtectionWarning
+              settings={settings}
+              onNavigateLegal={navigateToView}
+              className="mt-6 mb-2"
+            />
 
           </div>
         )}
@@ -867,28 +1088,80 @@ export const App: React.FC = () => {
           <DoorGallery
             doors={doors}
             categories={categories}
+            banners={banners}
             onSelectDoor={door => handleOpenDoorDetail(door)}
             onCalculateDoor={handleCalculateDoor}
+            onOpenVisualizer={handleOpenVisualizer}
+            onNavigate={navigateToView}
             settings={settings}
             favoriteDoorIds={favoriteDoorIds}
             onToggleFavorite={handleToggleFavorite}
           />
         )}
 
-        {/* VIEW 3: DOOR PRICE CALCULATOR (Sections 4, 5, 6, 7, 8, 9, 10) */}
+        {/* VIEW 3: SEPARATE DOOR & CHAUKHAT PRICE CALCULATORS */}
         {activeView === 'calculator' && (
-          <DoorCalculator
+          calculatorOption === 'door' ? (
+            <DoorCalculator
+              doors={doors}
+              categories={categories}
+              materials={materials}
+              finishes={finishes}
+              frames={frames}
+              hardware={hardware}
+              settings={settings}
+              preselectedDoor={calculatorDoor}
+              onClearPreselectedDoor={() => setCalculatorDoor(null)}
+              onOpenQuotationModal={(calc, door) => {
+                setActiveDoorCalculation(calc);
+                handleOpenQuotationModal(calc, door);
+              }}
+              onOpenVisualizer={handleOpenVisualizer}
+              onOpenProfileHistory={() => handleOpenProfileModal('history')}
+              initialCalculationRecord={loadedCalcRecord}
+              onClearInitialRecord={() => setLoadedCalcRecord(null)}
+              onSwitchToChaukhatCalculator={() => {
+                setCalculatorOption('chaukhat');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              activeChaukhatCalculation={combinedChaukhat}
+            />
+          ) : (
+            <ChaukhatCalculator
+              settings={settings}
+              activeDoorCalculation={activeDoorCalculation || quotationCalcResult}
+              activeDoor={calculatorDoor || quotationDoor}
+              onSwitchToDoorCalculator={() => {
+                setCalculatorOption('door');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onUpdateCombinedChaukhat={(result) => setCombinedChaukhat(result)}
+            />
+          )
+        )}
+
+        {/* VIEW: 3D & AR DOOR FITTING STUDIO */}
+        {activeView === 'visualizer' && (
+          <DoorVisualizerPage
+            doors={doors}
+            categories={categories}
+            initialDoor={visualizerDoor}
             materials={materials}
             finishes={finishes}
             frames={frames}
             hardware={hardware}
             settings={settings}
-            preselectedDoor={calculatorDoor}
-            onClearPreselectedDoor={() => setCalculatorDoor(null)}
-            onOpenQuotationModal={handleOpenQuotationModal}
-            onOpenProfileHistory={() => handleOpenProfileModal('history')}
-            initialCalculationRecord={loadedCalcRecord}
-            onClearInitialRecord={() => setLoadedCalcRecord(null)}
+            onNavigateHome={() => {
+              navigateToView('home');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onNavigateCatalog={() => {
+              navigateToView('gallery');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onOpenQuotationModal={(calc, door) => {
+              handleOpenQuotationModal(calc, door);
+            }}
           />
         )}
 
@@ -898,6 +1171,7 @@ export const App: React.FC = () => {
             articles={articles}
             doors={doors}
             settings={settings}
+            initialArticleId={selectedArticleIdForView}
             onOpenCalculator={door => handleCalculateDoor(door)}
             onOpenDoorDetail={door => handleOpenDoorDetail(door)}
           />
@@ -963,30 +1237,28 @@ export const App: React.FC = () => {
             }}
           />
         )}
+
+        {/* VIEW 10: CUSTOMER ORDER TRACKING */}
+        {activeView === 'tracking' && (
+          <CustomerOrderTracking
+            initialTrackingId={trackingInitialId}
+            onNavigateHome={() => {
+              navigateToView('home');
+            }}
+            onSelectDoor={(doorId) => {
+              const door = doors.find(d => d.id === doorId);
+              if (door) {
+                handleOpenDoorDetail(door);
+              }
+            }}
+          />
+        )}
       </main>
 
-      {/* Floating WhatsApp Quick Action Button (Sections 2 & 12) */}
-      <a
-        id="floating-whatsapp-btn"
-        href={getWhatsAppUrl(
-          settings?.whatsappNumber,
-          `Hello ${settings?.businessName || 'Jai Hanuman Door'}, I have an inquiry regarding door prices and custom orders.`
-        )}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="Chat on WhatsApp"
-        className="fixed bottom-20 md:bottom-6 right-5 z-40 w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shadow-2xl shadow-emerald-950/60 transition-transform active:scale-95 border-2 border-emerald-400/40 group"
-      >
-        <MessageCircle className="w-7 h-7 fill-white" />
-        <span className="hidden group-hover:block absolute right-16 px-3 py-1.5 rounded-lg bg-stone-900 text-stone-100 text-xs font-semibold whitespace-nowrap shadow-lg border border-stone-700">
-          WhatsApp Inquiry
-        </span>
-      </a>
-
       {/* Footer (Section 2) */}
-      <footer className="bg-stone-900 text-stone-300 border-t border-stone-800 pt-12 pb-8 mt-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 mb-12">
+      <footer className="bg-[#F8F8F6] text-[#666666] border-t border-[#E5E5E5] pt-6 sm:pt-10 pb-20 sm:pb-8 mt-4 sm:mt-6">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 sm:gap-8 mb-8 sm:mb-12">
             
             {/* Business Brand (Hidden admin gesture access) */}
             <div className="space-y-3 sm:col-span-2 lg:col-span-1">
@@ -997,18 +1269,18 @@ export const App: React.FC = () => {
                 className="flex items-center gap-2.5 cursor-pointer select-none group"
                 title={settings.businessName}
               >
-                <div className="w-8 h-8 rounded-lg bg-amber-600 text-stone-950 font-bold flex items-center justify-center font-serif text-lg group-hover:scale-105 transition-transform">
+                <div className="w-8 h-8 rounded-lg bg-[#C89211] text-white font-bold flex items-center justify-center font-serif text-lg group-hover:scale-105 transition-transform shadow-sm">
                   {(settings.businessName || 'J')[0]}
                 </div>
-                <span className="font-serif text-xl font-bold text-white tracking-tight group-hover:text-amber-400 transition-colors">
+                <span className="font-serif text-xl font-bold text-[#1A1A1A] tracking-tight group-hover:text-[#C89211] transition-colors">
                   {settings.businessName}
                 </span>
               </div>
-              <p className="text-xs text-stone-400 leading-relaxed">
+              <p className="text-xs text-[#666666] leading-relaxed">
                 {settings.tagline || 'Direct manufacturer of seasoned Sagwan, Teak wood and designer entrance doors for homes and commercial estates.'}
               </p>
               {settings.gstNumber && (
-                <div className="text-[11px] text-amber-400/90 font-mono">
+                <div className="text-[11px] text-[#C89211] font-mono font-semibold">
                   GSTIN: {settings.gstNumber}
                 </div>
               )}
@@ -1016,14 +1288,14 @@ export const App: React.FC = () => {
 
             {/* Quick Links */}
             <div>
-              <h4 className="font-serif text-sm font-bold text-white mb-3">
+              <h4 className="font-serif text-sm font-bold text-[#1A1A1A] mb-3">
                 Collections & Tools
               </h4>
               <ul className="space-y-2 text-xs">
                 <li>
                   <button
                     onClick={() => navigateToView('calculator')}
-                    className="text-stone-400 hover:text-amber-400 transition-colors"
+                    className="text-[#666666] hover:text-[#C89211] transition-colors"
                   >
                     Door Price Calculator
                   </button>
@@ -1031,7 +1303,7 @@ export const App: React.FC = () => {
                 <li>
                   <button
                     onClick={() => navigateToView('gallery')}
-                    className="text-stone-400 hover:text-amber-400 transition-colors"
+                    className="text-[#666666] hover:text-[#C89211] transition-colors"
                   >
                     Door Catalog Gallery
                   </button>
@@ -1039,9 +1311,29 @@ export const App: React.FC = () => {
                 <li>
                   <button
                     onClick={() => navigateToView('articles')}
-                    className="text-stone-400 hover:text-amber-400 transition-colors"
+                    className="text-[#666666] hover:text-[#C89211] transition-colors"
                   >
                     Wood Care & Dimension Guides
+                  </button>
+                </li>
+                <li>
+                  <button
+                    id="footer-link-visualizer"
+                    onClick={() => navigateToView('visualizer')}
+                    className="text-[#666666] hover:text-[#C89211] transition-colors flex items-center gap-1.5"
+                  >
+                    <Box className="w-3.5 h-3.5 text-[#C89211]" />
+                    <span>3D &amp; AR Fitting Studio</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    id="footer-link-track"
+                    onClick={() => navigateToView('tracking')}
+                    className="text-[#666666] hover:text-[#C89211] transition-colors flex items-center gap-1.5"
+                  >
+                    <Truck className="w-3.5 h-3.5 text-[#C89211]" />
+                    <span>Track Order &amp; Manufacturing</span>
                   </button>
                 </li>
               </ul>
@@ -1049,7 +1341,7 @@ export const App: React.FC = () => {
 
             {/* Information & Legal Section */}
             <div>
-              <h4 className="font-serif text-sm font-bold text-white mb-3">
+              <h4 className="font-serif text-sm font-bold text-[#1A1A1A] mb-3">
                 Information &amp; Legal
               </h4>
               <ul className="space-y-2 text-xs">
@@ -1057,7 +1349,7 @@ export const App: React.FC = () => {
                   <button
                     id="footer-link-about"
                     onClick={() => navigateToView('about')}
-                    className="text-stone-400 hover:text-amber-400 transition-colors text-left"
+                    className="text-[#666666] hover:text-[#C89211] transition-colors text-left"
                   >
                     About Us &amp; Heritage
                   </button>
@@ -1066,7 +1358,7 @@ export const App: React.FC = () => {
                   <button
                     id="footer-link-contact"
                     onClick={() => navigateToView('contact')}
-                    className="text-stone-400 hover:text-amber-400 transition-colors text-left"
+                    className="text-[#666666] hover:text-[#C89211] transition-colors text-left"
                   >
                     Contact Us &amp; Inquiries
                   </button>
@@ -1075,7 +1367,7 @@ export const App: React.FC = () => {
                   <button
                     id="footer-link-privacy"
                     onClick={() => navigateToView('privacy')}
-                    className="text-stone-400 hover:text-amber-400 transition-colors text-left"
+                    className="text-[#666666] hover:text-[#C89211] transition-colors text-left"
                   >
                     Privacy Policy
                   </button>
@@ -1084,7 +1376,7 @@ export const App: React.FC = () => {
                   <button
                     id="footer-link-disclaimer"
                     onClick={() => navigateToView('disclaimer')}
-                    className="text-stone-400 hover:text-amber-400 transition-colors text-left"
+                    className="text-[#666666] hover:text-[#C89211] transition-colors text-left"
                   >
                     Disclaimer &amp; Terms
                   </button>
@@ -1094,13 +1386,13 @@ export const App: React.FC = () => {
 
             {/* Factory Location & Hours */}
             <div>
-              <h4 className="font-serif text-sm font-bold text-white mb-3">
+              <h4 className="font-serif text-sm font-bold text-[#1A1A1A] mb-3">
                 Workshop & Showroom
               </h4>
-              <p className="text-xs text-stone-400 leading-relaxed mb-2">
+              <p className="text-xs text-[#666666] leading-relaxed mb-2">
                 {settings.address}
               </p>
-              <div className="text-xs text-stone-400 space-y-1 mb-3">
+              <div className="text-xs text-[#666666] space-y-1 mb-3">
                 <div>Mon – Sat: 9:00 AM – 8:00 PM</div>
                 <div>Sunday: By Appointment</div>
               </div>
@@ -1109,40 +1401,51 @@ export const App: React.FC = () => {
                 href={getGoogleMapsUrl(settings.googleMapsUrl || settings.legalSettings?.socialLinks?.googleBusiness)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold transition-colors"
+                className="inline-flex items-center gap-2.5 px-3 py-2 rounded-xl bg-[#FFF8E8] hover:bg-[#FFF2D4] border border-[#C89211] text-left transition-all duration-200 shadow-xs hover:shadow-sm group mt-1 max-w-full"
+                title="Open Shop Location in Google Maps"
               >
-                <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                <span>View Shop Location</span>
+                <div className="w-7 h-7 rounded-lg bg-white border border-[#C89211]/30 flex items-center justify-center text-[#C89211] shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                  <MapPin className="w-4 h-4 text-[#C89211] fill-[#C89211]/20" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-xs text-[#222222] leading-tight">
+                    Shop Location
+                  </div>
+                  <div className="text-[10px] text-[#C89211] font-semibold flex items-center gap-0.5 mt-0.5 leading-none">
+                    <span>View on Google Maps</span>
+                    <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+                  </div>
+                </div>
               </a>
             </div>
 
             {/* Direct Connect & Admin Access */}
             <div>
-              <h4 className="font-serif text-sm font-bold text-white mb-3">
+              <h4 className="font-serif text-sm font-bold text-[#1A1A1A] mb-3">
                 Factory Assistance
               </h4>
               <div className="space-y-2 text-xs">
                 <div>
-                  <span className="text-stone-500">Phone:</span>{' '}
-                  <a href={`tel:${settings.phone}`} className="text-stone-300 hover:text-amber-400 font-mono">
+                  <span className="text-[#999999]">Phone:</span>{' '}
+                  <a href={`tel:${settings.phone}`} className="text-[#1A1A1A] hover:text-[#C89211] font-mono font-medium">
                     {settings.phone}
                   </a>
                 </div>
                 <div>
-                  <span className="text-stone-500">WhatsApp:</span>{' '}
+                  <span className="text-[#999999]">WhatsApp:</span>{' '}
                   <a
                     id="footer-whatsapp-link"
                     href={getWhatsAppUrl(settings?.whatsappNumber)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-emerald-400 font-mono hover:underline"
+                    className="text-[#16803A] font-mono font-semibold hover:underline"
                   >
                     {formatWhatsAppDisplay(settings?.whatsappNumber)}
                   </a>
                 </div>
                 <div>
-                  <span className="text-stone-500">Email:</span>{' '}
-                  <a href={`mailto:${settings.email}`} className="text-stone-300 hover:text-amber-400">
+                  <span className="text-[#999999]">Email:</span>{' '}
+                  <a href={`mailto:${settings.email}`} className="text-[#1A1A1A] hover:text-[#C89211]">
                     {settings.email}
                   </a>
                 </div>
@@ -1151,7 +1454,7 @@ export const App: React.FC = () => {
 
           </div>
 
-          <div className="pt-8 border-t border-stone-800 text-center text-xs text-stone-500 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="pt-8 border-t border-[#E5E5E5] text-center text-xs text-[#666666] flex flex-col md:flex-row items-center justify-between gap-4">
             <div>
               © {new Date().getFullYear()} {settings.businessName}. All rights reserved.
             </div>
@@ -1160,34 +1463,34 @@ export const App: React.FC = () => {
             <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
               <button
                 onClick={() => navigateToView('privacy')}
-                className="text-stone-400 hover:text-amber-400 transition-colors"
+                className="text-[#666666] hover:text-[#C89211] transition-colors"
               >
                 Privacy Policy
               </button>
-              <span className="text-stone-700">•</span>
+              <span className="text-[#CCCCCC]">•</span>
               <button
                 onClick={() => navigateToView('about')}
-                className="text-stone-400 hover:text-amber-400 transition-colors"
+                className="text-[#666666] hover:text-[#C89211] transition-colors"
               >
                 About Us
               </button>
-              <span className="text-stone-700">•</span>
+              <span className="text-[#CCCCCC]">•</span>
               <button
                 onClick={() => navigateToView('contact')}
-                className="text-stone-400 hover:text-amber-400 transition-colors"
+                className="text-[#666666] hover:text-[#C89211] transition-colors"
               >
                 Contact Us
               </button>
-              <span className="text-stone-700">•</span>
+              <span className="text-[#CCCCCC]">•</span>
               <button
                 onClick={() => navigateToView('disclaimer')}
-                className="text-stone-400 hover:text-amber-400 transition-colors"
+                className="text-[#666666] hover:text-[#C89211] transition-colors flex items-center gap-1"
               >
-                Disclaimer
+                <span>Disclaimer &amp; Content Protection</span>
               </button>
             </div>
 
-            <div className="text-[11px] text-stone-500">
+            <div className="text-[11px] text-[#666666]">
               Handcrafted in India • 100% Kiln-Dried Solid Timber
             </div>
           </div>
@@ -1209,6 +1512,10 @@ export const App: React.FC = () => {
           door={selectedDoorForDetail}
           onClose={handleCloseDoorDetail}
           onCalculateThisDoor={handleCalculateDoor}
+          onOpenVisualizer={(door) => {
+            handleCloseDoorDetail();
+            handleOpenVisualizer(door);
+          }}
           allDoors={doors}
           onSelectDoor={d => handleOpenDoorDetail(d)}
           settings={settings}

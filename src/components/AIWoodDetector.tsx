@@ -250,35 +250,35 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
   const whatsappUrl = getWhatsAppUrl(expertNumber, expertMessage);
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto space-y-8">
+    <div className="min-h-screen bg-white text-[#1A1A1A] py-4 sm:py-10 pb-24 sm:pb-12 px-3 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto space-y-5 sm:space-y-8">
         
         {/* Header Hero Section */}
-        <div className="text-center space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs sm:text-sm font-semibold tracking-wide uppercase">
-            <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
+        <div className="text-center space-y-2 sm:space-y-4">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#FFF7E3] border border-[#C89211]/30 text-[#C89211] text-xs font-semibold tracking-wide uppercase">
+            <Sparkles className="w-3.5 h-3.5 text-[#C89211] animate-pulse" />
             <span>AI Wood Detector – Lakdi Ki Pehchan</span>
           </div>
 
-          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-extrabold text-stone-100 tracking-tight">
+          <h1 className="font-serif text-2xl sm:text-4xl lg:text-5xl font-extrabold text-[#1A1A1A] tracking-tight">
             Aapke Darwaze Ki Lakdi Kaun Si Hai?
           </h1>
 
-          <p className="text-stone-300 text-sm sm:text-base max-w-2xl mx-auto leading-relaxed">
+          <p className="text-[#666666] text-sm sm:text-base max-w-2xl mx-auto leading-relaxed">
             Darwaze ki photo upload karein aur multi-feature visual AI se lakdi ke baare mein jaanein. Grains, pores,
             interlock pattern, surface finish aur natural oiliness ka rigorous botanical vishleshan.
           </p>
 
           {/* Privacy & Honesty Banner */}
-          <div className="inline-flex flex-wrap items-center justify-center gap-2 px-3.5 py-1.5 rounded-xl bg-stone-900/90 border border-stone-800 text-[12px] text-stone-400">
-            <span className="flex items-center gap-1.5 text-emerald-400">
-              <ShieldCheck className="w-3.5 h-3.5" />
+          <div className="inline-flex flex-wrap items-center justify-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[12px] text-[#666666]">
+            <span className="flex items-center gap-1.5 text-emerald-700 font-medium">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>100% Privacy Safe (In-memory scan)</span>
             </span>
-            <span className="text-stone-600">•</span>
-            <span className="text-amber-300">Sagwan vs Sal vs Sheesham Comparison</span>
-            <span className="text-stone-600">•</span>
-            <span className="text-stone-400">No False Claims</span>
+            <span className="text-[#999999]">•</span>
+            <span className="text-[#C89211] font-medium">Sagwan vs Sal vs Sheesham Comparison</span>
+            <span className="text-[#999999]">•</span>
+            <span className="text-[#666666]">No False Claims</span>
           </div>
         </div>
 
@@ -287,9 +287,9 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
           <button
             type="button"
             onClick={() => setShowComparisonGuide(!showComparisonGuide)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-medium transition-all shadow-md"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-200 border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm font-medium transition-all shadow-sm"
           >
-            <BookOpen className="w-4 h-4 text-amber-400" />
+            <BookOpen className="w-4 h-4 text-[#C89211]" />
             <span>{showComparisonGuide ? 'Lakdi Pehchan Guide Band Karein' : 'Lakdi Pehchan Nirdeshika (Comparison Guide) Dekhein'}</span>
             {showComparisonGuide ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
@@ -297,14 +297,14 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
 
         {/* INTERACTIVE WOOD COMPARISON GUIDE DRAWER */}
         {showComparisonGuide && (
-          <div className="bg-stone-900/95 border border-amber-500/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl backdrop-blur-xl animate-fade-in">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-stone-800 gap-3">
+          <div className="bg-white border border-[#E5E5E5] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm animate-fade-in">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[#E5E5E5] gap-3">
               <div>
-                <h3 className="font-serif text-xl sm:text-2xl font-bold text-stone-100 flex items-center gap-2">
-                  <TreePine className="w-5 h-5 text-amber-400" />
+                <h3 className="font-serif text-xl sm:text-2xl font-bold text-[#1A1A1A] flex items-center gap-2">
+                  <TreePine className="w-5 h-5 text-[#C89211]" />
                   <span>Wood Species Visual Comparison Guide</span>
                 </h3>
-                <p className="text-xs text-stone-400 mt-1">
+                <p className="text-xs text-[#666666] mt-1">
                   Indian timber categories ka visual anatomical comparison. Sahi pehchan ke mukhya sanket.
                 </p>
               </div>
@@ -326,8 +326,8 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                     onClick={() => setSelectedGuideSpecies(sp)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       selectedGuideSpecies === sp
-                        ? 'bg-amber-500 text-stone-950 shadow-md font-bold'
-                        : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+                        ? 'bg-[#C89211] text-white shadow-sm font-bold'
+                        : 'bg-[#F8F8F6] text-[#666666] hover:text-[#1A1A1A] border border-[#E5E5E5]'
                     }`}
                   >
                     {sp.split(' ')[0]}
@@ -339,54 +339,54 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             {/* Profile Content */}
             {guideProfiles[selectedGuideSpecies] ? (
               <div className="space-y-4 text-xs sm:text-sm">
-                <div className="p-4 rounded-2xl bg-amber-950/20 border border-amber-500/20 space-y-2">
+                <div className="p-4 rounded-2xl bg-[#FFF7E3] border border-[#C89211]/30 space-y-2">
                   <div className="flex items-center justify-between flex-wrap gap-2">
-                    <span className="font-serif text-lg font-bold text-amber-300">
+                    <span className="font-serif text-lg font-bold text-[#C89211]">
                       {guideProfiles[selectedGuideSpecies].speciesName}
                     </span>
                     {guideProfiles[selectedGuideSpecies].botanicalName && (
-                      <span className="text-xs italic text-stone-400">
+                      <span className="text-xs italic text-[#666666]">
                         Botanical: {guideProfiles[selectedGuideSpecies].botanicalName}
                       </span>
                     )}
                   </div>
-                  <p className="text-stone-300 leading-relaxed">
+                  <p className="text-[#1A1A1A] leading-relaxed">
                     {guideProfiles[selectedGuideSpecies].hindiSummary}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-stone-950/60 border border-stone-800 space-y-2">
-                    <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                  <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-2">
+                    <span className="font-bold text-[#C89211] flex items-center gap-1.5">
                       <Eye className="w-3.5 h-3.5" /> Grain &amp; Pores
                     </span>
-                    <p className="text-stone-300 text-xs">
+                    <p className="text-[#1A1A1A] text-xs">
                       <strong>Porosity:</strong> {guideProfiles[selectedGuideSpecies].porosityType}
                     </p>
-                    <p className="text-stone-300 text-xs leading-relaxed">
+                    <p className="text-[#666666] text-xs leading-relaxed">
                       {guideProfiles[selectedGuideSpecies].poreStructureAndTyloses}
                     </p>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-stone-950/60 border border-stone-800 space-y-2">
-                    <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                  <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-2">
+                    <span className="font-bold text-[#C89211] flex items-center gap-1.5">
                       <Sliders className="w-3.5 h-3.5" /> Texture &amp; Natural Color
                     </span>
-                    <p className="text-stone-300 text-xs leading-relaxed">
+                    <p className="text-[#666666] text-xs leading-relaxed">
                       {guideProfiles[selectedGuideSpecies].naturalColorHeartwood}
                     </p>
-                    <p className="text-stone-400 text-xs italic">
+                    <p className="text-[#666666] text-xs italic">
                       {guideProfiles[selectedGuideSpecies].textureAndTactility}
                     </p>
                   </div>
                 </div>
 
                 {/* Traps & Imitation Warnings */}
-                <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-800/40 text-rose-200 text-xs space-y-1.5">
-                  <span className="font-bold text-rose-300 flex items-center gap-1.5">
+                <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-1.5">
+                  <span className="font-bold text-rose-700 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" /> Imitation &amp; False Selling Traps
                   </span>
-                  <ul className="list-disc pl-4 space-y-1 text-stone-300">
+                  <ul className="list-disc pl-4 space-y-1 text-rose-900">
                     {guideProfiles[selectedGuideSpecies].commonImitationRisks?.map((risk: string, idx: number) => (
                       <li key={idx}>{risk}</li>
                     ))}
@@ -394,7 +394,7 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-stone-400 py-4 text-center">
+              <div className="text-xs text-[#666666] py-4 text-center">
                 Loading timber profile details...
               </div>
             )}
@@ -402,14 +402,14 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
         )}
 
         {/* MULTI-IMAGE UPLOAD SLOTS SECTION */}
-        <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl backdrop-blur-xl">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-stone-800 gap-2">
+        <div className="bg-white border border-[#E5E5E5] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[#E5E5E5] gap-2">
             <div>
-              <h2 className="font-serif text-xl sm:text-2xl font-bold text-stone-100 flex items-center gap-2">
-                <Upload className="w-5 h-5 text-amber-400" />
+              <h2 className="font-serif text-xl sm:text-2xl font-bold text-[#1A1A1A] flex items-center gap-2">
+                <Upload className="w-5 h-5 text-[#C89211]" />
                 <span>Upload Door &amp; Wood Photos</span>
               </h2>
-              <p className="text-xs sm:text-sm text-stone-400 mt-0.5">
+              <p className="text-xs sm:text-sm text-[#666666] mt-0.5">
                 Zyada accuracy ke liye alag-alag angles ki photo dein. Pores aur unpolished hisse se AI behtar pehchan pata hai.
               </p>
             </div>
@@ -418,7 +418,7 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                 type="button"
                 onClick={handleReset}
                 disabled={analyzing}
-                className="text-xs text-stone-400 hover:text-amber-400 flex items-center gap-1 self-start sm:self-auto"
+                className="text-xs text-[#666666] hover:text-[#C89211] flex items-center gap-1 self-start sm:self-auto"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Clear All</span>
@@ -432,25 +432,25 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             {/* Slot 1: Full Door Photo (Required) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-stone-200 flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-amber-500 text-stone-950 font-bold text-[10px] flex items-center justify-center">1</span>
+                <span className="font-semibold text-[#1A1A1A] flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-[#C89211] text-white font-bold text-[10px] flex items-center justify-center">1</span>
                   <span>Full Door View (Zaroori)</span>
                 </span>
-                <span className="text-[11px] text-amber-400 font-medium">Main Photo</span>
+                <span className="text-[11px] text-[#C89211] font-medium">Main Photo</span>
               </div>
 
               {slots.fullDoor ? (
-                <div className="relative aspect-video rounded-2xl overflow-hidden border border-amber-500/50 group bg-stone-950">
+                <div className="relative aspect-video rounded-2xl overflow-hidden border border-[#C89211]/50 group bg-[#F8F8F6]">
                   <img src={slots.fullDoor} alt="Full door" className="w-full h-full object-cover" />
                   <button
                     type="button"
                     onClick={() => handleRemoveSlot('fullDoor')}
                     disabled={analyzing}
-                    className="absolute top-2 right-2 p-1.5 rounded-full bg-stone-900/80 text-stone-300 hover:text-rose-400 transition-colors"
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-white/90 text-[#666666] hover:text-rose-500 transition-colors shadow-sm"
                   >
                     <X className="w-4 h-4" />
                   </button>
-                  <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded bg-stone-900/90 text-amber-300 border border-stone-800">
+                  <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded bg-white/95 text-[#C89211] border border-[#E5E5E5] shadow-sm font-semibold">
                     Full View Added
                   </span>
                 </div>
@@ -459,11 +459,11 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                   type="button"
                   onClick={() => fullDoorInputRef.current?.click()}
                   disabled={analyzing}
-                  className="w-full aspect-video rounded-2xl border-2 border-dashed border-stone-700 hover:border-amber-500/60 bg-stone-950/40 hover:bg-stone-950 flex flex-col items-center justify-center gap-2 text-stone-400 hover:text-stone-200 transition-all p-4 group"
+                  className="w-full aspect-video rounded-2xl border-2 border-dashed border-[#E5E5E5] hover:border-[#C89211]/60 bg-[#F8F8F6] hover:bg-white flex flex-col items-center justify-center gap-2 text-[#666666] hover:text-[#1A1A1A] transition-all p-4 group"
                 >
-                  <Camera className="w-6 h-6 text-amber-400 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-semibold text-stone-300">Poore Darwaze Ki Photo Lein</span>
-                  <span className="text-[11px] text-stone-500">Frame aur door panel dono dikhein</span>
+                  <Camera className="w-6 h-6 text-[#C89211] group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-semibold text-[#1A1A1A]">Poore Darwaze Ki Photo Lein</span>
+                  <span className="text-[11px] text-[#666666]">Frame aur door panel dono dikhein</span>
                 </button>
               )}
               <input
@@ -478,25 +478,25 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             {/* Slot 2: Close-up Grain & Pores (Recommended) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-stone-200 flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-amber-500 text-stone-950 font-bold text-[10px] flex items-center justify-center">2</span>
+                <span className="font-semibold text-[#1A1A1A] flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-[#C89211] text-white font-bold text-[10px] flex items-center justify-center">2</span>
                   <span>Grain &amp; Pores Close-up</span>
                 </span>
-                <span className="text-[11px] text-emerald-400 font-medium">Bohot Madadgar</span>
+                <span className="text-[11px] text-emerald-700 font-medium">Bohot Madadgar</span>
               </div>
 
               {slots.grainCloseup ? (
-                <div className="relative aspect-video rounded-2xl overflow-hidden border border-amber-500/50 group bg-stone-950">
+                <div className="relative aspect-video rounded-2xl overflow-hidden border border-[#C89211]/50 group bg-[#F8F8F6]">
                   <img src={slots.grainCloseup} alt="Grain closeup" className="w-full h-full object-cover" />
                   <button
                     type="button"
                     onClick={() => handleRemoveSlot('grainCloseup')}
                     disabled={analyzing}
-                    className="absolute top-2 right-2 p-1.5 rounded-full bg-stone-900/80 text-stone-300 hover:text-rose-400 transition-colors"
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-white/90 text-[#666666] hover:text-rose-500 transition-colors shadow-sm"
                   >
                     <X className="w-4 h-4" />
                   </button>
-                  <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded bg-stone-900/90 text-emerald-300 border border-stone-800">
+                  <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded bg-white/95 text-emerald-700 border border-[#E5E5E5] shadow-sm font-semibold">
                     Grain Close-up Added
                   </span>
                 </div>
@@ -505,11 +505,11 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                   type="button"
                   onClick={() => grainCloseupInputRef.current?.click()}
                   disabled={analyzing}
-                  className="w-full aspect-video rounded-2xl border-2 border-dashed border-stone-700 hover:border-amber-500/60 bg-stone-950/40 hover:bg-stone-950 flex flex-col items-center justify-center gap-2 text-stone-400 hover:text-stone-200 transition-all p-4 group"
+                  className="w-full aspect-video rounded-2xl border-2 border-dashed border-[#E5E5E5] hover:border-[#C89211]/60 bg-[#F8F8F6] hover:bg-white flex flex-col items-center justify-center gap-2 text-[#666666] hover:text-[#1A1A1A] transition-all p-4 group"
                 >
-                  <Eye className="w-6 h-6 text-amber-400 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-semibold text-stone-300">Pores &amp; Texture Nazdeek Se</span>
-                  <span className="text-[11px] text-stone-500">10 se 15 cm doori se saaf grain photo</span>
+                  <Eye className="w-6 h-6 text-[#C89211] group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-semibold text-[#1A1A1A]">Pores &amp; Texture Nazdeek Se</span>
+                  <span className="text-[11px] text-[#666666]">10 se 15 cm doori se saaf grain photo</span>
                 </button>
               )}
               <input
@@ -524,25 +524,25 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             {/* Slot 3: Unpolished / Bare Edge (Optional) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-stone-200 flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-stone-700 text-stone-200 font-bold text-[10px] flex items-center justify-center">3</span>
+                <span className="font-semibold text-[#1A1A1A] flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-stone-300 text-[#1A1A1A] font-bold text-[10px] flex items-center justify-center">3</span>
                   <span>Unpolished / Bina Polish Ka Hissa</span>
                 </span>
-                <span className="text-[11px] text-stone-400">Optional</span>
+                <span className="text-[11px] text-[#666666]">Optional</span>
               </div>
 
               {slots.unpolishedEdge ? (
-                <div className="relative aspect-video rounded-2xl overflow-hidden border border-amber-500/50 group bg-stone-950">
+                <div className="relative aspect-video rounded-2xl overflow-hidden border border-[#C89211]/50 group bg-[#F8F8F6]">
                   <img src={slots.unpolishedEdge} alt="Unpolished edge" className="w-full h-full object-cover" />
                   <button
                     type="button"
                     onClick={() => handleRemoveSlot('unpolishedEdge')}
                     disabled={analyzing}
-                    className="absolute top-2 right-2 p-1.5 rounded-full bg-stone-900/80 text-stone-300 hover:text-rose-400 transition-colors"
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-white/90 text-[#666666] hover:text-rose-500 transition-colors shadow-sm"
                   >
                     <X className="w-4 h-4" />
                   </button>
-                  <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded bg-stone-900/90 text-stone-300 border border-stone-800">
+                  <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded bg-white/95 text-[#1A1A1A] border border-[#E5E5E5] shadow-sm font-semibold">
                     Unpolished Edge Added
                   </span>
                 </div>
@@ -551,11 +551,11 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                   type="button"
                   onClick={() => unpolishedEdgeInputRef.current?.click()}
                   disabled={analyzing}
-                  className="w-full aspect-video rounded-2xl border-2 border-dashed border-stone-800 hover:border-amber-500/50 bg-stone-950/30 hover:bg-stone-950 flex flex-col items-center justify-center gap-2 text-stone-500 hover:text-stone-300 transition-all p-4 group"
+                  className="w-full aspect-video rounded-2xl border-2 border-dashed border-[#E5E5E5] hover:border-[#C89211]/50 bg-[#F8F8F6] hover:bg-white flex flex-col items-center justify-center gap-2 text-[#666666] hover:text-[#1A1A1A] transition-all p-4 group"
                 >
-                  <Layers className="w-6 h-6 text-stone-400 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-semibold text-stone-300">Piche Ka Ya Unpolished Kinara</span>
-                  <span className="text-[11px] text-stone-500">Polish ke bina asli lakdi ka rang</span>
+                  <Layers className="w-6 h-6 text-[#666666] group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-semibold text-[#1A1A1A]">Piche Ka Ya Unpolished Kinara</span>
+                  <span className="text-[11px] text-[#666666]">Polish ke bina asli lakdi ka rang</span>
                 </button>
               )}
               <input
@@ -570,25 +570,25 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             {/* Slot 4: End-Grain / Cut Edge (Optional) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-stone-200 flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-stone-700 text-stone-200 font-bold text-[10px] flex items-center justify-center">4</span>
+                <span className="font-semibold text-[#1A1A1A] flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-stone-300 text-[#1A1A1A] font-bold text-[10px] flex items-center justify-center">4</span>
                   <span>End-Grain / Top-Bottom Edge</span>
                 </span>
-                <span className="text-[11px] text-stone-400">Optional</span>
+                <span className="text-[11px] text-[#666666]">Optional</span>
               </div>
 
               {slots.endGrain ? (
-                <div className="relative aspect-video rounded-2xl overflow-hidden border border-amber-500/50 group bg-stone-950">
+                <div className="relative aspect-video rounded-2xl overflow-hidden border border-[#C89211]/50 group bg-[#F8F8F6]">
                   <img src={slots.endGrain} alt="End grain" className="w-full h-full object-cover" />
                   <button
                     type="button"
                     onClick={() => handleRemoveSlot('endGrain')}
                     disabled={analyzing}
-                    className="absolute top-2 right-2 p-1.5 rounded-full bg-stone-900/80 text-stone-300 hover:text-rose-400 transition-colors"
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-white/90 text-[#666666] hover:text-rose-500 transition-colors shadow-sm"
                   >
                     <X className="w-4 h-4" />
                   </button>
-                  <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded bg-stone-900/90 text-stone-300 border border-stone-800">
+                  <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded bg-white/95 text-[#1A1A1A] border border-[#E5E5E5] shadow-sm font-semibold">
                     End-Grain Added
                   </span>
                 </div>
@@ -597,11 +597,11 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                   type="button"
                   onClick={() => endGrainInputRef.current?.click()}
                   disabled={analyzing}
-                  className="w-full aspect-video rounded-2xl border-2 border-dashed border-stone-800 hover:border-amber-500/50 bg-stone-950/30 hover:bg-stone-950 flex flex-col items-center justify-center gap-2 text-stone-500 hover:text-stone-300 transition-all p-4 group"
+                  className="w-full aspect-video rounded-2xl border-2 border-dashed border-[#E5E5E5] hover:border-[#C89211]/50 bg-[#F8F8F6] hover:bg-white flex flex-col items-center justify-center gap-2 text-[#666666] hover:text-[#1A1A1A] transition-all p-4 group"
                 >
-                  <TreePine className="w-6 h-6 text-stone-400 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-semibold text-stone-300">Darwaze Ka Top ya Bottom Edge</span>
-                  <span className="text-[11px] text-stone-500">Annual rings aur solid vs ply check</span>
+                  <TreePine className="w-6 h-6 text-[#666666] group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-semibold text-[#1A1A1A]">Darwaze Ka Top ya Bottom Edge</span>
+                  <span className="text-[11px] text-[#666666]">Annual rings aur solid vs ply check</span>
                 </button>
               )}
               <input
@@ -616,9 +616,9 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
           </div>
 
           {/* Action Button: Analyze Wood Now */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-stone-800">
-            <div className="text-xs text-stone-400 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-[#E5E5E5]">
+            <div className="text-xs text-[#666666] flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
               <span>Multi-feature AI vision scan. Fast, safe &amp; objective.</span>
             </div>
 
@@ -627,7 +627,7 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                 type="button"
                 onClick={handleReset}
                 disabled={analyzing || !hasAnyPhoto}
-                className="py-3 px-4 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-stone-700 transition-colors flex-1 sm:flex-none disabled:opacity-50"
+                className="py-3 px-4 rounded-xl bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-[#E5E5E5] transition-colors flex-1 sm:flex-none disabled:opacity-50"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>Reset</span>
@@ -637,9 +637,9 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                 type="button"
                 onClick={handleStartAnalysis}
                 disabled={analyzing || !hasAnyPhoto}
-                className="py-3 px-6 rounded-xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 hover:from-amber-400 hover:to-amber-600 text-stone-950 font-bold text-xs sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition-all active:scale-95 flex-1 sm:flex-none disabled:opacity-50"
+                className="py-3 px-6 rounded-xl bg-[#C89211] hover:bg-[#b07d08] text-white font-bold text-xs sm:text-base flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 flex-1 sm:flex-none disabled:opacity-50"
               >
-                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-stone-950" />
+                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 <span>{analyzing ? 'Scanning Grain & Pores...' : 'Analyze Wood Now'}</span>
               </button>
             </div>
@@ -694,15 +694,15 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
         {result && (
           <div
             id="wood-analysis-result"
-            className="bg-stone-900 border border-amber-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl space-y-6 animate-fade-in relative overflow-hidden"
+            className="bg-white border border-[#E5E5E5] rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-fade-in relative overflow-hidden"
           >
             {/* Header & Confidence Badge */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-stone-800 gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-[#E5E5E5] gap-4">
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-full">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#C89211] bg-[#FFF7E3] border border-[#C89211]/30 px-3 py-1 rounded-full">
                   Timber Botanical Inspection Report
                 </span>
-                <h2 className="font-serif text-2xl sm:text-3xl font-extrabold text-stone-100 mt-2">
+                <h2 className="font-serif text-2xl sm:text-3xl font-extrabold text-[#1A1A1A] mt-2">
                   Vishleshan Parinam (Result)
                 </h2>
               </div>
@@ -710,14 +710,14 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
               {/* Confidence Badge */}
               <div className="flex items-center gap-3">
                 <div className="text-right">
-                  <span className="text-[11px] text-stone-400 block">Visual Evidence Strength</span>
+                  <span className="text-[11px] text-[#666666] block">Visual Evidence Strength</span>
                   <span
                     className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide mt-1 ${
                       result.confidence_level === 'High'
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
                         : result.confidence_level === 'Moderate'
-                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                        : 'bg-stone-800 text-stone-300 border border-stone-700'
+                        ? 'bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30'
+                        : 'bg-[#F8F8F6] text-[#666666] border border-[#E5E5E5]'
                     }`}
                   >
                     {result.confidence_level} Confidence
@@ -727,29 +727,29 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             </div>
 
             {/* Main Likely Wood Box */}
-            <div className="bg-gradient-to-br from-amber-950/40 via-stone-900 to-amber-950/20 border border-amber-500/30 rounded-2xl p-5 sm:p-6 space-y-3">
-              <span className="text-xs font-semibold text-amber-400 tracking-wider uppercase">
+            <div className="bg-[#FFF7E3] border border-[#C89211]/30 rounded-2xl p-5 sm:p-6 space-y-3">
+              <span className="text-xs font-semibold text-[#C89211] tracking-wider uppercase">
                 Likely Wood Species (Sambhavit Lakdi):
               </span>
               <div className="flex flex-wrap items-baseline gap-3">
-                <span className="font-serif text-2xl sm:text-4xl font-extrabold text-amber-300">
+                <span className="font-serif text-2xl sm:text-4xl font-extrabold text-[#1A1A1A]">
                   {result.likely_wood_type}
                 </span>
               </div>
 
               {/* Customer Friendly Hindi Explanation */}
-              <p className="text-stone-200 text-sm sm:text-base leading-relaxed bg-stone-950/50 p-4 rounded-xl border border-stone-800/80">
+              <p className="text-[#1A1A1A] text-sm sm:text-base leading-relaxed bg-white p-4 rounded-xl border border-[#E5E5E5]">
                 {result.customer_explanation}
               </p>
             </div>
 
             {/* CRITICAL ANTI-FALSE-SAGWAN WARNING BANNER */}
             {result.anti_false_sagwan_notice && (
-              <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-600/40 text-amber-200 text-xs sm:text-sm flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs sm:text-sm flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-[#C89211] flex-shrink-0 mt-0.5" />
                 <div className="flex-1 space-y-1">
-                  <p className="font-bold text-amber-300">Sawmill Quality &amp; Authenticity Note</p>
-                  <p className="text-stone-300 leading-relaxed text-xs">
+                  <p className="font-bold text-[#1A1A1A]">Sawmill Quality &amp; Authenticity Note</p>
+                  <p className="text-[#666666] leading-relaxed text-xs">
                     {result.anti_false_sagwan_notice}
                   </p>
                 </div>
@@ -760,18 +760,18 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
               {/* Visible Evidence */}
-              <div className="bg-stone-950/60 border border-stone-800/90 rounded-2xl p-5 space-y-3">
-                <h4 className="text-xs sm:text-sm font-bold text-amber-300 uppercase tracking-wide flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-amber-400" />
+              <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-2xl p-5 space-y-3">
+                <h4 className="text-xs sm:text-sm font-bold text-[#1A1A1A] uppercase tracking-wide flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-[#C89211]" />
                   <span>Visible Evidence (Photo Mein Dekhe Gaye Lakshana):</span>
                 </h4>
-                <ul className="space-y-2 text-xs sm:text-sm text-stone-300">
+                <ul className="space-y-2 text-xs sm:text-sm text-[#666666]">
                   {(result.visible_evidence && result.visible_evidence.length > 0
                     ? result.visible_evidence
                     : result.visual_observations
                   ).map((obs, idx) => (
                     <li key={idx} className="flex items-start gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                       <span>{obs}</span>
                     </li>
                   ))}
@@ -779,15 +779,15 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
               </div>
 
               {/* Reasons for Match */}
-              <div className="bg-stone-950/60 border border-stone-800/90 rounded-2xl p-5 space-y-3">
-                <h4 className="text-xs sm:text-sm font-bold text-amber-300 uppercase tracking-wide flex items-center gap-2">
-                  <FileSearch className="w-4 h-4 text-amber-400" />
+              <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-2xl p-5 space-y-3">
+                <h4 className="text-xs sm:text-sm font-bold text-[#1A1A1A] uppercase tracking-wide flex items-center gap-2">
+                  <FileSearch className="w-4 h-4 text-[#C89211]" />
                   <span>Species Matching Rationale (Kyon Lagti Hai):</span>
                 </h4>
-                <ul className="space-y-2 text-xs sm:text-sm text-stone-300">
+                <ul className="space-y-2 text-xs sm:text-sm text-[#666666]">
                   {result.reasons_for_match.map((reason, idx) => (
                     <li key={idx} className="flex items-start gap-2">
-                      <span className="text-amber-400 font-bold">•</span>
+                      <span className="text-[#C89211] font-bold">•</span>
                       <span>{reason}</span>
                     </li>
                   ))}
@@ -800,9 +800,9 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
               {/* Alternative Possibilities */}
-              <div className="bg-stone-950/60 border border-stone-800/90 rounded-2xl p-5 space-y-3">
-                <h4 className="text-xs sm:text-sm font-bold text-stone-300 uppercase tracking-wide flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-stone-400" />
+              <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-2xl p-5 space-y-3">
+                <h4 className="text-xs sm:text-sm font-bold text-[#1A1A1A] uppercase tracking-wide flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-[#666666]" />
                   <span>Doosri Sambhavit Lakdiyan (Alternative Woods):</span>
                 </h4>
                 {result.alternative_possibilities && result.alternative_possibilities.length > 0 ? (
@@ -810,30 +810,30 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                     {result.alternative_possibilities.map((alt, idx) => (
                       <span
                         key={idx}
-                        className="px-3 py-1.5 rounded-lg bg-stone-900 border border-stone-700 text-xs font-semibold text-amber-200"
+                        className="px-3 py-1.5 rounded-lg bg-white border border-[#E5E5E5] text-xs font-semibold text-[#1A1A1A] shadow-xs"
                       >
                         {alt}
                       </span>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-stone-400">Koi anya species prabal nahi dikh rahi hai.</p>
+                  <p className="text-xs text-[#666666]">Koi anya species prabal nahi dikh rahi hai.</p>
                 )}
               </div>
 
               {/* Features That Could Not Be Assessed */}
-              <div className="bg-stone-950/60 border border-stone-800/90 rounded-2xl p-5 space-y-3">
-                <h4 className="text-xs sm:text-sm font-bold text-stone-400 uppercase tracking-wide flex items-center gap-2">
-                  <HelpCircle className="w-4 h-4 text-stone-400" />
+              <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-2xl p-5 space-y-3">
+                <h4 className="text-xs sm:text-sm font-bold text-[#1A1A1A] uppercase tracking-wide flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4 text-[#666666]" />
                   <span>Features That Could Not Be Assessed (Anumaan Se Pare):</span>
                 </h4>
-                <ul className="space-y-1.5 text-xs text-stone-400">
+                <ul className="space-y-1.5 text-xs text-[#666666]">
                   {(result.features_unassessed && result.features_unassessed.length > 0
                     ? result.features_unassessed
                     : ['End-grain cross-sectional pores cannot be viewed in standard surface photos']
                   ).map((item, idx) => (
                     <li key={idx} className="flex items-start gap-2">
-                      <span className="text-stone-500">•</span>
+                      <span className="text-[#999999]">•</span>
                       <span>{item}</span>
                     </li>
                   ))}
@@ -844,12 +844,12 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
 
             {/* Photo Recommendations If Additional Evidence Needed */}
             {result.additional_photos_recommended && (
-              <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-600/40 text-amber-200 text-xs sm:text-sm space-y-2">
-                <p className="font-semibold text-amber-300 flex items-center gap-2">
+              <div className="p-4 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 text-[#1A1A1A] text-xs sm:text-sm space-y-2">
+                <p className="font-semibold text-[#C89211] flex items-center gap-2">
                   <Info className="w-4 h-4" />
                   <span>Sahi Pehchan Ke Liye Additional Photo Tips:</span>
                 </p>
-                <ul className="list-disc pl-5 space-y-1 text-xs text-stone-300">
+                <ul className="list-disc pl-5 space-y-1 text-xs text-[#666666]">
                   {(result.photo_recommendations && result.photo_recommendations.length > 0
                     ? result.photo_recommendations
                     : [
@@ -864,19 +864,19 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             )}
 
             {/* Disclaimer */}
-            <div className="p-3.5 rounded-xl bg-stone-950/80 border border-stone-800 text-[11px] text-stone-400 leading-relaxed">
-              <span className="font-semibold text-stone-300">Pramanikta Notice:</span> {result.disclaimer || 'Yeh analysis sirf camera photo par aadharit ek visual estimate hai. Yeh kisi government laboratory ya botanical scientific test ka replacement nahi hai.'}
+            <div className="p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[11px] text-[#666666] leading-relaxed">
+              <span className="font-semibold text-[#1A1A1A]">Pramanikta Notice:</span> {result.disclaimer || 'Yeh analysis sirf camera photo par aadharit ek visual estimate hai. Yeh kisi government laboratory ya botanical scientific test ka replacement nahi hai.'}
             </div>
 
             {/* ACTION BUTTONS & WHATSAPP EXPERT CTA */}
-            <div className="pt-4 border-t border-stone-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="pt-4 border-t border-[#E5E5E5] flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={handleReset}
-                  className="py-3 px-4 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-stone-700 transition-colors flex-1 sm:flex-none"
+                  className="py-3 px-4 rounded-xl bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-[#E5E5E5] transition-colors flex-1 sm:flex-none"
                 >
-                  <RotateCcw className="w-4 h-4 text-amber-400" />
+                  <RotateCcw className="w-4 h-4 text-[#C89211]" />
                   <span>Analyze Another Door</span>
                 </button>
 
@@ -884,7 +884,7 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                   <button
                     type="button"
                     onClick={onNavigateToCatalog}
-                    className="py-3 px-4 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-stone-700 transition-colors flex-1 sm:flex-none"
+                    className="py-3 px-4 rounded-xl bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-[#E5E5E5] transition-colors flex-1 sm:flex-none"
                   >
                     <span>View Teak Doors</span>
                     <ChevronRight className="w-4 h-4" />
@@ -897,7 +897,7 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                 href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full sm:w-auto py-3 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition-all active:scale-95"
+                className="w-full sm:w-auto py-3 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
               >
                 <MessageCircle className="w-4 h-4" />
                 <span>Jai Hanuman Sawmill Expert Se Baat Karein</span>

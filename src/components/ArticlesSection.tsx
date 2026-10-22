@@ -53,6 +53,7 @@ interface ArticlesSectionProps {
   onOpenCalculator?: (door?: Door) => void;
   onOpenDoorDetail?: (door: Door) => void;
   onOpenAuth?: () => void;
+  initialArticleId?: string | null;
 }
 
 // Generate unique viewer hash for deduplicated view counting
@@ -75,12 +76,23 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
   onOpenCalculator,
   onOpenDoorDetail,
   onOpenAuth,
+  initialArticleId,
 }) => {
   // Articles local state (so views, likes, comments update optimistically)
   const [articles, setArticles] = useState<Article[]>(initialArticles);
   useEffect(() => {
     setArticles(initialArticles);
   }, [initialArticles]);
+
+  // Open initial article if requested
+  useEffect(() => {
+    if (initialArticleId && articles.length > 0) {
+      const target = articles.find(a => a.id === initialArticleId || a.slug === initialArticleId);
+      if (target) {
+        handleOpenArticle(target);
+      }
+    }
+  }, [initialArticleId, articles]);
 
   // Active filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -424,23 +436,23 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 space-y-10">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-12 pb-24 sm:pb-12 space-y-5 sm:space-y-8">
       {/* Top Header */}
-      <div className="text-center max-w-3xl mx-auto space-y-3">
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 font-semibold text-xs tracking-wider uppercase">
-          <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+      <div className="text-center max-w-3xl mx-auto space-y-1.5 sm:space-y-3">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 font-semibold text-xs tracking-wider uppercase">
+          <BookOpen className="w-3.5 h-3.5 text-[#C89211]" />
           Master Timber Knowledge Hub
         </span>
-        <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-extrabold text-stone-900 tracking-tight">
+        <h1 className="font-serif text-2xl sm:text-4xl lg:text-5xl font-extrabold text-[#1A1A1A] tracking-tight">
           Door Guides & Wood Wisdom
         </h1>
-        <p className="text-stone-600 text-sm sm:text-base max-w-2xl mx-auto leading-relaxed">
+        <p className="text-[#666666] text-xs sm:text-base max-w-2xl mx-auto leading-relaxed">
           Comprehensive buying checklists, authentic seasoned Sagwan maintenance advice, standard Indian doorway dimensions, and workshop craftsmanship secrets.
         </p>
       </div>
 
       {/* Filter & Search Bar */}
-      <div className="bg-stone-50 border border-stone-200/80 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+      <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl sm:rounded-2xl p-3.5 sm:p-5 shadow-sm space-y-3 sm:space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {/* Search Bar */}
           <div className="relative sm:col-span-2">
@@ -599,11 +611,11 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
                   {/* Category Badge */}
                   <div className="absolute top-3 left-3 flex items-center gap-1.5">
-                    <span className="px-2.5 py-1 rounded-lg bg-stone-900/80 backdrop-blur-md text-amber-400 font-bold text-[11px] border border-amber-500/30 shadow-md">
+                    <span className="px-2.5 py-1 rounded-lg bg-white/90 backdrop-blur-md text-[#C89211] font-bold text-[11px] border border-[#E5E5E5] shadow-sm">
                       {article.category || 'Wood Guide'}
                     </span>
                     {article.youtubeVideoId && (
-                      <span className="px-2 py-1 rounded-lg bg-red-600/90 backdrop-blur-md text-white font-bold text-[10px] flex items-center gap-1 shadow-md">
+                      <span className="px-2 py-1 rounded-lg bg-red-600/90 backdrop-blur-md text-white font-bold text-[10px] flex items-center gap-1 shadow-sm">
                         <Youtube className="w-3 h-3" />
                         Video
                       </span>
@@ -613,11 +625,11 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                   {/* Bookmark Button */}
                   <button
                     onClick={e => handleToggleBookmark(e, article.id)}
-                    className="absolute top-3 right-3 p-2 rounded-xl bg-stone-900/70 hover:bg-stone-900 text-white backdrop-blur-md shadow-md transition-transform active:scale-90"
+                    className="absolute top-3 right-3 p-2 rounded-xl bg-white/90 hover:bg-white text-[#1A1A1A] backdrop-blur-md shadow-sm transition-transform active:scale-90"
                     title={isSaved ? 'Remove from Saved' : 'Save this Guide'}
                   >
                     <Bookmark
-                      className={`w-4 h-4 ${isSaved ? 'fill-amber-400 text-amber-400' : 'text-white'}`}
+                      className={`w-4 h-4 ${isSaved ? 'fill-[#C89211] text-[#C89211]' : 'text-[#666666]'}`}
                     />
                   </button>
                 </div>
@@ -713,25 +725,25 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                         {shareMenuOpenArticleId === article.id && (
                           <div
                             onClick={e => e.stopPropagation()}
-                            className="absolute right-0 bottom-7 z-20 w-44 bg-stone-900 border border-stone-800 rounded-xl shadow-2xl p-2 text-stone-100 text-xs space-y-1 animate-in fade-in zoom-in-95"
+                            className="absolute right-0 bottom-7 z-20 w-44 bg-white border border-[#E5E5E5] rounded-xl shadow-xl p-2 text-[#1A1A1A] text-xs space-y-1 animate-in fade-in zoom-in-95"
                           >
                             <button
                               onClick={() => handleShare('whatsapp', article)}
-                              className="w-full px-2.5 py-1.5 rounded-lg hover:bg-stone-800 flex items-center gap-2 text-emerald-400 font-semibold text-left"
+                              className="w-full px-2.5 py-1.5 rounded-lg hover:bg-emerald-50 flex items-center gap-2 text-emerald-800 font-semibold text-left"
                             >
                               <MessageCircle className="w-3.5 h-3.5" />
                               WhatsApp
                             </button>
                             <button
                               onClick={() => handleShare('copy', article)}
-                              className="w-full px-2.5 py-1.5 rounded-lg hover:bg-stone-800 flex items-center gap-2 text-stone-200 text-left"
+                              className="w-full px-2.5 py-1.5 rounded-lg hover:bg-[#F8F8F6] flex items-center gap-2 text-[#1A1A1A] text-left"
                             >
-                              <Copy className="w-3.5 h-3.5 text-amber-500" />
+                              <Copy className="w-3.5 h-3.5 text-[#C89211]" />
                               {copiedLink ? 'Copied!' : 'Copy Link'}
                             </button>
                             <button
                               onClick={() => handleShare('facebook', article)}
-                              className="w-full px-2.5 py-1.5 rounded-lg hover:bg-stone-800 flex items-center gap-2 text-blue-400 text-left"
+                              className="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-50 flex items-center gap-2 text-blue-800 text-left"
                             >
                               <Share2 className="w-3.5 h-3.5" />
                               Facebook
@@ -757,15 +769,15 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
       {/* FULL SCREEN INTERACTIVE ARTICLE READER MODAL */}
       {/* ========================================================================= */}
       {selectedArticle && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 lg:p-6 animate-in fade-in duration-200">
-          <div className="relative w-full max-w-4xl bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl text-stone-100 overflow-hidden my-4 max-h-[95vh] flex flex-col">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 lg:p-6 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-4xl bg-white border border-[#E5E5E5] rounded-2xl shadow-2xl text-[#1A1A1A] overflow-hidden my-4 max-h-[95vh] flex flex-col">
             {/* Reader Sticky Header */}
-            <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-stone-800 bg-stone-900/95 sticky top-0 z-20">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-[#E5E5E5] bg-white sticky top-0 z-20">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30">
                   {selectedArticle.category || 'Wood Craft Guide'}
                 </span>
-                <span className="text-xs text-stone-400 hidden sm:inline">
+                <span className="text-xs text-[#666666] hidden sm:inline">
                   • {selectedArticle.readTime || '4 min read'}
                 </span>
               </div>
@@ -774,14 +786,14 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                 {/* Save button */}
                 <button
                   onClick={e => handleToggleBookmark(e, selectedArticle.id)}
-                  className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                  className="px-3 py-1.5 rounded-xl bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] text-xs font-semibold flex items-center gap-1.5 transition-all border border-[#E5E5E5]"
                   title="Bookmark Guide"
                 >
                   <Bookmark
                     className={`w-3.5 h-3.5 ${
                       savedArticleIds.includes(selectedArticle.id)
-                        ? 'fill-amber-400 text-amber-400'
-                        : 'text-stone-300'
+                        ? 'fill-[#C89211] text-[#C89211]'
+                        : 'text-[#666666]'
                     }`}
                   />
                   <span className="hidden sm:inline">
@@ -793,7 +805,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                 <button
                   id="close-article-modal-btn"
                   onClick={handleCloseArticle}
-                  className="p-1.5 rounded-xl text-stone-400 hover:text-stone-100 hover:bg-stone-800 transition-colors"
+                  className="p-1.5 rounded-xl text-[#666666] hover:text-[#1A1A1A] hover:bg-[#F8F8F6] transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -801,9 +813,9 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
             </div>
 
             {/* Scrollable Reader Content */}
-            <div className="overflow-y-auto p-4 sm:p-8 space-y-8">
+            <div className="overflow-y-auto p-4 sm:p-8 space-y-8 bg-white">
               {/* Featured Cover Image */}
-              <div className="relative aspect-[21/9] rounded-2xl overflow-hidden bg-stone-950 border border-stone-800 shadow-xl">
+              <div className="relative aspect-[21/9] rounded-2xl overflow-hidden bg-[#F8F8F6] border border-[#E5E5E5] shadow-sm">
                 <ProtectedImage
                   src={selectedArticle.image}
                   alt={selectedArticle.title}
@@ -815,7 +827,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
               {/* Title & Author Meta */}
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-3 text-xs text-amber-400 font-medium">
+                <div className="flex flex-wrap items-center gap-3 text-xs text-[#C89211] font-semibold">
                   <span>{selectedArticle.author || 'Shivshahi Wood Experts'}</span>
                   <span>•</span>
                   <span>{selectedArticle.readTime || '4 min read'}</span>
@@ -829,20 +841,20 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                   </span>
                 </div>
 
-                <h1 className="font-serif text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white leading-tight">
+                <h1 className="font-serif text-2xl sm:text-3xl lg:text-4xl font-extrabold text-[#1A1A1A] leading-tight">
                   {selectedArticle.title}
                 </h1>
 
                 {/* Author Credentials Card */}
-                <div className="p-3.5 rounded-xl bg-stone-950/70 border border-stone-800/80 flex items-center gap-3 text-xs">
-                  <div className="w-10 h-10 rounded-full bg-amber-600 text-stone-950 font-bold flex items-center justify-center shrink-0">
+                <div className="p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex items-center gap-3 text-xs">
+                  <div className="w-10 h-10 rounded-full bg-[#C89211] text-white font-bold flex items-center justify-center shrink-0">
                     <User className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-stone-200">
+                    <h4 className="font-bold text-[#1A1A1A]">
                       {selectedArticle.author || 'Shivshahi Wood Craftsman'}
                     </h4>
-                    <p className="text-stone-400 text-[11px]">
+                    <p className="text-[#666666] text-[11px]">
                       {selectedArticle.authorBio ||
                         'Specialist timber craftsman with 25+ years experience in seasoned Sagwan wood and custom door manufacturing.'}
                     </p>
@@ -850,12 +862,12 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                 </div>
 
                 {/* Real-time Interactive Engagement Bar inside Reader (Section 1) */}
-                <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800/80 flex flex-wrap items-center justify-between gap-4 font-mono text-xs">
+                <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] flex flex-wrap items-center justify-between gap-4 font-mono text-xs">
                   <div className="flex items-center gap-6">
                     {/* Views */}
-                    <span className="flex items-center gap-1.5 text-stone-300" title="Deduplicated Views">
-                      <Eye className="w-4 h-4 text-amber-400" />
-                      <strong className="text-white text-sm">
+                    <span className="flex items-center gap-1.5 text-[#666666]" title="Deduplicated Views">
+                      <Eye className="w-4 h-4 text-[#C89211]" />
+                      <strong className="text-[#1A1A1A] text-sm">
                         {(selectedArticle.views || 0).toLocaleString('en-IN')}
                       </strong>{' '}
                       Views
@@ -866,15 +878,15 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                       onClick={e => handleToggleLike(e, selectedArticle.id)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all active:scale-95 ${
                         userLikedMap[selectedArticle.id]
-                          ? 'bg-rose-950/60 border-rose-500/50 text-rose-300 shadow-md shadow-rose-950/40'
-                          : 'bg-stone-900 border-stone-700 text-stone-300 hover:text-white'
+                          ? 'bg-rose-50 border-rose-300 text-rose-700 shadow-sm'
+                          : 'bg-white border-[#E5E5E5] text-[#1A1A1A] hover:bg-stone-50'
                       }`}
                     >
                       <Heart
                         className={`w-4 h-4 ${
                           userLikedMap[selectedArticle.id]
                             ? 'fill-rose-500 text-rose-500'
-                            : 'text-stone-400'
+                            : 'text-[#666666]'
                         }`}
                       />
                       <strong className="text-sm">
@@ -884,9 +896,9 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                     </button>
 
                     {/* Comments Count */}
-                    <span className="flex items-center gap-1.5 text-stone-300">
-                      <MessageSquare className="w-4 h-4 text-sky-400" />
-                      <strong className="text-white text-sm">
+                    <span className="flex items-center gap-1.5 text-[#666666]">
+                      <MessageSquare className="w-4 h-4 text-sky-600" />
+                      <strong className="text-[#1A1A1A] text-sm">
                         {(selectedArticle.commentCount || articleComments.length).toLocaleString('en-IN')}
                       </strong>{' '}
                       Comments
@@ -895,10 +907,10 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
                   {/* Share Menu */}
                   <div className="flex items-center gap-2">
-                    <span className="text-stone-400 text-[11px] font-sans">Share:</span>
+                    <span className="text-[#666666] text-[11px] font-sans">Share:</span>
                     <button
                       onClick={() => handleShare('whatsapp', selectedArticle)}
-                      className="p-2 rounded-xl bg-emerald-950/70 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-900/60 transition-colors"
+                      className="p-2 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 hover:bg-emerald-100 transition-colors"
                       title="Share on WhatsApp"
                     >
                       <MessageCircle className="w-4 h-4" />
@@ -906,7 +918,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
                     <button
                       onClick={() => handleShare('facebook', selectedArticle)}
-                      className="p-2 rounded-xl bg-blue-950/70 border border-blue-500/40 text-blue-400 hover:bg-blue-900/60 transition-colors"
+                      className="p-2 rounded-xl bg-blue-50 border border-blue-300 text-blue-800 hover:bg-blue-100 transition-colors"
                       title="Share on Facebook"
                     >
                       <Share2 className="w-4 h-4" />
@@ -914,10 +926,10 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
                     <button
                       onClick={() => handleShare('copy', selectedArticle)}
-                      className="px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-700 text-stone-200 hover:text-white transition-colors flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] hover:bg-stone-50 transition-colors flex items-center gap-1.5"
                       title="Copy Link"
                     >
-                      <Copy className="w-3.5 h-3.5 text-amber-500" />
+                      <Copy className="w-3.5 h-3.5 text-[#C89211]" />
                       <span>{copiedLink ? 'Copied!' : 'Copy Link'}</span>
                     </button>
                   </div>
@@ -926,11 +938,11 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
               {/* YouTube Video Section (if attached) */}
               {selectedArticle.youtubeVideoId && (
-                <div className="p-5 rounded-2xl bg-stone-950 border border-stone-800 space-y-3">
+                <div className="p-5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Youtube className="w-5 h-5 text-red-500" />
-                      <h3 className="font-serif text-base font-bold text-white">
+                      <Youtube className="w-5 h-5 text-red-600" />
+                      <h3 className="font-serif text-base font-bold text-[#1A1A1A]">
                         {selectedArticle.youtubeTitle || 'Woodworking Tutorial & Factory Video'}
                       </h3>
                     </div>
@@ -939,14 +951,14 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                       href={`https://www.youtube.com/watch?v=${selectedArticle.youtubeVideoId}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-red-400 hover:text-red-300 text-xs font-semibold flex items-center gap-1"
+                      className="text-red-600 hover:text-red-700 text-xs font-semibold flex items-center gap-1"
                     >
                       <span>Watch on YouTube</span>
                       <ExternalLink className="w-3 h-3" />
                     </a>
                   </div>
 
-                  <div className="aspect-video rounded-xl overflow-hidden border border-stone-800 bg-stone-900 shadow-lg">
+                  <div className="aspect-video rounded-xl overflow-hidden border border-[#E5E5E5] bg-black shadow-md">
                     <iframe
                       src={`https://www.youtube-nocookie.com/embed/${selectedArticle.youtubeVideoId}`}
                       title={selectedArticle.youtubeTitle || 'Woodworking Video'}
@@ -957,7 +969,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                   </div>
 
                   {selectedArticle.youtubeDescription && (
-                    <p className="text-stone-400 text-xs leading-relaxed">
+                    <p className="text-[#666666] text-xs leading-relaxed">
                       {selectedArticle.youtubeDescription}
                     </p>
                   )}
@@ -965,15 +977,15 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
               )}
 
               {/* Article Content with clean typography */}
-              <div className="prose prose-invert prose-amber max-w-none text-stone-200 text-sm sm:text-base leading-relaxed space-y-4 whitespace-pre-line font-sans">
+              <div className="prose max-w-none text-[#1A1A1A] text-sm sm:text-base leading-relaxed space-y-4 whitespace-pre-line font-sans">
                 {selectedArticle.content}
               </div>
 
               {/* Photo Gallery (if present) */}
               {Array.isArray(selectedArticle.gallery) && selectedArticle.gallery.length > 0 && (
-                <div className="space-y-3 pt-4 border-t border-stone-800">
-                  <h3 className="font-serif text-lg font-bold text-white flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-amber-500" />
+                <div className="space-y-3 pt-4 border-t border-[#E5E5E5]">
+                  <h3 className="font-serif text-lg font-bold text-[#1A1A1A] flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-[#C89211]" />
                     Guide Image Gallery & Grain Details
                   </h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -981,7 +993,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                       <div
                         key={idx}
                         onClick={() => setLightboxImage(img.url)}
-                        className="cursor-pointer group aspect-video rounded-xl overflow-hidden border border-stone-800 bg-stone-950 relative"
+                        className="cursor-pointer group aspect-video rounded-xl overflow-hidden border border-[#E5E5E5] bg-[#F8F8F6] relative shadow-xs"
                       >
                         <img
                           src={img.url}
@@ -989,7 +1001,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         />
                         {img.caption && (
-                          <div className="absolute bottom-0 inset-x-0 bg-stone-950/80 p-1.5 text-[10px] text-stone-300 truncate">
+                          <div className="absolute bottom-0 inset-x-0 bg-white/90 p-1.5 text-[10px] text-[#1A1A1A] truncate border-t border-[#E5E5E5]">
                             {img.caption}
                           </div>
                         )}
@@ -1001,13 +1013,13 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
               {/* Linked Related Doors Featured In This Guide */}
               {relatedDoors.length > 0 && (
-                <div className="p-5 rounded-2xl bg-stone-950 border border-stone-800 space-y-4">
+                <div className="p-5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="font-serif text-base sm:text-lg font-bold text-white">
+                      <h3 className="font-serif text-base sm:text-lg font-bold text-[#1A1A1A]">
                         Doors Featured in This Guide
                       </h3>
-                      <p className="text-xs text-stone-400">
+                      <p className="text-xs text-[#666666]">
                         Crafted to custom specifications with seasoned CP Sagwan Teak Wood
                       </p>
                     </div>
@@ -1017,7 +1029,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                     {relatedDoors.map(door => (
                       <div
                         key={door.id}
-                        className="p-3 rounded-xl bg-stone-900 border border-stone-800 flex items-center gap-3 group hover:border-amber-500/50 transition-colors"
+                        className="p-3 rounded-xl bg-white border border-[#E5E5E5] flex items-center gap-3 group hover:border-[#C89211]/50 transition-colors shadow-xs"
                       >
                         <img
                           src={
@@ -1025,11 +1037,11 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                             'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80'
                           }
                           alt=""
-                          className="w-14 h-14 rounded-lg object-cover shrink-0 border border-stone-700"
+                          className="w-14 h-14 rounded-lg object-cover shrink-0 border border-[#E5E5E5]"
                         />
                         <div className="space-y-1 flex-1 overflow-hidden">
-                          <h4 className="font-bold text-xs text-stone-100 truncate">{door.name}</h4>
-                          <span className="font-mono text-xs font-bold text-amber-400 block">
+                          <h4 className="font-bold text-xs text-[#1A1A1A] truncate">{door.name}</h4>
+                          <span className="font-mono text-xs font-bold text-[#C89211] block">
                             ₹{door.startingPrice?.toLocaleString('en-IN')}
                           </span>
                           <button
@@ -1037,7 +1049,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                               handleCloseArticle();
                               if (onOpenCalculator) onOpenCalculator(door);
                             }}
-                            className="text-[11px] font-bold text-amber-500 hover:text-amber-400 flex items-center gap-1"
+                            className="text-[11px] font-bold text-[#C89211] hover:text-[#b07d08] flex items-center gap-1"
                           >
                             Calculate Price
                             <ArrowRight className="w-3 h-3" />
@@ -1051,16 +1063,16 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
               {/* Interactive Call-to-Action Banner */}
               {selectedArticle.cta?.enabled !== false && (
-                <div className="p-6 rounded-2xl bg-gradient-to-r from-amber-950/70 via-stone-900 to-amber-950/70 border border-amber-500/40 space-y-3 shadow-xl">
+                <div className="p-6 rounded-2xl bg-gradient-to-r from-[#FFF7E3] via-white to-[#FFF7E3] border border-[#C89211]/40 space-y-3 shadow-md">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-1">
-                      <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-stone-950 uppercase">
+                      <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-[#C89211] text-white uppercase">
                         Shivshahi Guarantee
                       </span>
-                      <h3 className="font-serif text-lg sm:text-xl font-bold text-white">
+                      <h3 className="font-serif text-lg sm:text-xl font-bold text-[#1A1A1A]">
                         {selectedArticle.cta?.title || 'Calculate Door Price For Your Custom Size'}
                       </h3>
-                      <p className="text-xs text-stone-300 leading-relaxed max-w-xl">
+                      <p className="text-xs text-[#666666] leading-relaxed max-w-xl">
                         {selectedArticle.cta?.subtitle ||
                           'Get transparent, instant pricing for kiln-seasoned CP Sagwan Teak Wood, customized Chaukhat frames, and PU polish.'}
                       </p>
@@ -1073,7 +1085,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                           onOpenCalculator();
                         }
                       }}
-                      className="px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm whitespace-nowrap shadow-lg shadow-amber-950/50 active:scale-95 transition-all self-start sm:self-center"
+                      className="px-5 py-3 rounded-xl bg-[#C89211] hover:bg-amber-600 text-white font-bold text-xs sm:text-sm whitespace-nowrap shadow-md active:scale-95 transition-all self-start sm:self-center"
                     >
                       {selectedArticle.cta?.buttonText || 'Open Door Price Calculator'}
                     </button>
@@ -1084,11 +1096,11 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
               {/* Tags Section */}
               {Array.isArray(selectedArticle.tags) && selectedArticle.tags.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2 pt-2">
-                  <span className="text-xs text-stone-500">Tags:</span>
+                  <span className="text-xs text-[#666666]">Tags:</span>
                   {selectedArticle.tags.map(t => (
                     <span
                       key={t}
-                      className="px-2.5 py-1 rounded-lg bg-stone-950 border border-stone-800 text-[11px] text-stone-400"
+                      className="px-2.5 py-1 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5] text-[11px] text-[#666666]"
                     >
                       #{t}
                     </span>
@@ -1099,11 +1111,11 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
               {/* =============================================================== */}
               {/* COMMENT SYSTEM & DISCUSSION (Section 5) */}
               {/* =============================================================== */}
-              <div className="pt-8 border-t border-stone-800 space-y-6">
+              <div className="pt-8 border-t border-[#E5E5E5] space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5 text-amber-500" />
-                    <h3 className="font-serif text-xl font-bold text-white">
+                    <MessageSquare className="w-5 h-5 text-[#C89211]" />
+                    <h3 className="font-serif text-xl font-bold text-[#1A1A1A]">
                       Customer Discussion & Questions ({articleComments.length})
                     </h3>
                   </div>
@@ -1112,30 +1124,30 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                 {/* Comment Submission Form */}
                 <form
                   onSubmit={handleCommentSubmit}
-                  className="p-5 rounded-2xl bg-stone-950 border border-stone-800 space-y-4"
+                  className="p-5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-4"
                 >
-                  <h4 className="font-bold text-sm text-stone-200">
+                  <h4 className="font-bold text-sm text-[#1A1A1A]">
                     Ask a Question or Share Your Experience
                   </h4>
 
                   {commentSuccessMsg && (
-                    <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
                       <span>{commentSuccessMsg}</span>
                     </div>
                   )}
 
                   {commentErrorMsg && (
-                    <div className="p-3 rounded-xl bg-red-950/80 border border-red-500/50 text-red-300 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
                       <span>{commentErrorMsg}</span>
                     </div>
                   )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-stone-400 text-xs mb-1">
-                        Your Full Name <span className="text-red-400">*</span>
+                      <label className="block text-[#666666] text-xs mb-1">
+                        Your Full Name <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
@@ -1143,12 +1155,12 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                         onChange={e => setCommentName(e.target.value)}
                         placeholder="e.g. Rajesh Kulkarni"
                         required
-                        className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-stone-400 text-xs mb-1">
+                      <label className="block text-[#666666] text-xs mb-1">
                         Email Address (Private, for response notifications)
                       </label>
                       <input
@@ -1156,14 +1168,14 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                         value={commentEmail}
                         onChange={e => setCommentEmail(e.target.value)}
                         placeholder="rajesh@example.com"
-                        className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-stone-400 text-xs mb-1">
-                      Your Comment / Wood Inquiry <span className="text-red-400">*</span>
+                    <label className="block text-[#666666] text-xs mb-1">
+                      Your Comment / Wood Inquiry <span className="text-red-500">*</span>
                     </label>
                     <textarea
                       rows={3}
@@ -1171,20 +1183,20 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                       onChange={e => setCommentContent(e.target.value)}
                       placeholder="Ask about wood seasoning, custom sizes, termite treatments, or door maintenance..."
                       required
-                      className="w-full p-3 rounded-xl bg-stone-900 border border-stone-800 text-stone-100 text-xs leading-relaxed focus:outline-none focus:border-amber-500"
+                      className="w-full p-3 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs leading-relaxed focus:outline-none focus:border-[#C89211]"
                     />
                   </div>
 
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-                    <p className="text-[11px] text-stone-500 flex items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-stone-400" />
+                    <p className="text-[11px] text-[#666666] flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-[#C89211]" />
                       Comments are verified by our wood craftsmen before appearing publicly.
                     </p>
 
                     <button
                       type="submit"
                       disabled={submittingComment}
-                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                      className="px-4 py-2 rounded-xl bg-[#C89211] hover:bg-amber-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 disabled:opacity-50"
                     >
                       {submittingComment ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1199,9 +1211,9 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                 {/* Approved Comments List */}
                 <div className="space-y-3">
                   {articleComments.length === 0 ? (
-                    <div className="p-6 text-center rounded-2xl bg-stone-950/40 border border-stone-800/60 text-stone-400 space-y-1 text-xs">
-                      <p className="font-semibold text-stone-300">Be the first to comment on this guide!</p>
-                      <p className="text-[11px] text-stone-500">
+                    <div className="p-6 text-center rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#666666] space-y-1 text-xs">
+                      <p className="font-semibold text-[#1A1A1A]">Be the first to comment on this guide!</p>
+                      <p className="text-[11px] text-[#666666]">
                         Have questions about wood selection or door maintenance? Post above.
                       </p>
                     </div>
@@ -1209,15 +1221,15 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                     articleComments.map(c => (
                       <div
                         key={c.id}
-                        className="p-4 rounded-2xl bg-stone-950 border border-stone-800/80 space-y-2.5 text-xs"
+                        className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-2.5 text-xs"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span className="w-6 h-6 rounded-full bg-amber-700 text-stone-100 font-bold text-[11px] flex items-center justify-center">
+                            <span className="w-6 h-6 rounded-full bg-[#C89211] text-white font-bold text-[11px] flex items-center justify-center">
                               {c.authorName.charAt(0).toUpperCase()}
                             </span>
-                            <span className="font-bold text-stone-200">{c.authorName}</span>
-                            <span className="text-[10px] text-stone-500">
+                            <span className="font-bold text-[#1A1A1A]">{c.authorName}</span>
+                            <span className="text-[10px] text-[#666666]">
                               •{' '}
                               {new Date(c.createdAt).toLocaleDateString('en-IN', {
                                 day: '2-digit',
@@ -1228,21 +1240,21 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                           </div>
                         </div>
 
-                        <p className="text-stone-300 leading-relaxed whitespace-pre-wrap pl-8">
+                        <p className="text-[#1A1A1A] leading-relaxed whitespace-pre-wrap pl-8">
                           {c.content}
                         </p>
 
                         {/* Official Admin / Craftsman Reply */}
                         {c.adminReply && (
-                          <div className="ml-8 p-3 rounded-xl bg-amber-950/30 border border-amber-500/30 space-y-1 text-xs">
-                            <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                          <div className="ml-8 p-3 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 space-y-1 text-xs">
+                            <div className="flex items-center gap-1.5 font-bold text-[#C89211]">
                               <CornerDownRight className="w-3.5 h-3.5" />
                               <span>{c.adminReply.authorName || 'Shivshahi Wood Specialists'}</span>
-                              <span className="text-[10px] text-stone-500 font-normal">
+                              <span className="text-[10px] text-[#666666] font-normal">
                                 • {new Date(c.adminReply.repliedAt).toLocaleDateString('en-IN')}
                               </span>
                             </div>
-                            <p className="text-stone-300 pl-5 leading-relaxed">
+                            <p className="text-[#1A1A1A] pl-5 leading-relaxed">
                               {c.adminReply.text}
                             </p>
                           </div>
@@ -1255,8 +1267,8 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
 
               {/* Related Articles Carousel / Grid */}
               {relatedArticles.length > 0 && (
-                <div className="pt-8 border-t border-stone-800 space-y-4">
-                  <h3 className="font-serif text-lg font-bold text-white">
+                <div className="pt-8 border-t border-[#E5E5E5] space-y-4">
+                  <h3 className="font-serif text-lg font-bold text-[#1A1A1A]">
                     More Door Guides You May Like
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1264,7 +1276,7 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                       <div
                         key={rel.id}
                         onClick={() => handleOpenArticle(rel)}
-                        className="p-3 rounded-xl bg-stone-950 border border-stone-800 hover:border-amber-500/50 cursor-pointer flex items-center gap-3 transition-colors"
+                        className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] hover:border-[#C89211]/50 cursor-pointer flex items-center gap-3 transition-colors"
                       >
                         <img
                           src={rel.image}
@@ -1272,10 +1284,10 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                           className="w-16 h-12 rounded-lg object-cover shrink-0"
                         />
                         <div>
-                          <h4 className="font-bold text-xs text-stone-200 line-clamp-1 hover:text-amber-400">
+                          <h4 className="font-bold text-xs text-[#1A1A1A] line-clamp-1 hover:text-[#C89211]">
                             {rel.title}
                           </h4>
-                          <span className="text-[10px] text-stone-500 font-mono mt-1 block">
+                          <span className="text-[10px] text-[#666666] font-mono mt-1 block">
                             👁 {rel.views || 0} views • ❤️ {rel.likes || 0} likes
                           </span>
                         </div>
@@ -1287,14 +1299,14 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
             </div>
 
             {/* Modal Bottom Bar */}
-            <div className="px-6 py-3.5 border-t border-stone-800 bg-stone-900/95 flex items-center justify-between">
-              <span className="text-xs text-stone-500">
+            <div className="px-6 py-3.5 border-t border-[#E5E5E5] bg-white flex items-center justify-between">
+              <span className="text-xs text-[#666666]">
                 Crafted with care by Shivshahi Sagwan Door Manufacturing
               </span>
 
               <button
                 onClick={handleCloseArticle}
-                className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs"
+                className="px-4 py-2 rounded-xl bg-[#F8F8F6] hover:bg-[#E5E5E5] text-[#1A1A1A] font-semibold text-xs border border-[#E5E5E5]"
               >
                 Close Guide
               </button>
@@ -1307,17 +1319,17 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
       {lightboxImage && (
         <div
           onClick={() => setLightboxImage(null)}
-          className="fixed inset-0 z-60 bg-stone-950/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
+          className="fixed inset-0 z-60 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
         >
           <div className="relative max-w-4xl max-h-[90vh]">
             <img
               src={lightboxImage}
               alt=""
-              className="w-full h-full object-contain rounded-xl shadow-2xl border border-stone-800"
+              className="w-full h-full object-contain rounded-xl shadow-2xl border border-white/20"
             />
             <button
               onClick={() => setLightboxImage(null)}
-              className="absolute top-3 right-3 p-2 rounded-full bg-stone-900/80 text-white hover:bg-stone-800"
+              className="absolute top-3 right-3 p-2 rounded-full bg-black/60 text-white hover:bg-black/80"
             >
               <X className="w-5 h-5" />
             </button>

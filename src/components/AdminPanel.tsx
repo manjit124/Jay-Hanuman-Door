@@ -18,6 +18,9 @@ import {
   Upload,
   Check,
   X,
+  ArrowUp,
+  ArrowDown,
+  ArrowRight,
   FileText,
   DollarSign,
   Layers,
@@ -40,9 +43,13 @@ import {
   Lock,
   Smartphone,
   AlertTriangle,
+  AlertCircle,
   Inbox,
   MapPin,
   HardDrive,
+  Truck,
+  Box,
+  Video,
 } from 'lucide-react';
 import { ProtectedImage } from './ProtectedImage.tsx';
 import { DEFAULT_CONTENT_PROTECTION } from '../lib/contentProtection.ts';
@@ -53,6 +60,11 @@ import { AdminLegalTab } from './admin/AdminLegalTab.tsx';
 import { AdminEnquiriesTab } from './admin/AdminEnquiriesTab.tsx';
 import { AdminBackupRestore } from './admin/AdminBackupRestore.tsx';
 import { AdminWoodDetectorTab } from './admin/AdminWoodDetectorTab.tsx';
+import { AdminOrderTrackingTab } from './admin/AdminOrderTrackingTab.tsx';
+import { AdminVisualizerTab } from './admin/AdminVisualizerTab.tsx';
+import { AdminBrandStoryTab } from './AdminBrandStoryTab.tsx';
+import { AdminDeliveryTab } from './admin/AdminDeliveryTab.tsx';
+import { AdminChaukhatTab } from './admin/AdminChaukhatTab.tsx';
 import {
   Door,
   Category,
@@ -66,6 +78,8 @@ import {
   BusinessSettings,
   UserProfile,
   TeamMember,
+  IndiaDeliveryState,
+  DeliveryStory,
 } from '../types.ts';
 import {
   adminLogin,
@@ -89,6 +103,7 @@ import {
   deleteHardware,
   createBanner,
   updateBanner,
+  updateSlotBanner,
   deleteBanner,
   createArticle,
   updateArticle,
@@ -97,8 +112,11 @@ import {
   deleteQuote,
   resetDatabase,
   uploadImage,
+  uploadVideo,
+  upload3DModel,
   resetAdminDefaultPassword,
 } from '../lib/api.ts';
+import { removeBackgroundFromImage } from '../lib/transparentDoorUtils.ts';
 import { formatWhatsAppDisplay } from '../lib/contactUtils.ts';
 
 interface AdminPanelProps {
@@ -137,7 +155,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Active Admin Section Tab
   const [activeTab, setActiveTab] = useState<
     | 'dashboard'
+    | 'tracking'
+    | 'delivery'
     | 'doors'
+    | 'visualizer'
     | 'materials'
     | 'finishes'
     | 'frames'
@@ -148,9 +169,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     | 'quotes'
     | 'notifications'
     | 'team'
+    | 'story'
     | 'enquiries'
     | 'legal'
     | 'backup'
+    | 'wood-detector'
   >('dashboard');
 
   // Loaded DB data in Admin
@@ -166,6 +189,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [quotes, setQuotes] = useState<Quotation[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
+  const [deliveryStates, setDeliveryStates] = useState<IndiaDeliveryState[]>([]);
+  const [deliveryStories, setDeliveryStories] = useState<DeliveryStory[]>([]);
 
   // Status message for successful saves
   const [toastMsg, setToastMsg] = useState('');
@@ -177,10 +202,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [editingFrame, setEditingFrame] = useState<Partial<ChaukhatFrame> | null>(null);
   const [editingHardware, setEditingHardware] = useState<Partial<HardwareItem> | null>(null);
   const [editingBanner, setEditingBanner] = useState<Partial<HomeBanner> | null>(null);
+  const [bannerSlotFilter, setBannerSlotFilter] = useState<'all' | 'slot_1' | 'slot_2' | 'slot_3'>('all');
+  const [bannerUploadError, setBannerUploadError] = useState<string | null>(null);
+  const [bannerDimensions, setBannerDimensions] = useState<{ width: number; height: number; ratio: string } | null>(null);
+
+  useEffect(() => {
+    if (!editingBanner?.image) {
+      setBannerDimensions(null);
+      return;
+    }
+    const img = new Image();
+    img.src = editingBanner.image;
+    img.onload = () => {
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      if (w > 0 && h > 0) {
+        const gcdVal = (a: number, b: number): number => (b === 0 ? a : gcdVal(b, a % b));
+        const divisor = gcdVal(w, h);
+        const ratioW = Math.round((w / divisor) * 10) / 10;
+        const ratioH = Math.round((h / divisor) * 10) / 10;
+        setBannerDimensions({ width: w, height: h, ratio: `${ratioW}:${ratioH}` });
+      } else {
+        setBannerDimensions(null);
+      }
+    };
+    img.onerror = () => {
+      setBannerDimensions(null);
+    };
+  }, [editingBanner?.image]);
   const [editingArticle, setEditingArticle] = useState<Partial<Article> | null>(null);
 
   // Uploading state
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [isUploadingModel, setIsUploadingModel] = useState(false);
+  const [isUploadingPng, setIsUploadingPng] = useState(false);
+  const [isGeneratingPng, setIsGeneratingPng] = useState(false);
 
   // Quick inline price & details editing states
   const [quickEditMaterialId, setQuickEditMaterialId] = useState<string | null>(null);
@@ -227,6 +284,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setQuotes(data.quotes || []);
       setTeamMembers(data.teamMembers || []);
       setSettings(data.settings);
+      setDeliveryStates(data.deliveryStates || []);
+      setDeliveryStories(data.deliveryStories || []);
     } catch (err) {
       console.error('Failed to load admin data:', err);
     } finally {
@@ -236,8 +295,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   useEffect(() => {
     if (initialTab) {
-      const mapped = initialTab === 'prices' ? 'materials' : initialTab;
-      if (['dashboard', 'doors', 'materials', 'finishes', 'frames', 'hardware', 'banners', 'articles', 'settings', 'quotes', 'team', 'notifications', 'enquiries', 'legal'].includes(mapped)) {
+      const mapped = initialTab === 'prices' ? 'materials' : initialTab === 'orders' ? 'tracking' : (initialTab === 'deliveries' || initialTab === 'delivery-stories' || initialTab === 'shipping') ? 'delivery' : (initialTab === '3d' || initialTab === 'ar') ? 'visualizer' : initialTab;
+      if (['dashboard', 'tracking', 'delivery', 'doors', 'visualizer', 'materials', 'finishes', 'frames', 'hardware', 'banners', 'articles', 'settings', 'quotes', 'team', 'notifications', 'enquiries', 'legal', 'backup', 'wood-detector'].includes(mapped)) {
         setActiveTab(mapped as any);
       }
     }
@@ -307,6 +366,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       alert(err.message || 'Image upload failed');
     } finally {
       setUploadingImage(false);
+    }
+  };
+
+  // Direct Video Upload helper
+  const handleVideoUploadHelper = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      alert('Video file size exceeds 50 MB limit. Please select a compressed MP4/WebM video.');
+      return;
+    }
+
+    setUploadingVideo(true);
+    try {
+      const res = await uploadVideo(file);
+      if (editingDoor) {
+        setEditingDoor({ ...editingDoor, videoUrl: res.url });
+      }
+      showToast('Product video uploaded successfully!');
+    } catch (err: any) {
+      alert(err.message || 'Video upload failed');
+    } finally {
+      setUploadingVideo(false);
     }
   };
 
@@ -412,25 +495,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-6xl bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl text-stone-100 overflow-hidden my-4 max-h-[96vh] flex flex-col">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
+      <div className="relative w-full max-w-6xl bg-white border border-[#E5E5E5] rounded-2xl shadow-2xl text-[#1A1A1A] overflow-hidden my-4 max-h-[96vh] flex flex-col">
         
         {/* Top Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 bg-stone-950/90 sticky top-0 z-20">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5] bg-[#F8F8F6] sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-600/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+            <div className="w-10 h-10 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="font-serif text-lg sm:text-xl font-bold text-white">
+                <h2 className="font-serif text-lg sm:text-xl font-bold text-[#1A1A1A]">
                   Manufacturer Admin Control Center
                 </h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase">
                   Secure Backend
                 </span>
               </div>
-              <p className="text-xs text-stone-400">
+              <p className="text-xs text-[#666666]">
                 Manage doors, live rates, Chaukhat frames, hardware, banners & WhatsApp settings
               </p>
             </div>
@@ -441,7 +524,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <button
                 id="admin-logout-btn"
                 onClick={handleLogout}
-                className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-[#1A1A1A] border border-[#E5E5E5] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                 title="Logout"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -450,7 +533,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             )}
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-stone-400 hover:text-stone-100 hover:bg-stone-800 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-100 transition-colors cursor-pointer"
               title="Return to Customer Storefront"
             >
               <X className="w-5 h-5" />
@@ -460,27 +543,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         {/* Toast alert */}
         {toastMsg && (
-          <div className="bg-amber-600 text-stone-950 text-xs sm:text-sm font-bold px-4 py-2 text-center shadow-md animate-in slide-in-from-top duration-200">
+          <div className="bg-[#C89211] text-white text-xs sm:text-sm font-bold px-4 py-2 text-center shadow-md animate-in slide-in-from-top duration-200">
             {toastMsg}
           </div>
         )}
 
         {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto flex flex-col md:flex-row">
+        <div className="flex-1 overflow-y-auto flex flex-col md:flex-row bg-white">
           
           {!isLoggedIn ? (
             currentUser && !bypassCustomerDenied ? (
               /* Access Denied View for Customer Accounts attempting admin route (TEST 10) */
               <div className="w-full max-w-md mx-auto my-auto p-6 sm:p-8 space-y-6 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-rose-600/20 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+                <div className="w-14 h-14 rounded-2xl bg-[#C62828]/10 border border-[#C62828]/30 text-[#C62828] flex items-center justify-center mx-auto">
                   <ShieldAlert className="w-7 h-7" />
                 </div>
                 <div className="space-y-2">
-                  <h3 className="font-serif text-2xl font-bold text-white">
+                  <h3 className="font-serif text-2xl font-bold text-[#1A1A1A]">
                     Access Denied
                   </h3>
-                  <p className="text-xs text-stone-400 leading-relaxed">
-                    You are currently signed in as a customer account (<span className="text-stone-200 font-medium">{currentUser.name || currentUser.email}</span>). 
+                  <p className="text-xs text-[#666666] leading-relaxed">
+                    You are currently signed in as a customer account (<span className="text-[#1A1A1A] font-medium">{currentUser.name || currentUser.email}</span>). 
                     Factory administrator credentials and authorization are required to access this portal.
                   </p>
                 </div>
@@ -488,14 +571,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <button
                     id="admin-switch-account-btn"
                     onClick={() => setBypassCustomerDenied(true)}
-                    className="w-full py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs transition-colors shadow-lg shadow-amber-950/40"
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs transition-colors shadow-md cursor-pointer"
                   >
                     Sign In with Admin Credentials
                   </button>
                   <button
                     id="admin-back-to-store-btn"
                     onClick={onClose}
-                    className="w-full py-2.5 px-4 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs transition-colors"
+                    className="w-full py-2.5 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 text-[#1A1A1A] border border-[#E5E5E5] font-semibold text-xs transition-colors cursor-pointer"
                   >
                     Return to Customer Home
                   </button>
@@ -505,13 +588,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               /* Admin Login Form Screen */
               <div className="w-full max-w-md mx-auto my-auto p-6 sm:p-8 space-y-6">
                 <div className="text-center space-y-2">
-                  <div className="w-14 h-14 rounded-2xl bg-amber-600/20 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
+                  <div className="w-14 h-14 rounded-2xl bg-[#FFF7E3] border border-[#C89211]/30 text-[#C89211] flex items-center justify-center mx-auto">
                     <ShieldCheck className="w-7 h-7" />
                   </div>
-                  <h3 className="font-serif text-2xl font-bold text-white">
+                  <h3 className="font-serif text-2xl font-bold text-[#1A1A1A]">
                     Administrator Sign In
                   </h3>
-                  <p className="text-xs text-stone-400">
+                  <p className="text-xs text-[#666666]">
                     Enter master security credentials to manage manufacturing catalog, live pricing & business configuration
                   </p>
                 </div>
@@ -519,7 +602,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {loginError && (
                   <div
                     id="admin-login-error"
-                    className="p-3 rounded-xl bg-red-950/80 border border-red-500/40 text-red-200 text-xs text-center font-medium"
+                    className="p-3 rounded-xl bg-[#C62828]/10 border border-[#C62828]/30 text-[#C62828] text-xs text-center font-medium"
                   >
                     {loginError}
                   </div>
@@ -527,7 +610,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
                       Admin Email
                     </label>
                     <input
@@ -538,19 +621,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       placeholder="e.g. shivshahidoors@gmail.com"
                       value={emailInput}
                       onChange={e => setEmailInput(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl border border-stone-700 bg-stone-800 text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                      className="w-full px-4 py-2.5 rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] text-[#1A1A1A] text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/30 focus:bg-white"
                     />
                   </div>
 
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-semibold text-stone-300">
+                      <label className="block text-xs font-semibold text-[#1A1A1A]">
                         Admin Password
                       </label>
                       <button
                         type="button"
                         onClick={() => setShowForgotPassword(!showForgotPassword)}
-                        className="text-[11px] text-amber-400 hover:text-amber-300 hover:underline flex items-center gap-1"
+                        className="text-[11px] text-[#C89211] hover:underline flex items-center gap-1 cursor-pointer font-medium"
                       >
                         <KeyRound className="w-3 h-3" />
                         Forgot password?
@@ -565,19 +648,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         placeholder="Enter admin password (e.g. admin123)"
                         value={passwordInput}
                         onChange={e => setPasswordInput(e.target.value)}
-                        className="w-full pl-4 pr-11 py-2.5 rounded-xl border border-stone-700 bg-stone-800 text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 font-mono"
+                        className="w-full pl-4 pr-11 py-2.5 rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] text-[#1A1A1A] text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/30 focus:bg-white font-mono"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
                         aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-amber-400 p-1 transition-colors"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#666666] hover:text-[#1A1A1A] p-1 transition-colors cursor-pointer"
                       >
                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
-                    <div className="flex items-center justify-between text-[11px] text-stone-400 mt-1.5 px-0.5">
-                      <span>Default password: <strong className="text-amber-400 font-mono">admin123</strong></span>
+                    <div className="flex items-center justify-between text-[11px] text-[#666666] mt-1.5 px-0.5">
+                      <span>Default password: <strong className="text-[#C89211] font-mono">admin123</strong></span>
                       <button
                         type="button"
                         onClick={() => {
@@ -585,7 +668,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           setPasswordInput('admin123');
                           setLoginError('');
                         }}
-                        className="text-amber-400 hover:text-amber-300 hover:underline font-medium"
+                        className="text-[#C89211] hover:underline font-medium cursor-pointer"
                       >
                         Auto-fill credentials
                       </button>
@@ -596,7 +679,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     id="admin-login-btn"
                     type="submit"
                     disabled={isLoggingIn}
-                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-500 text-stone-950 font-bold text-sm shadow-lg shadow-amber-950/50 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                    className="w-full py-3 px-4 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
                   >
                     {isLoggingIn ? (
                       <>
@@ -611,8 +694,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 {/* Forgot password dialog / guidance */}
                 {showForgotPassword && (
-                  <div className="p-4 rounded-xl bg-stone-800/95 border border-amber-600/30 text-xs text-stone-300 space-y-3 shadow-lg">
-                    <div className="flex items-center justify-between text-amber-400 font-semibold">
+                  <div className="p-4 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 text-xs text-[#1A1A1A] space-y-3 shadow-md">
+                    <div className="flex items-center justify-between text-[#C89211] font-semibold">
                       <div className="flex items-center gap-2">
                         <KeyRound className="w-4 h-4" />
                         <span>Administrator Credentials & Recovery</span>
@@ -620,26 +703,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => setShowForgotPassword(false)}
-                        className="text-stone-400 hover:text-white"
+                        className="text-[#666666] hover:text-[#1A1A1A] cursor-pointer"
                       >
                         <X className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="space-y-1.5 text-stone-300 text-[11px] leading-relaxed">
+                    <div className="space-y-1.5 text-[#1A1A1A] text-[11px] leading-relaxed">
                       <p>
                         Your master administration login is ready:
                       </p>
-                      <div className="bg-stone-900/90 rounded-lg p-2.5 border border-stone-700/80 space-y-1 font-mono text-[12px]">
+                      <div className="bg-white rounded-lg p-2.5 border border-[#C89211]/20 space-y-1 font-mono text-[12px] shadow-xs">
                         <div className="flex justify-between">
-                          <span className="text-stone-400">Email:</span>
-                          <span className="text-amber-300">shivshahidoors@gmail.com</span>
+                          <span className="text-[#666666]">Email:</span>
+                          <span className="text-[#C89211] font-medium">shivshahidoors@gmail.com</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-stone-400">Master Password:</span>
-                          <span className="text-amber-400 font-bold">admin123</span>
+                          <span className="text-[#666666]">Master Password:</span>
+                          <span className="text-[#C89211] font-bold">admin123</span>
                         </div>
                       </div>
-                      <p className="text-stone-400 pt-1">
+                      <p className="text-[#666666] pt-1">
                         You can also sign in using the password configured in Settings or your owner account password.
                       </p>
                     </div>
@@ -653,7 +736,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           setShowForgotPassword(false);
                           setLoginError('');
                         }}
-                        className="flex-1 py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs transition-colors text-center"
+                        className="flex-1 py-2 px-3 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs transition-colors text-center cursor-pointer"
                       >
                         Fill & Use admin123
                       </button>
@@ -675,7 +758,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             setIsResettingPassword(false);
                           }
                         }}
-                        className="py-2 px-3 rounded-lg bg-stone-700 hover:bg-stone-600 text-stone-200 font-semibold text-xs transition-colors text-center"
+                        className="py-2 px-3 rounded-lg bg-stone-100 hover:bg-stone-200 text-[#1A1A1A] border border-[#E5E5E5] font-semibold text-xs transition-colors text-center cursor-pointer"
                       >
                         {isResettingPassword ? 'Resetting...' : 'Reset to admin123'}
                       </button>
@@ -687,7 +770,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="text-xs text-stone-400 hover:text-stone-200 transition-colors"
+                    className="text-xs text-[#666666] hover:text-[#1A1A1A] transition-colors cursor-pointer"
                   >
                     ← Return to Customer Storefront
                   </button>
@@ -698,13 +781,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             /* Logged In Admin Workspace */
             <>
               {/* Sidebar Navigation */}
-              <div className="w-full md:w-60 bg-stone-950/60 border-b md:border-b-0 md:border-r border-stone-800 p-3 space-y-1 overflow-x-auto md:overflow-x-visible flex md:flex-col flex-shrink-0">
+              <div className="w-full md:w-60 bg-[#F8F8F6] border-b md:border-b-0 md:border-r border-[#E5E5E5] p-3 space-y-1 overflow-x-auto md:overflow-x-visible flex md:flex-col flex-shrink-0">
                 
                 <button
                   id="admin-tab-dashboard"
                   onClick={() => handleTabSelect('dashboard')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'dashboard' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'dashboard' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <Sliders className="w-4 h-4" />
@@ -712,10 +795,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
 
                 <button
+                  id="admin-tab-tracking"
+                  onClick={() => handleTabSelect('tracking')}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'tracking' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                  }`}
+                >
+                  <Truck className="w-4 h-4" />
+                  Order Tracking &amp; Mfg
+                </button>
+
+                <button
+                  id="admin-tab-delivery"
+                  onClick={() => handleTabSelect('delivery')}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'delivery' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                  }`}
+                >
+                  <MapPin className="w-4 h-4 text-amber-500" />
+                  India Delivery Stories ({deliveryStories.length})
+                </button>
+
+                <button
                   id="admin-tab-doors"
                   onClick={() => { handleTabSelect('doors'); setEditingDoor(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'doors' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'doors' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <DoorClosed className="w-4 h-4" />
@@ -723,10 +828,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
 
                 <button
+                  id="admin-tab-visualizer"
+                  onClick={() => handleTabSelect('visualizer')}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'visualizer' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                  }`}
+                >
+                  <Box className="w-4 h-4" />
+                  3D &amp; AR Models
+                </button>
+
+                <button
                   id="admin-tab-materials"
                   onClick={() => { handleTabSelect('materials'); setEditingMaterial(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'materials' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'materials' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <TreePine className="w-4 h-4" />
@@ -736,8 +852,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="admin-tab-finishes"
                   onClick={() => { handleTabSelect('finishes'); setEditingFinish(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'finishes' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'finishes' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <Sparkles className="w-4 h-4" />
@@ -747,19 +863,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="admin-tab-frames"
                   onClick={() => { handleTabSelect('frames'); setEditingFrame(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'frames' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'frames' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <FrameIcon className="w-4 h-4" />
-                  Door Frames (Chaukhat)
+                  Chaukhat & Frame Management
                 </button>
 
                 <button
                   id="admin-tab-hardware"
                   onClick={() => { handleTabSelect('hardware'); setEditingHardware(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'hardware' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'hardware' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <Wrench className="w-4 h-4" />
@@ -767,21 +883,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
 
                 <button
-                  id="admin-tab-banners"
-                  onClick={() => { handleTabSelect('banners'); setEditingBanner(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'banners' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  id="admin-tab-main-banners"
+                  onClick={() => { handleTabSelect('main-banners'); setEditingBanner(null); }}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'main-banners' || activeTab === 'banners' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <ImageIcon className="w-4 h-4" />
-                  Home Banners
+                  Main Banner Management ({banners.filter(b => b.bannerType === 'main' || b.slot === 'hero' || b.slot === 'main' || (!b.bannerType && (!b.slot || b.slot === 'hero' || b.slot === 'main' || b.id === 'ban-1' || b.id === 'ban-3'))).length})
+                </button>
+
+                <button
+                  id="admin-tab-promotion-banners"
+                  onClick={() => { handleTabSelect('promotion-banners'); setEditingBanner(null); }}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'promotion-banners' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Promotion Banner Management ({banners.filter(b => b.bannerType === 'promotion' || (b.slot && b.slot !== 'hero' && b.slot !== 'main') || (!b.bannerType && b.id && b.id.startsWith('ban-17'))).length})
                 </button>
 
                 <button
                   id="admin-tab-articles"
                   onClick={() => { handleTabSelect('articles'); setEditingArticle(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'articles' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'articles' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <BookOpen className="w-4 h-4" />
@@ -791,8 +918,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="admin-tab-quotes"
                   onClick={() => handleTabSelect('quotes')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'quotes' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'quotes' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <FileText className="w-4 h-4" />
@@ -802,8 +929,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="admin-tab-notifications"
                   onClick={() => handleTabSelect('notifications')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'notifications' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'notifications' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <Bell className="w-4 h-4" />
@@ -813,8 +940,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="admin-tab-team"
                   onClick={() => handleTabSelect('team')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'team' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'team' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <Users className="w-4 h-4" />
@@ -822,10 +949,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
 
                 <button
+                  id="admin-tab-story"
+                  onClick={() => handleTabSelect('story')}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'story' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4 text-[#C89211]" />
+                  Brand &amp; Company Story
+                </button>
+
+                <button
                   id="admin-tab-enquiries"
                   onClick={() => handleTabSelect('enquiries')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'enquiries' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'enquiries' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <Inbox className="w-4 h-4" />
@@ -835,8 +973,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="admin-tab-legal"
                   onClick={() => handleTabSelect('legal')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'legal' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'legal' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <FileText className="w-4 h-4" />
@@ -846,8 +984,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="admin-tab-settings"
                   onClick={() => handleTabSelect('settings')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'settings' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'settings' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
                   <SettingsIcon className="w-4 h-4" />
@@ -857,22 +995,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="admin-tab-wood-detector"
                   onClick={() => handleTabSelect('wood-detector')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'wood-detector' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'wood-detector' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
-                  <TreePine className="w-4 h-4 text-amber-400" />
+                  <TreePine className="w-4 h-4" />
                   AI Wood Detector
                 </button>
 
                 <button
                   id="admin-tab-backup"
                   onClick={() => handleTabSelect('backup')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors ${
-                    activeTab === 'backup' ? 'bg-amber-600 text-stone-950' : 'text-stone-300 hover:bg-stone-800'
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'backup' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
-                  <HardDrive className="w-4 h-4 text-emerald-400" />
+                  <HardDrive className="w-4 h-4 text-emerald-600" />
                   Backup &amp; Persistence
                 </button>
               </div>
@@ -884,122 +1022,141 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-serif text-xl sm:text-2xl font-bold text-white">
+                      <h3 className="font-serif text-xl sm:text-2xl font-bold text-[#1A1A1A]">
                         Overview & Metrics
                       </h3>
                       <button
                         onClick={() => handleTabSelect('backup')}
-                        className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-800/90 border border-stone-700/60 hover:bg-stone-750 transition"
+                        className="text-xs text-[#C89211] hover:underline flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-100 border border-[#E5E5E5] hover:bg-stone-200 transition cursor-pointer font-medium"
                       >
-                        <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+                        <HardDrive className="w-3.5 h-3.5 text-emerald-600" />
                         Backup &amp; Export Data
                       </button>
                     </div>
 
                     {/* Stats Grid */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                      <div className="p-4 rounded-xl bg-stone-800/80 border border-stone-700/60">
-                        <div className="text-xs text-stone-400 font-medium">Door Designs</div>
-                        <div className="text-2xl sm:text-3xl font-bold font-mono text-amber-400 mt-1">
+                      <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] shadow-xs">
+                        <div className="text-xs text-[#666666] font-medium">Door Designs</div>
+                        <div className="text-2xl sm:text-3xl font-bold font-mono text-[#C89211] mt-1">
                           {doors.length}
                         </div>
-                        <div className="text-[11px] text-stone-400 mt-1">
+                        <div className="text-[11px] text-[#666666] mt-1">
                           {doors.filter(d => d.featured).length} Featured
                         </div>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-stone-800/80 border border-stone-700/60">
-                        <div className="text-xs text-stone-400 font-medium">Quotes Generated</div>
-                        <div className="text-2xl sm:text-3xl font-bold font-mono text-amber-400 mt-1">
+                      <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] shadow-xs">
+                        <div className="text-xs text-[#666666] font-medium">Quotes Generated</div>
+                        <div className="text-2xl sm:text-3xl font-bold font-mono text-[#C89211] mt-1">
                           {quotes.length}
                         </div>
-                        <div className="text-[11px] text-stone-400 mt-1">
+                        <div className="text-[11px] text-[#666666] mt-1">
                           Direct customer leads
                         </div>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-stone-800/80 border border-stone-700/60">
-                        <div className="text-xs text-stone-400 font-medium">Wood Materials</div>
-                        <div className="text-2xl sm:text-3xl font-bold font-mono text-amber-400 mt-1">
+                      <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] shadow-xs">
+                        <div className="text-xs text-[#666666] font-medium">Wood Materials</div>
+                        <div className="text-2xl sm:text-3xl font-bold font-mono text-[#C89211] mt-1">
                           {materials.length}
                         </div>
-                        <div className="text-[11px] text-stone-400 mt-1">
+                        <div className="text-[11px] text-[#666666] mt-1">
                           Sagwan: ₹{materials.find(m => m.name.toLowerCase().includes('sagwan'))?.ratePerSqFt || 800}
                         </div>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-stone-800/80 border border-stone-700/60">
-                        <div className="text-xs text-stone-400 font-medium">WhatsApp Number</div>
-                        <div className="text-sm font-mono text-emerald-400 mt-2 font-bold truncate">
+                      <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] shadow-xs">
+                        <div className="text-xs text-[#666666] font-medium">WhatsApp Number</div>
+                        <div className="text-sm font-mono text-emerald-600 mt-2 font-bold truncate">
                           {formatWhatsAppDisplay(settings?.whatsappNumber)}
                         </div>
-                        <div className="text-[11px] text-stone-400 mt-1">
+                        <div className="text-[11px] text-[#666666] mt-1">
                           Active Inquiries Route
                         </div>
                       </div>
                     </div>
 
                     {/* Quick Price Matrix (Section 15) */}
-                    <div className="p-5 rounded-2xl bg-stone-800/50 border border-stone-700/70 space-y-4">
+                    <div className="p-5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-4">
                       <div className="flex items-center justify-between">
-                        <h4 className="font-serif text-base font-bold text-stone-100 flex items-center gap-2">
-                          <DollarSign className="w-4 h-4 text-amber-400" />
+                        <h4 className="font-serif text-base font-bold text-[#1A1A1A] flex items-center gap-2">
+                          <DollarSign className="w-4 h-4 text-[#C89211]" />
                           Live Calculator Rate Matrix
                         </h4>
-                        <span className="text-xs text-stone-400">
+                        <span className="text-xs text-[#666666]">
                           Updates immediately affect customer calculations
                         </span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-                        <div className="p-3 rounded-lg bg-stone-900 border border-stone-800">
-                          <div className="text-stone-400 font-medium">Sagwan (CP Teak)</div>
-                          <div className="text-base font-bold font-mono text-amber-400 mt-0.5">
+                        <div className="p-3 rounded-lg bg-white border border-[#E5E5E5] shadow-xs">
+                          <div className="text-[#666666] font-medium">Sagwan (CP Teak)</div>
+                          <div className="text-base font-bold font-mono text-[#C89211] mt-0.5">
                             ₹{materials.find(m => m.name.toLowerCase().includes('sagwan'))?.ratePerSqFt || 800}
                           </div>
                         </div>
 
-                        <div className="p-3 rounded-lg bg-stone-900 border border-stone-800">
-                          <div className="text-stone-400 font-medium">Teak Polish Rate</div>
-                          <div className="text-base font-bold font-mono text-amber-400 mt-0.5">
+                        <div className="p-3 rounded-lg bg-white border border-[#E5E5E5] shadow-xs">
+                          <div className="text-[#666666] font-medium">Teak Polish Rate</div>
+                          <div className="text-base font-bold font-mono text-[#C89211] mt-0.5">
                             ₹{finishes.find(f => f.name.toLowerCase().includes('teak'))?.ratePerSqFt || 150}
                           </div>
                         </div>
 
-                        <div className="p-3 rounded-lg bg-stone-900 border border-stone-800">
-                          <div className="text-stone-400 font-medium">Normal Frame Price</div>
-                          <div className="text-base font-bold font-mono text-amber-400 mt-0.5">
+                        <div className="p-3 rounded-lg bg-white border border-[#E5E5E5] shadow-xs">
+                          <div className="text-[#666666] font-medium">Normal Frame Price</div>
+                          <div className="text-base font-bold font-mono text-[#C89211] mt-0.5">
                             ₹{frames.find(fr => fr.name.toLowerCase().includes('normal'))?.price.toLocaleString('en-IN') || '3,500'}
                           </div>
                         </div>
 
-                        <div className="p-3 rounded-lg bg-stone-900 border border-stone-800">
-                          <div className="text-stone-400 font-medium">Aldrop Single</div>
-                          <div className="text-base font-bold font-mono text-amber-400 mt-0.5">
+                        <div className="p-3 rounded-lg bg-white border border-[#E5E5E5] shadow-xs">
+                          <div className="text-[#666666] font-medium">Aldrop Single</div>
+                          <div className="text-base font-bold font-mono text-[#C89211] mt-0.5">
                             ₹{hardware.find(h => h.name.toLowerCase().includes('single'))?.price.toLocaleString('en-IN') || '700'}
                           </div>
                         </div>
                       </div>
                     </div>
 
+                    {/* Order Tracking & Manufacturing Quick Action */}
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-[#FFF7E3] via-white to-[#FFF7E3] border border-[#C89211]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-lg bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 shrink-0">
+                          <Truck className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="font-serif text-sm font-bold text-[#1A1A1A]">Order Tracking &amp; Manufacturing Management</h4>
+                          <p className="text-xs text-[#666666]">Track 15 live craftsmanship stages, upload progress photos/videos, and send instant WhatsApp updates to customers.</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab('tracking')}
+                        className="px-4 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs whitespace-nowrap transition shadow-sm self-start sm:self-auto cursor-pointer"
+                      >
+                        Manage Orders →
+                      </button>
+                    </div>
+
                     {/* Recent Quotations Table preview */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <h4 className="font-serif text-base font-bold text-stone-100">
+                        <h4 className="font-serif text-base font-bold text-[#1A1A1A]">
                           Recent Customer Quotations
                         </h4>
                         <button
                           onClick={() => setActiveTab('quotes')}
-                          className="text-xs text-amber-400 hover:text-amber-300 font-semibold"
+                          className="text-xs text-[#C89211] hover:underline font-semibold cursor-pointer"
                         >
                           View All ({quotes.length}) →
                         </button>
                       </div>
 
                       {quotes.length > 0 ? (
-                        <div className="border border-stone-800 rounded-xl overflow-hidden text-xs">
+                        <div className="border border-[#E5E5E5] rounded-xl overflow-hidden text-xs bg-white shadow-xs">
                           <table className="w-full text-left">
-                            <thead className="bg-stone-950 text-stone-400 border-b border-stone-800">
+                            <thead className="bg-[#F8F8F6] text-[#666666] border-b border-[#E5E5E5]">
                               <tr>
                                 <th className="p-3">Ref No.</th>
                                 <th className="p-3">Customer</th>
@@ -1008,20 +1165,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <th className="p-3">Date</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-stone-800/60">
+                            <tbody className="divide-y divide-[#E5E5E5]">
                               {quotes.slice(0, 5).map(q => (
-                                <tr key={q.id} className="hover:bg-stone-800/40">
-                                  <td className="p-3 font-mono text-amber-400 font-bold">{q.quoteNumber}</td>
-                                  <td className="p-3 font-medium text-stone-200">
+                                <tr key={q.id} className="hover:bg-stone-50 transition-colors">
+                                  <td className="p-3 font-mono text-[#C89211] font-bold">{q.quoteNumber}</td>
+                                  <td className="p-3 font-medium text-[#1A1A1A]">
                                     {q.customerName} ({q.customerPhone})
                                   </td>
-                                  <td className="p-3 text-stone-400 font-mono">
+                                  <td className="p-3 text-[#666666] font-mono">
                                     {q.widthInch}" × {q.heightInch}" ({q.sqFt.toFixed(2)})
                                   </td>
-                                  <td className="p-3 font-mono font-bold text-stone-100">
+                                  <td className="p-3 font-mono font-bold text-[#1A1A1A]">
                                     ₹{q.total.toLocaleString('en-IN')}
                                   </td>
-                                  <td className="p-3 text-stone-500">
+                                  <td className="p-3 text-[#666666]">
                                     {new Date(q.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                                   </td>
                                 </tr>
@@ -1030,7 +1187,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </table>
                         </div>
                       ) : (
-                        <div className="p-6 text-center text-stone-500 text-xs bg-stone-800/40 rounded-xl border border-stone-800">
+                        <div className="p-6 text-center text-[#666666] text-xs bg-[#F8F8F6] rounded-xl border border-[#E5E5E5]">
                           No quotations generated yet. They will appear here when customers calculate prices.
                         </div>
                       )}
@@ -1047,7 +1204,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <h3 className="font-serif text-xl font-bold text-white">
                           Door Catalog Designs
                         </h3>
-                        <p className="text-xs text-stone-400">
+                        <p className="text-xs text-[#666666]">
                           Upload new door photos directly from your device, configure categories, pricing and descriptions
                         </p>
                       </div>
@@ -1066,7 +1223,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             active: true,
                           })
                         }
-                        className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5 transition-colors"
+                        className="px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition-colors"
                       >
                         <Plus className="w-4 h-4" />
                         Add New Door Design
@@ -1075,43 +1232,343 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     {/* Edit or Add Door Form */}
                     {editingDoor && (
-                      <div className="p-5 rounded-2xl bg-stone-800 border border-stone-700 space-y-4">
-                        <div className="flex items-center justify-between border-b border-stone-700 pb-3">
-                          <h4 className="font-serif text-base font-bold text-amber-400">
-                            {editingDoor.id ? 'Edit Door Design' : 'Create New Door Design'}
-                          </h4>
+                      <div className="p-5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-4">
+                        <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-3">
+                          <div>
+                            <h4 className="font-serif text-base font-bold text-[#C89211]">
+                              {editingDoor.id ? 'Edit Door Design' : 'Create New Door Design'}
+                            </h4>
+                            <div className="text-[11px] text-[#666666] font-mono mt-0.5">
+                              Product ID: <span className="text-[#C89211] font-bold">{editingDoor.id || 'Will be generated on save'}</span>
+                            </div>
+                          </div>
                           <button
                             onClick={() => setEditingDoor(null)}
-                            className="text-stone-400 hover:text-stone-200 p-1"
+                            className="text-[#666666] hover:text-[#1A1A1A] p-1"
                           >
                             <X className="w-4 h-4" />
                           </button>
                         </div>
 
+                        {/* Product-Specific Pricing Configuration (Section 7) */}
+                        <div className="p-4 rounded-xl bg-white border border-[#C89211]/40 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold uppercase tracking-wider text-[#C89211] flex items-center gap-1.5">
+                              <Calculator className="w-3.5 h-3.5" />
+                              <span>Calculator Pricing &amp; Sizing Configuration</span>
+                            </label>
+                            <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                              Direct Catalogue ↔ Calculator Sync
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block font-semibold text-[#1A1A1A] mb-1">
+                                Pricing Model <span className="text-[#C89211]">*</span>
+                              </label>
+                              <select
+                                value={editingDoor.pricingType || 'sqft'}
+                                onChange={e => setEditingDoor({ ...editingDoor, pricingType: e.target.value as 'sqft' | 'fixed' })}
+                                className="w-full px-3 py-2 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:ring-2 focus:ring-[#C89211]"
+                              >
+                                <option value="sqft">Per Sq.Ft Rate (₹/sq.ft)</option>
+                                <option value="fixed">Fixed Price (Flat ₹)</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block font-semibold text-[#1A1A1A] mb-1">
+                                {editingDoor.pricingType === 'fixed' ? 'Fixed Shutter Price (₹)' : 'Base Rate (₹/sq.ft)'} <span className="text-[#C89211]">*</span>
+                              </label>
+                              <input
+                                type="number"
+                                value={editingDoor.basePrice !== undefined ? editingDoor.basePrice : (editingDoor.pricingType === 'fixed' ? (editingDoor.startingPrice || 15000) : (editingDoor.startingPrice ? Math.round(editingDoor.startingPrice / 19.5) : 800))}
+                                onChange={e => setEditingDoor({ ...editingDoor, basePrice: Number(e.target.value) })}
+                                placeholder={editingDoor.pricingType === 'fixed' ? 'e.g. 24000' : 'e.g. 850'}
+                                className="w-full px-3 py-2 rounded-lg bg-[#F8F8F6] border border-[#C89211]/40 text-[#C89211] font-mono font-bold text-xs focus:ring-2 focus:ring-[#C89211]"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block font-semibold text-[#1A1A1A] mb-1">
+                                Minimum Order Price (₹)
+                              </label>
+                              <input
+                                type="number"
+                                value={editingDoor.minPrice || 0}
+                                onChange={e => setEditingDoor({ ...editingDoor, minPrice: Number(e.target.value) })}
+                                placeholder="e.g. 10000"
+                                className="w-full px-3 py-2 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] font-mono text-xs focus:ring-2 focus:ring-[#C89211]"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Recommended Size Boundaries */}
+                          <div className="pt-2 border-t border-[#E5E5E5]">
+                            <div className="text-[11px] font-semibold text-[#1A1A1A] mb-1.5">
+                              Recommended Size Range for this Design (Inches)
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <div>
+                                <label className="text-[10px] text-[#666666] block mb-0.5">Min Width (in)</label>
+                                <input
+                                  type="number"
+                                  value={editingDoor.minWidthInch || 24}
+                                  onChange={e => setEditingDoor({ ...editingDoor, minWidthInch: Number(e.target.value) })}
+                                  className="w-full px-2 py-1 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-[#666666] block mb-0.5">Max Width (in)</label>
+                                <input
+                                  type="number"
+                                  value={editingDoor.maxWidthInch || 72}
+                                  onChange={e => setEditingDoor({ ...editingDoor, maxWidthInch: Number(e.target.value) })}
+                                  className="w-full px-2 py-1 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-[#666666] block mb-0.5">Min Height (in)</label>
+                                <input
+                                  type="number"
+                                  value={editingDoor.minHeightInch || 60}
+                                  onChange={e => setEditingDoor({ ...editingDoor, minHeightInch: Number(e.target.value) })}
+                                  className="w-full px-2 py-1 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-[#666666] block mb-0.5">Max Height (in)</label>
+                                <input
+                                  type="number"
+                                  value={editingDoor.maxHeightInch || 96}
+                                  onChange={e => setEditingDoor({ ...editingDoor, maxHeightInch: Number(e.target.value) })}
+                                  className="w-full px-2 py-1 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Supported Wood / Materials */}
+                          <div className="pt-2 border-t border-[#E5E5E5]">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[11px] font-semibold text-[#1A1A1A]">Supported Wood / Materials</span>
+                              <span className="text-[10px] text-[#666666]">Uncheck to restrict in calculator</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1 bg-[#F8F8F6] rounded-lg border border-[#E5E5E5]">
+                              {materials.map(mat => {
+                                const isSupported = !editingDoor.availableMaterialIds || editingDoor.availableMaterialIds.length === 0 || editingDoor.availableMaterialIds.includes(mat.id);
+                                const overrideRate = editingDoor.materialPrices?.[mat.id];
+                                return (
+                                  <div key={mat.id} className="flex items-center justify-between p-1.5 rounded bg-white border border-[#E5E5E5] text-[11px]">
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSupported}
+                                        onChange={e => {
+                                          const current = editingDoor.availableMaterialIds ? [...editingDoor.availableMaterialIds] : materials.map(m => m.id);
+                                          const updated = e.target.checked ? [...current, mat.id] : current.filter(id => id !== mat.id);
+                                          setEditingDoor({ ...editingDoor, availableMaterialIds: updated });
+                                        }}
+                                        className="accent-amber-500 rounded"
+                                      />
+                                      <span className="text-[#1A1A1A] font-medium">{mat.name}</span>
+                                    </label>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] text-[#666666]">₹/sq.ft:</span>
+                                      <input
+                                        type="number"
+                                        value={overrideRate !== undefined ? overrideRate : mat.ratePerSqFt}
+                                        onChange={e => {
+                                          const val = Number(e.target.value);
+                                          setEditingDoor({
+                                            ...editingDoor,
+                                            materialPrices: {
+                                              ...(editingDoor.materialPrices || {}),
+                                              [mat.id]: val,
+                                            },
+                                          });
+                                        }}
+                                        className="w-16 px-1.5 py-0.5 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#C89211] text-[10px] font-mono text-right"
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Supported Polish Finishes */}
+                          <div className="pt-2 border-t border-[#E5E5E5]">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[11px] font-semibold text-[#1A1A1A]">Supported Polish / Finishes</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-32 overflow-y-auto p-1 bg-[#F8F8F6] rounded-lg border border-[#E5E5E5]">
+                              {finishes.map(fin => {
+                                const isSupported = !editingDoor.availableFinishIds || editingDoor.availableFinishIds.length === 0 || editingDoor.availableFinishIds.includes(fin.id);
+                                const overrideRate = editingDoor.finishPrices?.[fin.id];
+                                return (
+                                  <div key={fin.id} className="flex items-center justify-between p-1.5 rounded bg-white border border-[#E5E5E5] text-[11px]">
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSupported}
+                                        onChange={e => {
+                                          const current = editingDoor.availableFinishIds ? [...editingDoor.availableFinishIds] : finishes.map(f => f.id);
+                                          const updated = e.target.checked ? [...current, fin.id] : current.filter(id => id !== fin.id);
+                                          setEditingDoor({ ...editingDoor, availableFinishIds: updated });
+                                        }}
+                                        className="accent-amber-500 rounded"
+                                      />
+                                      <span className="text-[#1A1A1A] font-medium">{fin.name}</span>
+                                    </label>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] text-[#666666]">₹/sq.ft:</span>
+                                      <input
+                                        type="number"
+                                        value={overrideRate !== undefined ? overrideRate : fin.ratePerSqFt}
+                                        onChange={e => {
+                                          const val = Number(e.target.value);
+                                          setEditingDoor({
+                                            ...editingDoor,
+                                            finishPrices: {
+                                              ...(editingDoor.finishPrices || {}),
+                                              [fin.id]: val,
+                                            },
+                                          });
+                                        }}
+                                        className="w-16 px-1.5 py-0.5 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#C89211] text-[10px] font-mono text-right"
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Supported Chaukhat / Frames */}
+                          <div className="pt-2 border-t border-[#E5E5E5]">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[11px] font-semibold text-[#1A1A1A]">Supported Chaukhat / Frames</span>
+                              <span className="text-[10px] text-[#666666]">Uncheck to restrict in calculator</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-32 overflow-y-auto p-1 bg-[#F8F8F6] rounded-lg border border-[#E5E5E5]">
+                              {frames.map(frm => {
+                                const isSupported = !editingDoor.availableFrameIds || editingDoor.availableFrameIds.length === 0 || editingDoor.availableFrameIds.includes(frm.id);
+                                const overridePrice = editingDoor.framePrices?.[frm.id];
+                                return (
+                                  <div key={frm.id} className="flex items-center justify-between p-1.5 rounded bg-white border border-[#E5E5E5] text-[11px]">
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSupported}
+                                        onChange={e => {
+                                          const current = editingDoor.availableFrameIds ? [...editingDoor.availableFrameIds] : frames.map(f => f.id);
+                                          const updated = e.target.checked ? [...current, frm.id] : current.filter(id => id !== frm.id);
+                                          setEditingDoor({ ...editingDoor, availableFrameIds: updated });
+                                        }}
+                                        className="accent-amber-500 rounded"
+                                      />
+                                      <span className="text-[#1A1A1A] font-medium truncate max-w-[130px]">{frm.name}</span>
+                                    </label>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] text-[#666666]">Price (₹):</span>
+                                      <input
+                                        type="number"
+                                        value={overridePrice !== undefined ? overridePrice : frm.price}
+                                        onChange={e => {
+                                          const val = Number(e.target.value);
+                                          setEditingDoor({
+                                            ...editingDoor,
+                                            framePrices: {
+                                              ...(editingDoor.framePrices || {}),
+                                              [frm.id]: val,
+                                            },
+                                          });
+                                        }}
+                                        className="w-16 px-1.5 py-0.5 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#C89211] text-[10px] font-mono text-right"
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Supported Hardware & Fittings */}
+                          <div className="pt-2 border-t border-[#E5E5E5]">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[11px] font-semibold text-[#1A1A1A]">Supported Hardware & Fittings</span>
+                              <span className="text-[10px] text-[#666666]">Uncheck to restrict in calculator</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-32 overflow-y-auto p-1 bg-[#F8F8F6] rounded-lg border border-[#E5E5E5]">
+                              {hardware.map(hwd => {
+                                const isSupported = !editingDoor.availableHardwareIds || editingDoor.availableHardwareIds.length === 0 || editingDoor.availableHardwareIds.includes(hwd.id);
+                                const overridePrice = editingDoor.hardwarePrices?.[hwd.id];
+                                return (
+                                  <div key={hwd.id} className="flex items-center justify-between p-1.5 rounded bg-white border border-[#E5E5E5] text-[11px]">
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSupported}
+                                        onChange={e => {
+                                          const current = editingDoor.availableHardwareIds ? [...editingDoor.availableHardwareIds] : hardware.map(h => h.id);
+                                          const updated = e.target.checked ? [...current, hwd.id] : current.filter(id => id !== hwd.id);
+                                          setEditingDoor({ ...editingDoor, availableHardwareIds: updated });
+                                        }}
+                                        className="accent-amber-500 rounded"
+                                      />
+                                      <span className="text-[#1A1A1A] font-medium truncate max-w-[130px]">{hwd.name}</span>
+                                    </label>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] text-[#666666]">Price (₹):</span>
+                                      <input
+                                        type="number"
+                                        value={overridePrice !== undefined ? overridePrice : hwd.price}
+                                        onChange={e => {
+                                          const val = Number(e.target.value);
+                                          setEditingDoor({
+                                            ...editingDoor,
+                                            hardwarePrices: {
+                                              ...(editingDoor.hardwarePrices || {}),
+                                              [hwd.id]: val,
+                                            },
+                                          });
+                                        }}
+                                        className="w-16 px-1.5 py-0.5 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#C89211] text-[10px] font-mono text-right"
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                           {/* Name */}
                           <div>
-                            <label className="block font-semibold text-stone-300 mb-1">
-                              Door Name <span className="text-amber-400">*</span>
+                            <label className="block font-semibold text-[#1A1A1A] mb-1">
+                              Door Name <span className="text-[#C89211]">*</span>
                             </label>
                             <input
                               type="text"
                               value={editingDoor.name || ''}
                               onChange={e => setEditingDoor({ ...editingDoor, name: e.target.value })}
                               placeholder="e.g. Royal Sagwan Floral Carved Door"
-                              className="w-full px-3 py-2 rounded-lg bg-stone-900 border border-stone-700 text-stone-100 text-xs focus:ring-2 focus:ring-amber-500"
+                              className="w-full px-3 py-2 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:ring-2 focus:ring-[#C89211]"
                             />
                           </div>
 
                           {/* Category */}
                           <div>
-                            <label className="block font-semibold text-stone-300 mb-1">
-                              Category <span className="text-amber-400">*</span>
+                            <label className="block font-semibold text-[#1A1A1A] mb-1">
+                              Category <span className="text-[#C89211]">*</span>
                             </label>
                             <select
                               value={editingDoor.category || ''}
                               onChange={e => setEditingDoor({ ...editingDoor, category: e.target.value })}
-                              className="w-full px-3 py-2 rounded-lg bg-stone-900 border border-stone-700 text-stone-100 text-xs focus:ring-2 focus:ring-amber-500"
+                              className="w-full px-3 py-2 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:ring-2 focus:ring-[#C89211]"
                             >
                               <option value="Sagwan Door">Sagwan Door</option>
                               <option value="Designer Door">Designer Door</option>
@@ -1127,20 +1584,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                           {/* Starting Price */}
                           <div>
-                            <label className="block font-semibold text-stone-300 mb-1">
+                            <label className="block font-semibold text-[#1A1A1A] mb-1">
                               Starting Price (₹)
                             </label>
                             <input
                               type="number"
                               value={editingDoor.startingPrice || 0}
                               onChange={e => setEditingDoor({ ...editingDoor, startingPrice: Number(e.target.value) })}
-                              className="w-full px-3 py-2 rounded-lg bg-stone-900 border border-stone-700 text-stone-100 font-mono text-xs focus:ring-2 focus:ring-amber-500"
+                              className="w-full px-3 py-2 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono text-xs focus:ring-2 focus:ring-[#C89211]"
                             />
                           </div>
 
                           {/* Primary Material */}
                           <div>
-                            <label className="block font-semibold text-stone-300 mb-1">
+                            <label className="block font-semibold text-[#1A1A1A] mb-1">
                               Recommended Material
                             </label>
                             <input
@@ -1148,17 +1605,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               value={editingDoor.material || 'Sagwan'}
                               onChange={e => setEditingDoor({ ...editingDoor, material: e.target.value })}
                               placeholder="e.g. Sagwan (Teak Wood), Sal Wood"
-                              className="w-full px-3 py-2 rounded-lg bg-stone-900 border border-stone-700 text-stone-100 text-xs focus:ring-2 focus:ring-amber-500"
+                              className="w-full px-3 py-2 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:ring-2 focus:ring-[#C89211]"
                             />
                           </div>
 
                           {/* Direct Image Upload (Section 14 requirement) */}
                           <div className="sm:col-span-2">
-                            <label className="block font-semibold text-stone-300 mb-1">
+                            <label className="block font-semibold text-[#1A1A1A] mb-1">
                               Door Image (Direct File Upload)
                             </label>
                             <div className="flex items-center gap-3">
-                              <label className="cursor-pointer px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5 transition-colors">
+                              <label className="cursor-pointer px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition-colors">
                                 <Upload className="w-3.5 h-3.5" />
                                 {uploadingImage ? 'Uploading...' : 'Choose File to Upload'}
                                 <input
@@ -1174,7 +1631,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   className="hidden"
                                 />
                               </label>
-                              <span className="text-[11px] text-stone-400">
+                              <span className="text-[11px] text-[#666666]">
                                 Select JPG/PNG file from your phone or PC
                               </span>
                             </div>
@@ -1183,7 +1640,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {editingDoor.images && editingDoor.images.length > 0 && (
                               <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
                                 {editingDoor.images.map((img, idx) => (
-                                  <div key={idx} className="relative w-16 h-20 rounded border border-stone-700 overflow-hidden group">
+                                  <div key={idx} className="relative w-16 h-20 rounded border border-[#E5E5E5] overflow-hidden group">
                                     <img src={img} alt="" className="w-full h-full object-cover" />
                                     <button
                                       type="button"
@@ -1201,9 +1658,95 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             )}
                           </div>
 
+                          {/* Door Video (Product Video) Upload Feature */}
+                          <div className="sm:col-span-2 p-3.5 bg-white rounded-xl border border-[#E5E5E5] space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <label className="block font-semibold text-[#1A1A1A] text-xs flex items-center gap-1.5">
+                                <Video className="w-4 h-4 text-[#C89211]" />
+                                <span>Door Video (Product Video)</span>
+                              </label>
+                              <span className="text-[10px] text-[#666666]">
+                                Recommended Max 50 MB • MP4, WebM, MOV
+                              </span>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3">
+                              <label className="cursor-pointer px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs">
+                                {uploadingVideo ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Uploading Video...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Video className="w-3.5 h-3.5" />
+                                    <span>🎥 Choose Video to Upload</span>
+                                  </>
+                                )}
+                                <input
+                                  type="file"
+                                  accept="video/mp4,video/webm,video/quicktime,video/mov,video/*"
+                                  disabled={uploadingVideo}
+                                  onChange={handleVideoUploadHelper}
+                                  className="hidden"
+                                />
+                              </label>
+                              <span className="text-[11px] text-[#666666]">
+                                Upload MP4/WebM product video from your phone or PC
+                              </span>
+                            </div>
+
+                            {/* Video Preview with Controls, Replace & Remove options */}
+                            {editingDoor.videoUrl && (
+                              <div className="mt-3 p-3 bg-[#F8F8F6] rounded-xl border border-[#E5E5E5] space-y-2.5">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                                    <CheckCircle2 className="w-4 h-4 text-[#16803A]" />
+                                    <span>Product Video Uploaded</span>
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    {/* Replace Video Button */}
+                                    <label className="cursor-pointer text-[11px] font-semibold text-[#C89211] hover:underline flex items-center gap-1">
+                                      <Edit2 className="w-3 h-3" />
+                                      <span>Replace Video</span>
+                                      <input
+                                        type="file"
+                                        accept="video/mp4,video/webm,video/quicktime,video/mov,video/*"
+                                        disabled={uploadingVideo}
+                                        onChange={handleVideoUploadHelper}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                    <span className="text-[#CCCCCC]">•</span>
+                                    {/* Remove Video Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingDoor({ ...editingDoor, videoUrl: undefined })}
+                                      className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Remove Video</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="relative rounded-lg overflow-hidden bg-black max-w-sm shadow-sm">
+                                  <video
+                                    src={editingDoor.videoUrl}
+                                    controls
+                                    playsInline
+                                    preload="metadata"
+                                    className="w-full max-h-56 object-contain rounded-lg"
+                                    onContextMenu={e => e.preventDefault()}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
                           {/* Description */}
                           <div className="sm:col-span-2">
-                            <label className="block font-semibold text-stone-300 mb-1">
+                            <label className="block font-semibold text-[#1A1A1A] mb-1">
                               Description & Features
                             </label>
                             <textarea
@@ -1211,7 +1754,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               value={editingDoor.description || ''}
                               onChange={e => setEditingDoor({ ...editingDoor, description: e.target.value })}
                               placeholder="e.g. Handcrafted solid Sagwan wood door with traditional carvings..."
-                              className="w-full px-3 py-2 rounded-lg bg-stone-900 border border-stone-700 text-stone-100 text-xs focus:ring-2 focus:ring-amber-500"
+                              className="w-full px-3 py-2 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:ring-2 focus:ring-[#C89211]"
                             />
                           </div>
 
@@ -1224,7 +1767,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 onChange={e => setEditingDoor({ ...editingDoor, featured: e.target.checked })}
                                 className="rounded accent-amber-500"
                               />
-                              <span className="text-stone-300">Mark as Featured</span>
+                              <span className="text-[#1A1A1A]">Mark as Featured</span>
                             </label>
 
                             <label className="flex items-center gap-2 cursor-pointer">
@@ -1234,7 +1777,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 onChange={e => setEditingDoor({ ...editingDoor, popular: e.target.checked })}
                                 className="rounded accent-amber-500"
                               />
-                              <span className="text-stone-300">Mark as Popular</span>
+                              <span className="text-[#1A1A1A]">Mark as Popular</span>
                             </label>
 
                             <label className="flex items-center gap-2 cursor-pointer">
@@ -1244,16 +1787,206 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 onChange={e => setEditingDoor({ ...editingDoor, active: e.target.checked })}
                                 className="rounded accent-amber-500"
                               />
-                              <span className="text-stone-300">Active (Visible in Catalog)</span>
+                              <span className="text-[#1A1A1A]">Active (Visible in Catalog)</span>
                             </label>
+                          </div>
+
+                          {/* 3D & AR Model Attachment (.glb / .gltf) */}
+                          <div className="sm:col-span-2 p-4 rounded-xl bg-white border border-[#E5E5E5] space-y-3">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold uppercase tracking-wider text-[#C89211] flex items-center gap-1.5">
+                                <Box className="w-3.5 h-3.5" />
+                                <span>3D CAD Model (.glb / .gltf) - Optional</span>
+                              </label>
+                              {editingDoor.model3d?.modelUrl && (
+                                <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                                  <Check className="w-3 h-3" /> Custom 3D Attached
+                                </span>
+                              )}
+                            </div>
+
+                            {editingDoor.model3d?.modelUrl ? (
+                              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#F8F8F6] border border-emerald-500/30 text-xs">
+                                <span className="text-[#1A1A1A] font-mono truncate max-w-xs">
+                                  {editingDoor.model3d.modelUrl.split('/').pop()}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingDoor({
+                                      ...editingDoor,
+                                      model3d: { ...editingDoor.model3d, modelUrl: '' },
+                                    })
+                                  }
+                                  className="text-red-400 hover:text-red-300 text-xs p-1"
+                                  title="Remove 3D model and use catalogue image preview"
+                                >
+                                  Remove 3D File
+                                </button>
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-[#666666] leading-relaxed">
+                                No custom .glb uploaded. This catalogue door automatically uses its image for the 2.5D architectural 3D viewer and AR entrance fitting.
+                              </p>
+                            )}
+
+                            <div>
+                              <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] border border-[#E5E5E5] text-xs font-semibold cursor-pointer transition">
+                                <Upload className="w-3.5 h-3.5" />
+                                <span>{isUploadingModel ? 'Uploading 3D Model...' : 'Upload / Replace .glb Model'}</span>
+                                <input
+                                  type="file"
+                                  accept=".glb,.gltf"
+                                  disabled={isUploadingModel}
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    try {
+                                      setIsUploadingModel(true);
+                                      const res = await upload3DModel(file);
+                                      setEditingDoor(prev => ({
+                                        ...prev,
+                                        model3d: {
+                                          ...prev?.model3d,
+                                          modelUrl: res.url,
+                                          arEnabled: true,
+                                        },
+                                      }));
+                                      showToast('3D Model uploaded successfully!');
+                                    } catch (err: any) {
+                                      alert(err.message || '3D Model upload failed');
+                                    } finally {
+                                      setIsUploadingModel(false);
+                                    }
+                                  }}
+                                  className="hidden"
+                                />
+                              </label>
+                            </div>
+                          </div>
+
+                          {/* Transparent PNG Door Cutout (.png) - For Fit in Entrance */}
+                          <div className="sm:col-span-2 p-4 rounded-xl bg-white border border-[#E5E5E5] space-y-3">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold uppercase tracking-wider text-[#C89211] flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span>Transparent PNG Cutout (.png) - Optional for Fit in Entrance</span>
+                              </label>
+                              {editingDoor.transparentPngUrl && (
+                                <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                                  <Check className="w-3 h-3" /> Custom PNG Attached
+                                </span>
+                              )}
+                            </div>
+
+                            {editingDoor.transparentPngUrl ? (
+                              <div className="flex items-center justify-between p-3 rounded-xl bg-[#F8F8F6] border border-emerald-500/30 text-xs">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-12 h-16 rounded-lg bg-[repeating-conic-gradient(#262626_0_25%,#1c1c1c_0_50%)] bg-[size:10px_10px] p-1 flex items-center justify-center border border-[#E5E5E5] shrink-0">
+                                    <img
+                                      src={editingDoor.transparentPngUrl}
+                                      alt="Transparent Cutout"
+                                      className="w-full h-full object-contain"
+                                    />
+                                  </div>
+                                  <div className="space-y-0.5 overflow-hidden">
+                                    <span className="text-[#1A1A1A] font-mono text-xs truncate block max-w-xs">
+                                      {editingDoor.transparentPngUrl.split('/').pop()}
+                                    </span>
+                                    <span className="text-[10px] text-emerald-400 font-semibold block">
+                                      Active in Fit in Entrance &amp; AR
+                                    </span>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingDoor({
+                                      ...editingDoor,
+                                      transparentPngUrl: '',
+                                    })
+                                  }
+                                  className="text-red-400 hover:text-red-300 text-xs p-1.5 rounded hover:bg-white transition"
+                                  title="Remove transparent PNG cutout"
+                                >
+                                  Remove PNG
+                                </button>
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-[#666666] leading-relaxed">
+                                No custom transparent PNG uploaded. The application automatically isolates and removes the background from the catalogue photo in real time, or you can upload/generate a custom transparent PNG below.
+                              </p>
+                            )}
+
+                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                              {/* Upload custom PNG */}
+                              <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] border border-[#E5E5E5] text-xs font-semibold cursor-pointer transition">
+                                <Upload className="w-3.5 h-3.5" />
+                                <span>{isUploadingPng ? 'Uploading PNG...' : 'Upload Transparent PNG'}</span>
+                                <input
+                                  type="file"
+                                  accept=".png,.webp"
+                                  disabled={isUploadingPng}
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    try {
+                                      setIsUploadingPng(true);
+                                      const res = await uploadImage(file);
+                                      setEditingDoor(prev => ({
+                                        ...prev,
+                                        transparentPngUrl: res.url,
+                                      }));
+                                      showToast('Transparent PNG uploaded successfully!');
+                                    } catch (err: any) {
+                                      alert(err.message || 'PNG upload failed');
+                                    } finally {
+                                      setIsUploadingPng(false);
+                                    }
+                                  }}
+                                  className="hidden"
+                                />
+                              </label>
+
+                              {/* Auto-Generate from Catalogue Photo */}
+                              {editingDoor.images?.[0] && (
+                                <button
+                                  type="button"
+                                  disabled={isGeneratingPng}
+                                  onClick={async () => {
+                                    try {
+                                      setIsGeneratingPng(true);
+                                      const transparentDataUrl = await removeBackgroundFromImage(editingDoor.images[0]);
+                                      // Convert DataURL to File and upload to server
+                                      const blob = await (await fetch(transparentDataUrl)).blob();
+                                      const file = new File([blob], `door-${editingDoor.id || 'cutout'}-transparent.png`, { type: 'image/png' });
+                                      const res = await uploadImage(file);
+                                      setEditingDoor(prev => ({
+                                        ...prev,
+                                        transparentPngUrl: res.url,
+                                      }));
+                                      showToast('Transparent PNG auto-generated and saved!');
+                                    } catch (err: any) {
+                                      alert(err.message || 'Auto background removal failed');
+                                    } finally {
+                                      setIsGeneratingPng(false);
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#FFF7E3] hover:bg-amber-600/30 text-[#C89211] border border-[#C89211]/40 text-xs font-semibold transition cursor-pointer"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  <span>{isGeneratingPng ? 'Generating Cutout...' : '⚡ Auto-Remove Background from Photo'}</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
 
                         {/* Save Button */}
-                        <div className="flex justify-end gap-2 pt-3 border-t border-stone-700">
+                        <div className="flex justify-end gap-2 pt-3 border-t border-[#E5E5E5]">
                           <button
                             onClick={() => setEditingDoor(null)}
-                            className="px-4 py-2 rounded-lg bg-stone-700 hover:bg-stone-600 text-stone-200 text-xs font-semibold"
+                            className="px-4 py-2 rounded-lg bg-stone-100 hover:bg-stone-200 text-[#1A1A1A] text-xs font-semibold"
                           >
                             Cancel
                           </button>
@@ -1277,7 +2010,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 alert(err.message || 'Save failed');
                               }
                             }}
-                            className="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs"
+                            className="px-5 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs"
                           >
                             Save Door Design
                           </button>
@@ -1290,51 +2023,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {doors.map(door => (
                         <div
                           key={door.id}
-                          className="p-4 rounded-2xl bg-stone-850 border border-stone-750 flex flex-col justify-between space-y-3 shadow-sm hover:border-amber-500/40 transition-all"
+                          className="p-4 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5] flex flex-col justify-between space-y-3 shadow-sm hover:border-[#C89211]/40 transition-all"
                         >
                           <div>
                             <div className="flex gap-3">
                               <img
                                 src={door.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80'}
                                 alt=""
-                                className="w-16 h-20 object-cover rounded-xl bg-stone-900 border border-stone-700 flex-shrink-0"
+                                className="w-16 h-20 object-cover rounded-xl bg-white border border-[#E5E5E5] flex-shrink-0"
                               />
                               <div className="overflow-hidden flex-1">
                                 <div className="flex items-center justify-between gap-1">
-                                  <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                                  <span className="text-[10px] font-semibold text-[#C89211] bg-[#FFF7E3] px-2 py-0.5 rounded-full border border-[#C89211]/30">
                                     {door.category}
                                   </span>
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${door.active !== false ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-stone-800 text-stone-400 border-stone-700'}`}>
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${door.active !== false ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-[#F8F8F6] text-[#666666] border-[#E5E5E5]'}`}>
                                     {door.active !== false ? 'Active' : 'Disabled'}
                                   </span>
                                 </div>
-                                <h4 className="font-bold text-stone-100 text-sm mt-1.5 line-clamp-1">
+                                <h4 className="font-bold text-[#1A1A1A] text-sm mt-1.5 line-clamp-1">
                                   {door.name}
                                 </h4>
-                                <div className="flex gap-1.5 mt-1 text-[10px]">
-                                  {door.featured && <span className="text-amber-300 font-medium bg-amber-500/10 px-1.5 py-0.2 rounded">★ Featured</span>}
-                                  {door.popular && <span className="text-emerald-300 font-medium bg-emerald-500/10 px-1.5 py-0.2 rounded">★ Popular</span>}
+                                <div className="flex flex-wrap gap-1.5 mt-1 text-[10px]">
+                                  {door.featured && <span className="text-[#C89211] font-medium bg-[#FFF7E3] px-1.5 py-0.5 rounded border border-[#C89211]/30">★ Featured</span>}
+                                  {door.popular && <span className="text-emerald-300 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">★ Popular</span>}
+                                  {door.transparentPngUrl && <span className="text-teal-300 font-medium bg-teal-500/10 px-1.5 py-0.5 rounded border border-teal-500/20">✂ PNG Cutout</span>}
+                                  {door.model3d?.modelUrl && <span className="text-sky-300 font-medium bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">3D CAD</span>}
                                 </div>
                               </div>
                             </div>
 
                             {/* Price & Quick Edit */}
-                            <div className="mt-3 p-3 rounded-xl bg-stone-900/90 border border-stone-800">
+                            <div className="mt-3 p-3 rounded-xl bg-white border border-[#E5E5E5]">
                               {quickEditDoorId === door.id ? (
                                 <div className="space-y-2">
-                                  <div className="flex items-center justify-between text-[11px] text-stone-400">
+                                  <div className="flex items-center justify-between text-[11px] text-[#666666]">
                                     <span>Quick Edit Starting Price:</span>
-                                    <button onClick={() => setQuickEditDoorId(null)} className="text-stone-400 hover:text-white">
+                                    <button onClick={() => setQuickEditDoorId(null)} className="text-[#666666] hover:text-white">
                                       <X className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <span className="text-amber-400 font-mono font-bold text-sm">₹</span>
+                                    <span className="text-[#C89211] font-mono font-bold text-sm">₹</span>
                                     <input
                                       type="number"
                                       value={quickEditDoorPrice}
                                       onChange={e => setQuickEditDoorPrice(Number(e.target.value))}
-                                      className="w-full px-2.5 py-1.5 rounded-lg bg-stone-800 border border-amber-500/50 text-amber-300 font-mono font-bold text-sm"
+                                      className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F8F6] border border-amber-500/50 text-[#C89211] font-mono font-bold text-sm"
                                       autoFocus
                                     />
                                   </div>
@@ -1342,20 +2077,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <div className="flex gap-1">
                                       <button
                                         onClick={() => setQuickEditDoorPrice(prev => Math.max(0, prev - 500))}
-                                        className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
+                                        className="px-2 py-1 rounded bg-[#F8F8F6] hover:bg-stone-100 text-[10px] font-mono text-[#1A1A1A]"
                                       >
                                         -₹500
                                       </button>
                                       <button
                                         onClick={() => setQuickEditDoorPrice(prev => prev + 500)}
-                                        className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
+                                        className="px-2 py-1 rounded bg-[#F8F8F6] hover:bg-stone-100 text-[10px] font-mono text-[#1A1A1A]"
                                       >
                                         +₹500
                                       </button>
                                     </div>
                                     <button
                                       onClick={() => handleQuickUpdateDoorPrice(door.id, quickEditDoorPrice)}
-                                      className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs"
+                                      className="px-3 py-1 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs"
                                     >
                                       Save ₹
                                     </button>
@@ -1364,8 +2099,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               ) : (
                                 <div className="flex items-center justify-between">
                                   <div>
-                                    <div className="text-[10px] text-stone-400">Starting Price</div>
-                                    <div className="text-lg font-mono font-bold text-amber-400">
+                                    <div className="text-[10px] text-[#666666]">Starting Price</div>
+                                    <div className="text-lg font-mono font-bold text-[#C89211]">
                                       ₹{door.startingPrice.toLocaleString('en-IN')}
                                     </div>
                                   </div>
@@ -1375,7 +2110,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       setQuickEditDoorId(door.id);
                                       setQuickEditDoorPrice(door.startingPrice);
                                     }}
-                                    className="px-2.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-amber-400 hover:text-amber-300 border border-stone-700 text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                                    className="px-2.5 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] hover:text-[#C89211] border border-[#E5E5E5] text-[11px] font-semibold flex items-center gap-1 transition-colors"
                                   >
                                     <Edit2 className="w-3 h-3" />
                                     <span>Edit ₹</span>
@@ -1386,13 +2121,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </div>
 
                           {/* Action Buttons */}
-                          <div className="pt-2 border-t border-stone-800 flex items-center gap-2">
+                          <div className="pt-2 border-t border-[#E5E5E5] flex items-center gap-2">
                             <button
                               onClick={() => setEditingDoor(door)}
-                              className="flex-1 py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                              className="flex-1 py-2 px-3 rounded-xl bg-[#FFF7E3] hover:bg-[#FFF7E3] text-[#C89211] hover:text-amber-200 border border-[#C89211]/30 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
-                              <span>Edit Details & Photos</span>
+                              <span>Edit Details &amp; Photos</span>
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                handleTabSelect('visualizer');
+                              }}
+                              className="py-2 px-2.5 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] border border-[#E5E5E5] text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                              title="Configure 3D & AR settings for this design"
+                            >
+                              <Box className="w-3.5 h-3.5 text-[#C89211]" />
+                              <span>3D / AR</span>
                             </button>
 
                             <button
@@ -1404,7 +2150,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   showToast('Door deleted');
                                 }
                               }}
-                              className="p-2 rounded-xl bg-stone-800 hover:bg-red-950/60 text-stone-400 hover:text-red-300 border border-stone-700"
+                              className="p-2 rounded-xl bg-[#F8F8F6] hover:bg-red-950/60 text-[#666666] hover:text-red-300 border border-[#E5E5E5]"
                               title="Delete Door"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1425,14 +2171,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="font-serif text-xl font-bold text-white flex items-center gap-2">
-                            <TreePine className="w-5 h-5 text-amber-400" />
+                            <TreePine className="w-5 h-5 text-[#C89211]" />
                             Wood Materials & Live Rates (₹)
                           </h3>
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30">
                             {materials.length} Species
                           </span>
                         </div>
-                        <p className="text-xs text-stone-400 mt-1">
+                        <p className="text-xs text-[#666666] mt-1">
                           Edit timber prices and technical details. All updates immediately update the customer door calculator.
                         </p>
                       </div>
@@ -1440,7 +2186,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           onClick={() => setShowBulkRateModal(true)}
-                          className="px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-400 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                          className="px-3 py-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] border border-[#C89211]/30 text-xs font-semibold flex items-center gap-1.5 transition-colors"
                           title="Adjust all wood rates at once"
                         >
                           <TrendingUp className="w-3.5 h-3.5" />
@@ -1456,20 +2202,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               active: true,
                             })
                           }
-                          className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs flex items-center gap-1.5 shadow-sm transition-colors"
+                          className="px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-colors"
                         >
                           <Plus className="w-4 h-4" />
                           <span>Add Wood Material</span>
                         </button>
 
                         {/* View Switcher */}
-                        <div className="flex rounded-xl bg-stone-800 p-0.5 border border-stone-700">
+                        <div className="flex rounded-xl bg-[#F8F8F6] p-0.5 border border-[#E5E5E5]">
                           <button
                             onClick={() => setMaterialsViewMode('cards')}
                             className={`p-1.5 rounded-lg text-xs transition-colors ${
                               materialsViewMode === 'cards'
-                                ? 'bg-amber-600 text-stone-950 font-bold'
-                                : 'text-stone-400 hover:text-stone-200'
+                                ? 'bg-[#C89211] text-white font-bold'
+                                : 'text-[#666666] hover:text-[#1A1A1A]'
                             }`}
                             title="Card View (Mobile Optimized)"
                           >
@@ -1479,8 +2225,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             onClick={() => setMaterialsViewMode('table')}
                             className={`p-1.5 rounded-lg text-xs transition-colors ${
                               materialsViewMode === 'table'
-                                ? 'bg-amber-600 text-stone-950 font-bold'
-                                : 'text-stone-400 hover:text-stone-200'
+                                ? 'bg-[#C89211] text-white font-bold'
+                                : 'text-[#666666] hover:text-[#1A1A1A]'
                             }`}
                             title="Table View (Spreadsheet)"
                           >
@@ -1492,18 +2238,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     {/* Search Bar */}
                     <div className="relative">
-                      <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
+                      <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#666666]" />
                       <input
                         type="text"
                         value={materialSearch}
                         onChange={e => setMaterialSearch(e.target.value)}
                         placeholder="Search wood material by name or specifications (e.g. Sagwan, Sal, Teak)..."
-                        className="w-full pl-9 pr-8 py-2 text-xs rounded-xl bg-stone-900 border border-stone-700 text-stone-200 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                        className="w-full pl-9 pr-8 py-2 text-xs rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] placeholder-stone-500 focus:outline-none focus:border-[#C89211]"
                       />
                       {materialSearch && (
                         <button
                           onClick={() => setMaterialSearch('')}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-200 text-xs"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#666666] hover:text-[#1A1A1A] text-xs"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -1512,22 +2258,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     {/* Bulk Rate Adjustment Modal */}
                     {showBulkRateModal && (
-                      <div className="fixed inset-0 z-[60] bg-stone-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-                        <div className="bg-stone-900 border border-stone-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl animate-in zoom-in-95">
-                          <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+                      <div className="fixed inset-0 z-[60] bg-[#F8F8F6] backdrop-blur-sm flex items-center justify-center p-4">
+                        <div className="bg-white border border-[#E5E5E5] rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl animate-in zoom-in-95">
+                          <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-3">
                             <div className="flex items-center gap-2">
-                              <TrendingUp className="w-5 h-5 text-amber-400" />
+                              <TrendingUp className="w-5 h-5 text-[#C89211]" />
                               <h4 className="font-bold text-white text-base">Bulk Price Adjustment</h4>
                             </div>
                             <button
                               onClick={() => setShowBulkRateModal(false)}
-                              className="text-stone-400 hover:text-white"
+                              className="text-[#666666] hover:text-white"
                             >
                               <X className="w-5 h-5" />
                             </button>
                           </div>
 
-                          <p className="text-xs text-stone-300">
+                          <p className="text-xs text-[#1A1A1A]">
                             Apply a market price change across all wood species simultaneously. This will immediately update customer price calculations.
                           </p>
 
@@ -1537,8 +2283,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               onClick={() => setBulkAdjustmentMode('fixed')}
                               className={`py-2 px-3 rounded-xl border font-bold transition-colors ${
                                 bulkAdjustmentMode === 'fixed'
-                                  ? 'bg-amber-600/20 border-amber-500 text-amber-300'
-                                  : 'bg-stone-800 border-stone-700 text-stone-300'
+                                  ? 'bg-[#FFF7E3] border-amber-500 text-[#C89211]'
+                                  : 'bg-[#F8F8F6] border-[#E5E5E5] text-[#1A1A1A]'
                               }`}
                             >
                               Fixed Amount (₹/sq.ft.)
@@ -1547,8 +2293,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               onClick={() => setBulkAdjustmentMode('percent')}
                               className={`py-2 px-3 rounded-xl border font-bold transition-colors ${
                                 bulkAdjustmentMode === 'percent'
-                                  ? 'bg-amber-600/20 border-amber-500 text-amber-300'
-                                  : 'bg-stone-800 border-stone-700 text-stone-300'
+                                  ? 'bg-[#FFF7E3] border-amber-500 text-[#C89211]'
+                                  : 'bg-[#F8F8F6] border-[#E5E5E5] text-[#1A1A1A]'
                               }`}
                             >
                               Percentage (%)
@@ -1558,16 +2304,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {/* Value input & presets */}
                           {bulkAdjustmentMode === 'fixed' ? (
                             <div className="space-y-2">
-                              <label className="text-xs font-semibold text-stone-300">
+                              <label className="text-xs font-semibold text-[#1A1A1A]">
                                 Adjustment Amount (₹ per sq.ft.)
                               </label>
                               <div className="flex items-center gap-2">
-                                <span className="text-stone-400 font-mono text-sm">₹</span>
+                                <span className="text-[#666666] font-mono text-sm">₹</span>
                                 <input
                                   type="number"
                                   value={bulkAdjustmentAmount}
                                   onChange={e => setBulkAdjustmentAmount(Number(e.target.value))}
-                                  className="w-full px-3 py-2 rounded-xl bg-stone-800 border border-stone-700 text-white font-mono font-bold text-sm"
+                                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-white font-mono font-bold text-sm"
                                 />
                               </div>
                               <div className="flex flex-wrap gap-1.5 pt-1">
@@ -1578,8 +2324,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     onClick={() => setBulkAdjustmentAmount(val)}
                                     className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold ${
                                       bulkAdjustmentAmount === val
-                                        ? 'bg-amber-500 text-stone-950'
-                                        : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+                                        ? 'bg-[#C89211] text-white'
+                                        : 'bg-[#F8F8F6] text-[#1A1A1A] hover:bg-stone-100'
                                     }`}
                                   >
                                     {val > 0 ? `+₹${val}` : `-₹${Math.abs(val)}`}
@@ -1589,7 +2335,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </div>
                           ) : (
                             <div className="space-y-2">
-                              <label className="text-xs font-semibold text-stone-300">
+                              <label className="text-xs font-semibold text-[#1A1A1A]">
                                 Adjustment Percentage (%)
                               </label>
                               <div className="flex items-center gap-2">
@@ -1597,9 +2343,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   type="number"
                                   value={bulkAdjustmentPercent}
                                   onChange={e => setBulkAdjustmentPercent(Number(e.target.value))}
-                                  className="w-full px-3 py-2 rounded-xl bg-stone-800 border border-stone-700 text-white font-mono font-bold text-sm"
+                                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-white font-mono font-bold text-sm"
                                 />
-                                <span className="text-stone-400 font-mono text-sm">%</span>
+                                <span className="text-[#666666] font-mono text-sm">%</span>
                               </div>
                               <div className="flex flex-wrap gap-1.5 pt-1">
                                 {[-10, -5, 5, 10, 15].map(pct => (
@@ -1609,8 +2355,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     onClick={() => setBulkAdjustmentPercent(pct)}
                                     className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold ${
                                       bulkAdjustmentPercent === pct
-                                        ? 'bg-amber-500 text-stone-950'
-                                        : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+                                        ? 'bg-[#C89211] text-white'
+                                        : 'bg-[#F8F8F6] text-[#1A1A1A] hover:bg-stone-100'
                                     }`}
                                   >
                                     {pct > 0 ? `+${pct}%` : `${pct}%`}
@@ -1621,8 +2367,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           )}
 
                           {/* Preview changes */}
-                          <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-1.5 max-h-36 overflow-y-auto text-xs">
-                            <span className="text-[11px] font-bold text-stone-400 block uppercase tracking-wider">
+                          <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-1.5 max-h-36 overflow-y-auto text-xs">
+                            <span className="text-[11px] font-bold text-[#666666] block uppercase tracking-wider">
                               Preview Changes:
                             </span>
                             {materials.map(m => {
@@ -1631,26 +2377,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   ? Math.max(50, m.ratePerSqFt + bulkAdjustmentAmount)
                                   : Math.max(50, Math.round(m.ratePerSqFt * (1 + bulkAdjustmentPercent / 100)));
                               return (
-                                <div key={m.id} className="flex justify-between items-center text-stone-300">
+                                <div key={m.id} className="flex justify-between items-center text-[#1A1A1A]">
                                   <span>{m.name}</span>
                                   <span className="font-mono">
-                                    ₹{m.ratePerSqFt} → <strong className="text-amber-400">₹{previewRate}</strong>
+                                    ₹{m.ratePerSqFt} → <strong className="text-[#C89211]">₹{previewRate}</strong>
                                   </span>
                                 </div>
                               );
                             })}
                           </div>
 
-                          <div className="flex justify-end gap-2 pt-2 border-t border-stone-800">
+                          <div className="flex justify-end gap-2 pt-2 border-t border-[#E5E5E5]">
                             <button
                               onClick={() => setShowBulkRateModal(false)}
-                              className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold"
+                              className="px-4 py-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold"
                             >
                               Cancel
                             </button>
                             <button
                               onClick={handleApplyBulkRateAdjustment}
-                              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold shadow-md"
+                              className="px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white text-xs font-bold shadow-md"
                             >
                               Apply to All Materials
                             </button>
@@ -1661,17 +2407,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     {/* Dedicated Edit Wood Rate & Details Form Card */}
                     {editingMaterial && (
-                      <div className="p-5 rounded-2xl bg-stone-850 border-2 border-amber-500/50 space-y-4 text-xs shadow-xl animate-in slide-in-from-top-2">
-                        <div className="flex justify-between items-center pb-3 border-b border-stone-700">
+                      <div className="p-5 rounded-2xl bg-[#F7F7F7] border-2 border-amber-500/50 space-y-4 text-xs shadow-xl animate-in slide-in-from-top-2">
+                        <div className="flex justify-between items-center pb-3 border-b border-[#E5E5E5]">
                           <div className="flex items-center gap-2">
-                            <Edit2 className="w-4 h-4 text-amber-400" />
+                            <Edit2 className="w-4 h-4 text-[#C89211]" />
                             <h4 className="font-bold text-sm text-white">
                               {editingMaterial.id ? `Edit ${editingMaterial.name || 'Wood Material'} Rate & Details` : 'Add New Wood Material'}
                             </h4>
                           </div>
                           <button
                             onClick={() => setEditingMaterial(null)}
-                            className="p-1 rounded-lg hover:bg-stone-700 text-stone-400 hover:text-white"
+                            className="p-1 rounded-lg hover:bg-stone-100 text-[#666666] hover:text-white"
                           >
                             <X className="w-5 h-5" />
                           </button>
@@ -1680,34 +2426,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {/* Wood Species Name */}
                           <div>
-                            <label className="block text-stone-200 font-semibold mb-1.5">
-                              Wood Species Name <span className="text-amber-400">*</span>
+                            <label className="block text-[#1A1A1A] font-semibold mb-1.5">
+                              Wood Species Name <span className="text-[#C89211]">*</span>
                             </label>
                             <input
                               type="text"
                               value={editingMaterial.name || ''}
                               onChange={e => setEditingMaterial({ ...editingMaterial, name: e.target.value })}
                               placeholder="e.g. Sagwan (CP Teak), Sal Wood, Pine, Burma Teak"
-                              className="w-full px-3.5 py-2.5 rounded-xl bg-stone-900 border border-stone-700 text-stone-100 font-semibold focus:outline-none focus:border-amber-500"
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] font-semibold focus:outline-none focus:border-[#C89211]"
                             />
-                            <p className="text-[11px] text-stone-400 mt-1">
+                            <p className="text-[11px] text-[#666666] mt-1">
                               Appears in the door calculator and customer quotes.
                             </p>
                           </div>
 
                           {/* Rate Input + Quick Presets */}
                           <div>
-                            <label className="block text-stone-200 font-semibold mb-1.5">
-                              Rate per Sq.Ft. (₹) <span className="text-amber-400">*</span>
+                            <label className="block text-[#1A1A1A] font-semibold mb-1.5">
+                              Rate per Sq.Ft. (₹) <span className="text-[#C89211]">*</span>
                             </label>
                             <div className="flex items-center gap-2">
-                              <span className="text-amber-400 font-mono font-bold text-base">₹</span>
+                              <span className="text-[#C89211] font-mono font-bold text-base">₹</span>
                               <input
                                 type="number"
                                 min={50}
                                 value={editingMaterial.ratePerSqFt || 0}
                                 onChange={e => setEditingMaterial({ ...editingMaterial, ratePerSqFt: Number(e.target.value) })}
-                                className="w-full px-3.5 py-2 rounded-xl bg-stone-900 border border-stone-700 text-amber-300 font-mono font-bold text-base focus:outline-none focus:border-amber-500"
+                                className="w-full px-3.5 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#C89211] font-mono font-bold text-base focus:outline-none focus:border-[#C89211]"
                               />
                             </div>
 
@@ -1723,14 +2469,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       ratePerSqFt: Math.max(50, (editingMaterial.ratePerSqFt || 500) + step),
                                     })
                                   }
-                                  className="px-2 py-0.5 rounded-md bg-stone-800 hover:bg-stone-700 text-stone-300 border border-stone-700 text-[11px] font-mono"
+                                  className="px-2 py-0.5 rounded-md bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] border border-[#E5E5E5] text-[11px] font-mono"
                                 >
                                   {step > 0 ? `+₹${step}` : `-₹${Math.abs(step)}`}
                                 </button>
                               ))}
 
                               {/* Common Presets */}
-                              <span className="text-[10px] text-stone-500 ml-1">Presets:</span>
+                              <span className="text-[10px] text-[#666666] ml-1">Presets:</span>
                               {[
                                 { label: 'Plywood (₹350)', rate: 350 },
                                 { label: 'Pine (₹450)', rate: 450 },
@@ -1747,7 +2493,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       ratePerSqFt: preset.rate,
                                     })
                                   }
-                                  className="px-1.5 py-0.5 rounded bg-stone-900 hover:bg-amber-950/40 text-stone-400 hover:text-amber-300 border border-stone-800 text-[10px]"
+                                  className="px-1.5 py-0.5 rounded bg-white hover:bg-[#FFF7E3] text-[#666666] hover:text-[#C89211] border border-[#E5E5E5] text-[10px]"
                                 >
                                   {preset.label}
                                 </button>
@@ -1757,7 +2503,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                           {/* Technical Description / Grain Spec */}
                           <div className="md:col-span-2">
-                            <label className="block text-stone-200 font-semibold mb-1.5">
+                            <label className="block text-[#1A1A1A] font-semibold mb-1.5">
                               Timber Specifications & Details
                             </label>
                             <textarea
@@ -1765,42 +2511,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               value={editingMaterial.description || ''}
                               onChange={e => setEditingMaterial({ ...editingMaterial, description: e.target.value })}
                               placeholder="e.g. 100% Kiln-seasoned Central Province Teak. Moisture content <12%. High oil content protects against termites and warping. Ideal for heavy main entrance doors with deep 3D carving."
-                              className="w-full px-3.5 py-2.5 rounded-xl bg-stone-900 border border-stone-700 text-stone-200 placeholder-stone-500 focus:outline-none focus:border-amber-500"
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] placeholder-stone-500 focus:outline-none focus:border-[#C89211]"
                             />
                           </div>
 
                           {/* Live Impact Calculator Box */}
-                          <div className="md:col-span-2 p-3 rounded-xl bg-stone-900/90 border border-stone-800">
-                            <div className="flex items-center gap-1.5 text-amber-400 font-bold mb-2">
+                          <div className="md:col-span-2 p-3 rounded-xl bg-white border border-[#E5E5E5]">
+                            <div className="flex items-center gap-1.5 text-[#C89211] font-bold mb-2">
                               <Calculator className="w-4 h-4" />
                               <span>Live Customer Door Cost Preview with this rate:</span>
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-                              <div className="p-2 rounded-lg bg-stone-950 border border-stone-800/80">
-                                <div className="text-[10px] text-stone-400">Standard Single</div>
-                                <div className="text-[11px] text-stone-500">7×3 ft (21 sq.ft.)</div>
-                                <div className="text-xs font-mono font-bold text-amber-400 mt-0.5">
+                              <div className="p-2 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5]">
+                                <div className="text-[10px] text-[#666666]">Standard Single</div>
+                                <div className="text-[11px] text-[#666666]">7×3 ft (21 sq.ft.)</div>
+                                <div className="text-xs font-mono font-bold text-[#C89211] mt-0.5">
                                   ₹{((editingMaterial.ratePerSqFt || 0) * 21).toLocaleString('en-IN')}
                                 </div>
                               </div>
-                              <div className="p-2 rounded-lg bg-stone-950 border border-stone-800/80">
-                                <div className="text-[10px] text-stone-400">Bedroom Door</div>
-                                <div className="text-[11px] text-stone-500">7×3.25 ft (22.75 sq.ft.)</div>
-                                <div className="text-xs font-mono font-bold text-amber-400 mt-0.5">
+                              <div className="p-2 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5]">
+                                <div className="text-[10px] text-[#666666]">Bedroom Door</div>
+                                <div className="text-[11px] text-[#666666]">7×3.25 ft (22.75 sq.ft.)</div>
+                                <div className="text-xs font-mono font-bold text-[#C89211] mt-0.5">
                                   ₹{Math.round((editingMaterial.ratePerSqFt || 0) * 22.75).toLocaleString('en-IN')}
                                 </div>
                               </div>
-                              <div className="p-2 rounded-lg bg-stone-950 border border-stone-800/80">
-                                <div className="text-[10px] text-stone-400">Main Entrance</div>
-                                <div className="text-[11px] text-stone-500">7.5×3.5 ft (26.25 sq.ft.)</div>
-                                <div className="text-xs font-mono font-bold text-amber-400 mt-0.5">
+                              <div className="p-2 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5]">
+                                <div className="text-[10px] text-[#666666]">Main Entrance</div>
+                                <div className="text-[11px] text-[#666666]">7.5×3.5 ft (26.25 sq.ft.)</div>
+                                <div className="text-xs font-mono font-bold text-[#C89211] mt-0.5">
                                   ₹{Math.round((editingMaterial.ratePerSqFt || 0) * 26.25).toLocaleString('en-IN')}
                                 </div>
                               </div>
-                              <div className="p-2 rounded-lg bg-stone-950 border border-stone-800/80">
-                                <div className="text-[10px] text-stone-400">Grand Double</div>
-                                <div className="text-[11px] text-stone-500">8×5 ft (40 sq.ft.)</div>
-                                <div className="text-xs font-mono font-bold text-amber-400 mt-0.5">
+                              <div className="p-2 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5]">
+                                <div className="text-[10px] text-[#666666]">Grand Double</div>
+                                <div className="text-[11px] text-[#666666]">8×5 ft (40 sq.ft.)</div>
+                                <div className="text-xs font-mono font-bold text-[#C89211] mt-0.5">
                                   ₹{((editingMaterial.ratePerSqFt || 0) * 40).toLocaleString('en-IN')}
                                 </div>
                               </div>
@@ -1814,9 +2560,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 type="checkbox"
                                 checked={editingMaterial.active !== false}
                                 onChange={e => setEditingMaterial({ ...editingMaterial, active: e.target.checked })}
-                                className="w-4 h-4 rounded text-amber-500 bg-stone-900 border-stone-700"
+                                className="w-4 h-4 rounded text-[#C89211] bg-white border-[#E5E5E5]"
                               />
-                              <span className="text-stone-300 font-medium">
+                              <span className="text-[#1A1A1A] font-medium">
                                 Active in Customer Door Calculator
                               </span>
                             </label>
@@ -1824,10 +2570,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="flex items-center justify-end gap-2 pt-3 border-t border-stone-700">
+                        <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E5E5E5]">
                           <button
                             onClick={() => setEditingMaterial(null)}
-                            className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold transition-colors"
+                            className="px-4 py-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] font-semibold transition-colors"
                           >
                             Cancel
                           </button>
@@ -1851,7 +2597,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 alert(err.message || 'Failed to save material');
                               }
                             }}
-                            className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold shadow-md transition-colors flex items-center gap-1.5"
+                            className="px-5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold shadow-md transition-colors flex items-center gap-1.5"
                           >
                             <Check className="w-4 h-4" />
                             Save Price & Details
@@ -1873,10 +2619,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                       if (filteredMaterials.length === 0) {
                         return (
-                          <div className="p-8 text-center bg-stone-900/50 rounded-2xl border border-stone-800 text-stone-400">
+                          <div className="p-8 text-center bg-white rounded-2xl border border-[#E5E5E5] text-[#666666]">
                             <TreePine className="w-8 h-8 mx-auto mb-2 text-stone-600" />
-                            <p className="text-sm font-semibold text-stone-300">No wood materials found</p>
-                            <p className="text-xs text-stone-500 mt-1">Try clearing your search query or add a new wood species.</p>
+                            <p className="text-sm font-semibold text-[#1A1A1A]">No wood materials found</p>
+                            <p className="text-xs text-[#666666] mt-1">Try clearing your search query or add a new wood species.</p>
                           </div>
                         );
                       }
@@ -1890,22 +2636,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 key={mat.id}
                                 className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
                                   mat.active
-                                    ? 'bg-stone-850/90 border-stone-700/80 hover:border-amber-500/40 shadow-sm'
-                                    : 'bg-stone-900/60 border-stone-800/60 opacity-75'
+                                    ? 'bg-[#F7F7F7]/90 border-[#E5E5E5] hover:border-[#C89211]/40 shadow-sm'
+                                    : 'bg-white border-[#E5E5E5] opacity-75'
                                 }`}
                               >
                                 <div>
                                   {/* Card Header */}
                                   <div className="flex items-start justify-between gap-2">
                                     <div className="flex items-center gap-2">
-                                      <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
-                                        <TreePine className="w-4 h-4 text-amber-400" />
+                                      <div className="w-8 h-8 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 flex items-center justify-center flex-shrink-0">
+                                        <TreePine className="w-4 h-4 text-[#C89211]" />
                                       </div>
                                       <div>
                                         <h4 className="font-bold text-white text-sm sm:text-base leading-tight">
                                           {mat.name}
                                         </h4>
-                                        <span className="text-[10px] text-stone-400">Timber Rate</span>
+                                        <span className="text-[10px] text-[#666666]">Timber Rate</span>
                                       </div>
                                     </div>
 
@@ -1915,7 +2661,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
                                         mat.active
                                           ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/60 hover:bg-emerald-900/60'
-                                          : 'bg-stone-800 text-stone-400 border-stone-700 hover:bg-stone-700'
+                                          : 'bg-[#F8F8F6] text-[#666666] border-[#E5E5E5] hover:bg-stone-100'
                                       }`}
                                       title="Click to toggle status"
                                     >
@@ -1924,25 +2670,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   </div>
 
                                   {/* Price Section */}
-                                  <div className="mt-3.5 p-3 rounded-xl bg-stone-900/90 border border-stone-800">
+                                  <div className="mt-3.5 p-3 rounded-xl bg-white border border-[#E5E5E5]">
                                     {quickEditMaterialId === mat.id ? (
                                       <div className="space-y-2">
-                                        <div className="flex items-center justify-between text-[11px] text-stone-400">
+                                        <div className="flex items-center justify-between text-[11px] text-[#666666]">
                                           <span>Quick Edit Rate:</span>
                                           <button
                                             onClick={() => setQuickEditMaterialId(null)}
-                                            className="text-stone-400 hover:text-white"
+                                            className="text-[#666666] hover:text-white"
                                           >
                                             <X className="w-3.5 h-3.5" />
                                           </button>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                          <span className="text-amber-400 font-mono font-bold text-sm">₹</span>
+                                          <span className="text-[#C89211] font-mono font-bold text-sm">₹</span>
                                           <input
                                             type="number"
                                             value={quickEditMaterialRate}
                                             onChange={e => setQuickEditMaterialRate(Number(e.target.value))}
-                                            className="w-full px-2.5 py-1.5 rounded-lg bg-stone-800 border border-amber-500/50 text-amber-300 font-mono font-bold text-sm"
+                                            className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F8F6] border border-amber-500/50 text-[#C89211] font-mono font-bold text-sm"
                                             autoFocus
                                           />
                                         </div>
@@ -1950,20 +2696,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                           <div className="flex gap-1">
                                             <button
                                               onClick={() => setQuickEditMaterialRate(prev => Math.max(50, prev - 50))}
-                                              className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
+                                              className="px-2 py-1 rounded bg-[#F8F8F6] hover:bg-stone-100 text-[10px] font-mono text-[#1A1A1A]"
                                             >
                                               -₹50
                                             </button>
                                             <button
                                               onClick={() => setQuickEditMaterialRate(prev => prev + 50)}
-                                              className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
+                                              className="px-2 py-1 rounded bg-[#F8F8F6] hover:bg-stone-100 text-[10px] font-mono text-[#1A1A1A]"
                                             >
                                               +₹50
                                             </button>
                                           </div>
                                           <button
                                             onClick={() => handleQuickUpdateMaterialRate(mat.id, quickEditMaterialRate)}
-                                            className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs"
+                                            className="px-3 py-1 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs"
                                           >
                                             Save ₹
                                           </button>
@@ -1973,13 +2719,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       <div className="flex items-center justify-between">
                                         <div>
                                           <div className="flex items-baseline gap-1">
-                                            <span className="text-xl sm:text-2xl font-mono font-black text-amber-400">
+                                            <span className="text-xl sm:text-2xl font-mono font-black text-[#C89211]">
                                               ₹{mat.ratePerSqFt}
                                             </span>
-                                            <span className="text-[11px] text-stone-400 font-medium">/ sq.ft.</span>
+                                            <span className="text-[11px] text-[#666666] font-medium">/ sq.ft.</span>
                                           </div>
-                                          <div className="text-[10px] text-stone-400 mt-0.5">
-                                            Standard 7×3 ft Door ≈ <strong className="text-stone-300 font-mono">₹{(mat.ratePerSqFt * 21).toLocaleString('en-IN')}</strong>
+                                          <div className="text-[10px] text-[#666666] mt-0.5">
+                                            Standard 7×3 ft Door ≈ <strong className="text-[#1A1A1A] font-mono">₹{(mat.ratePerSqFt * 21).toLocaleString('en-IN')}</strong>
                                           </div>
                                         </div>
 
@@ -1988,7 +2734,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                             setQuickEditMaterialId(mat.id);
                                             setQuickEditMaterialRate(mat.ratePerSqFt);
                                           }}
-                                          className="px-2.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-amber-400 hover:text-amber-300 border border-stone-700 text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                                          className="px-2.5 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] hover:text-[#C89211] border border-[#E5E5E5] text-[11px] font-semibold flex items-center gap-1 transition-colors"
                                           title="Quick change price"
                                         >
                                           <Edit2 className="w-3 h-3" />
@@ -2000,20 +2746,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                                   {/* Specifications Details */}
                                   <div className="mt-3">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block mb-1">
                                       Specifications & Grain:
                                     </span>
-                                    <p className="text-xs text-stone-300 leading-relaxed bg-stone-900/40 p-2.5 rounded-xl border border-stone-800/60 min-h-[3.5rem]">
+                                    <p className="text-xs text-[#1A1A1A] leading-relaxed bg-white p-2.5 rounded-xl border border-[#E5E5E5] min-h-[3.5rem]">
                                       {mat.description || 'No description provided.'}
                                     </p>
                                   </div>
                                 </div>
 
                                 {/* Full Action Buttons (Clean & Prominent on Mobile) */}
-                                <div className="mt-4 pt-3 border-t border-stone-800 flex items-center gap-2">
+                                <div className="mt-4 pt-3 border-t border-[#E5E5E5] flex items-center gap-2">
                                   <button
                                     onClick={() => setEditingMaterial(mat)}
-                                    className="flex-1 py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                                    className="flex-1 py-2 px-3 rounded-xl bg-[#FFF7E3] hover:bg-[#FFF7E3] text-[#C89211] hover:text-amber-200 border border-[#C89211]/30 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
                                   >
                                     <Edit2 className="w-3.5 h-3.5" />
                                     <span>Edit Price & Details</span>
@@ -2028,7 +2774,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                         showToast(`Deleted ${mat.name}`);
                                       }
                                     }}
-                                    className="p-2 rounded-xl bg-stone-800 hover:bg-red-950/50 text-stone-400 hover:text-red-300 border border-stone-700/80 hover:border-red-800/60 transition-colors"
+                                    className="p-2 rounded-xl bg-[#F8F8F6] hover:bg-red-950/50 text-[#666666] hover:text-red-300 border border-[#E5E5E5] hover:border-red-800/60 transition-colors"
                                     title="Delete Material"
                                   >
                                     <Trash2 className="w-4 h-4" />
@@ -2042,10 +2788,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                       {/* TABLE VIEW (Spreadsheet view with horizontal scroll protection) */}
                       return (
-                        <div className="border border-stone-800 rounded-2xl overflow-hidden bg-stone-900/50 text-xs shadow-lg">
+                        <div className="border border-[#E5E5E5] rounded-2xl overflow-hidden bg-white text-xs shadow-lg">
                           <div className="overflow-x-auto w-full">
                             <table className="w-full text-left min-w-[680px]">
-                              <thead className="bg-stone-950 text-stone-400 border-b border-stone-800">
+                              <thead className="bg-[#F8F8F6] text-[#666666] border-b border-[#E5E5E5]">
                                 <tr>
                                   <th className="p-3.5 font-bold">Wood Material</th>
                                   <th className="p-3.5 font-bold">Rate (₹/sq.ft.)</th>
@@ -2055,11 +2801,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   <th className="p-3.5 font-bold text-right">Actions</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-stone-800/60">
+                              <tbody className="divide-y divide-[#E5E5E5]">
                                 {filteredMaterials.map(mat => (
-                                  <tr key={mat.id} className="hover:bg-stone-800/40 transition-colors">
-                                    <td className="p-3.5 font-bold text-stone-100 flex items-center gap-2">
-                                      <TreePine className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                  <tr key={mat.id} className="hover:bg-[#F8F8F6] transition-colors">
+                                    <td className="p-3.5 font-bold text-[#1A1A1A] flex items-center gap-2">
+                                      <TreePine className="w-4 h-4 text-[#C89211] flex-shrink-0" />
                                       <span>{mat.name}</span>
                                     </td>
                                     <td className="p-3.5">
@@ -2069,25 +2815,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                             type="number"
                                             value={quickEditMaterialRate}
                                             onChange={e => setQuickEditMaterialRate(Number(e.target.value))}
-                                            className="w-20 px-2 py-1 rounded bg-stone-800 border border-amber-500 text-amber-300 font-mono font-bold text-xs"
+                                            className="w-20 px-2 py-1 rounded bg-[#F8F8F6] border border-amber-500 text-[#C89211] font-mono font-bold text-xs"
                                             autoFocus
                                           />
                                           <button
                                             onClick={() => handleQuickUpdateMaterialRate(mat.id, quickEditMaterialRate)}
-                                            className="px-2 py-1 rounded bg-amber-500 text-stone-950 font-bold text-[10px]"
+                                            className="px-2 py-1 rounded bg-[#C89211] text-white font-bold text-[10px]"
                                           >
                                             ✓
                                           </button>
                                           <button
                                             onClick={() => setQuickEditMaterialId(null)}
-                                            className="px-1.5 py-1 text-stone-400 hover:text-white text-[10px]"
+                                            className="px-1.5 py-1 text-[#666666] hover:text-white text-[10px]"
                                           >
                                             ✕
                                           </button>
                                         </div>
                                       ) : (
                                         <div className="flex items-center gap-2">
-                                          <span className="font-mono font-bold text-amber-400 text-sm">
+                                          <span className="font-mono font-bold text-[#C89211] text-sm">
                                             ₹{mat.ratePerSqFt}
                                           </span>
                                           <button
@@ -2095,17 +2841,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                               setQuickEditMaterialId(mat.id);
                                               setQuickEditMaterialRate(mat.ratePerSqFt);
                                             }}
-                                            className="text-[10px] text-stone-400 hover:text-amber-400 underline"
+                                            className="text-[10px] text-[#666666] hover:text-[#C89211] underline"
                                           >
                                             edit
                                           </button>
                                         </div>
                                       )}
                                     </td>
-                                    <td className="p-3.5 font-mono text-stone-300 text-xs">
+                                    <td className="p-3.5 font-mono text-[#1A1A1A] text-xs">
                                       ₹{(mat.ratePerSqFt * 21).toLocaleString('en-IN')}
                                     </td>
-                                    <td className="p-3.5 text-stone-300 max-w-xs">
+                                    <td className="p-3.5 text-[#1A1A1A] max-w-xs">
                                       <p className="line-clamp-2">{mat.description || '-'}</p>
                                     </td>
                                     <td className="p-3.5">
@@ -2114,7 +2860,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                         className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                                           mat.active
                                             ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                                            : 'bg-stone-800 text-stone-400 border-stone-700'
+                                            : 'bg-[#F8F8F6] text-[#666666] border-[#E5E5E5]'
                                         }`}
                                       >
                                         {mat.active ? 'Active' : 'Disabled'}
@@ -2124,7 +2870,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       <div className="flex items-center justify-end gap-1.5">
                                         <button
                                           onClick={() => setEditingMaterial(mat)}
-                                          className="px-2.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-amber-400 font-semibold text-xs flex items-center gap-1"
+                                          className="px-2.5 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] font-semibold text-xs flex items-center gap-1"
                                           title="Edit Price & Details"
                                         >
                                           <Edit2 className="w-3.5 h-3.5" />
@@ -2139,7 +2885,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                               showToast('Material deleted');
                                             }
                                           }}
-                                          className="p-1.5 rounded-lg bg-stone-800 hover:bg-red-950/60 text-stone-400 hover:text-red-300 border border-stone-700"
+                                          className="p-1.5 rounded-lg bg-[#F8F8F6] hover:bg-red-950/60 text-[#666666] hover:text-red-300 border border-[#E5E5E5]"
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
                                         </button>
@@ -2164,7 +2910,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <h3 className="font-serif text-xl font-bold text-white">
                           Polish / Finish Rates (₹)
                         </h3>
-                        <p className="text-xs text-stone-400">
+                        <p className="text-xs text-[#666666]">
                           Manage polish options: Normal Polish (₹110), Teak Polish (₹150), Melamine (₹180), PU (₹250)
                         </p>
                       </div>
@@ -2177,7 +2923,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             active: true,
                           })
                         }
-                        className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5"
+                        className="px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5"
                       >
                         <Plus className="w-4 h-4" />
                         Add Finish Option
@@ -2186,43 +2932,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     {/* Edit Form */}
                     {editingFinish && (
-                      <div className="p-4 rounded-xl bg-stone-800 border border-stone-700 space-y-3 text-xs">
-                        <div className="flex justify-between items-center font-bold text-amber-400 border-b border-stone-700 pb-2">
+                      <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3 text-xs">
+                        <div className="flex justify-between items-center font-bold text-[#C89211] border-b border-[#E5E5E5] pb-2">
                           <span>{editingFinish.id ? 'Edit Polish Finish' : 'Add Polish Option'}</span>
                           <button onClick={() => setEditingFinish(null)}><X className="w-4 h-4" /></button>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-stone-300 mb-1">Finish Name</label>
+                            <label className="block text-[#1A1A1A] mb-1">Finish Name</label>
                             <input
                               type="text"
                               value={editingFinish.name || ''}
                               onChange={e => setEditingFinish({ ...editingFinish, name: e.target.value })}
                               placeholder="e.g. PU Italian Finish, Melamine Matt"
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                              className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                             />
                           </div>
                           <div>
-                            <label className="block text-stone-300 mb-1">Rate (₹)</label>
+                            <label className="block text-[#1A1A1A] mb-1">Rate (₹)</label>
                             <input
                               type="number"
                               value={editingFinish.ratePerSqFt || 0}
                               onChange={e => setEditingFinish({ ...editingFinish, ratePerSqFt: Number(e.target.value) })}
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100 font-mono"
+                              className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono"
                             />
                           </div>
                           <div className="sm:col-span-2">
-                            <label className="block text-stone-300 mb-1">Description</label>
+                            <label className="block text-[#1A1A1A] mb-1">Description</label>
                             <input
                               type="text"
                               value={editingFinish.description || ''}
                               onChange={e => setEditingFinish({ ...editingFinish, description: e.target.value })}
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                              className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                             />
                           </div>
                         </div>
-                        <div className="flex justify-end gap-2 pt-2 border-t border-stone-700">
-                          <button onClick={() => setEditingFinish(null)} className="px-3 py-1.5 rounded bg-stone-700 text-stone-300">Cancel</button>
+                        <div className="flex justify-end gap-2 pt-2 border-t border-[#E5E5E5]">
+                          <button onClick={() => setEditingFinish(null)} className="px-3 py-1.5 rounded bg-stone-100 text-[#1A1A1A]">Cancel</button>
                           <button
                             onClick={async () => {
                               if (!editingFinish.name) return;
@@ -2236,7 +2982,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               onDataUpdated();
                               showToast('Polish finish saved');
                             }}
-                            className="px-4 py-1.5 rounded bg-amber-600 text-stone-950 font-bold"
+                            className="px-4 py-1.5 rounded bg-[#C89211] text-white font-bold"
                           >
                             Save Finish
                           </button>
@@ -2249,41 +2995,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {finishes.map(fin => (
                         <div
                           key={fin.id}
-                          className="p-4 rounded-2xl bg-stone-850 border border-stone-750 flex flex-col justify-between text-xs space-y-3 shadow-sm hover:border-amber-500/40 transition-all"
+                          className="p-4 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5] flex flex-col justify-between text-xs space-y-3 shadow-sm hover:border-[#C89211]/40 transition-all"
                         >
                           <div>
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
-                                  <Sparkles className="w-4 h-4 text-amber-400" />
+                                <div className="w-8 h-8 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 flex items-center justify-center flex-shrink-0">
+                                  <Sparkles className="w-4 h-4 text-[#C89211]" />
                                 </div>
                                 <div>
-                                  <div className="font-bold text-stone-100 text-sm">{fin.name}</div>
-                                  <div className="text-[10px] text-stone-400">Polish Finish Option</div>
+                                  <div className="font-bold text-[#1A1A1A] text-sm">{fin.name}</div>
+                                  <div className="text-[10px] text-[#666666]">Polish Finish Option</div>
                                 </div>
                               </div>
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${fin.active !== false ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-stone-800 text-stone-400 border-stone-700'}`}>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${fin.active !== false ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-[#F8F8F6] text-[#666666] border-[#E5E5E5]'}`}>
                                 {fin.active !== false ? 'Active' : 'Disabled'}
                               </span>
                             </div>
 
                             {/* Price & Quick Edit */}
-                            <div className="mt-3 p-3 rounded-xl bg-stone-900/90 border border-stone-800">
+                            <div className="mt-3 p-3 rounded-xl bg-white border border-[#E5E5E5]">
                               {quickEditFinishId === fin.id ? (
                                 <div className="space-y-2">
-                                  <div className="flex items-center justify-between text-[11px] text-stone-400">
+                                  <div className="flex items-center justify-between text-[11px] text-[#666666]">
                                     <span>Quick Edit Finish Rate:</span>
-                                    <button onClick={() => setQuickEditFinishId(null)} className="text-stone-400 hover:text-white">
+                                    <button onClick={() => setQuickEditFinishId(null)} className="text-[#666666] hover:text-white">
                                       <X className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <span className="text-amber-400 font-mono font-bold text-sm">₹</span>
+                                    <span className="text-[#C89211] font-mono font-bold text-sm">₹</span>
                                     <input
                                       type="number"
                                       value={quickEditFinishRate}
                                       onChange={e => setQuickEditFinishRate(Number(e.target.value))}
-                                      className="w-full px-2.5 py-1.5 rounded-lg bg-stone-800 border border-amber-500/50 text-amber-300 font-mono font-bold text-sm"
+                                      className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F8F6] border border-amber-500/50 text-[#C89211] font-mono font-bold text-sm"
                                       autoFocus
                                     />
                                   </div>
@@ -2291,20 +3037,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <div className="flex gap-1">
                                       <button
                                         onClick={() => setQuickEditFinishRate(prev => Math.max(0, prev - 25))}
-                                        className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
+                                        className="px-2 py-1 rounded bg-[#F8F8F6] hover:bg-stone-100 text-[10px] font-mono text-[#1A1A1A]"
                                       >
                                         -₹25
                                       </button>
                                       <button
                                         onClick={() => setQuickEditFinishRate(prev => prev + 25)}
-                                        className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
+                                        className="px-2 py-1 rounded bg-[#F8F8F6] hover:bg-stone-100 text-[10px] font-mono text-[#1A1A1A]"
                                       >
                                         +₹25
                                       </button>
                                     </div>
                                     <button
                                       onClick={() => handleQuickUpdateFinishRate(fin.id, quickEditFinishRate)}
-                                      className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs"
+                                      className="px-3 py-1 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs"
                                     >
                                       Save ₹
                                     </button>
@@ -2314,14 +3060,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <div className="flex items-baseline gap-1">
-                                      <span className="text-lg font-mono font-bold text-amber-400">
+                                      <span className="text-lg font-mono font-bold text-[#C89211]">
                                         {fin.ratePerSqFt > 0 ? `₹${fin.ratePerSqFt}` : 'Free / Included'}
                                       </span>
-                                      {fin.ratePerSqFt > 0 && <span className="text-[11px] text-stone-400">/ sq.ft.</span>}
+                                      {fin.ratePerSqFt > 0 && <span className="text-[11px] text-[#666666]">/ sq.ft.</span>}
                                     </div>
                                     {fin.ratePerSqFt > 0 && (
-                                      <div className="text-[10px] text-stone-400 mt-0.5">
-                                        Standard 21 sq.ft. door ≈ <strong className="text-stone-300 font-mono">₹{(fin.ratePerSqFt * 21).toLocaleString('en-IN')}</strong>
+                                      <div className="text-[10px] text-[#666666] mt-0.5">
+                                        Standard 21 sq.ft. door ≈ <strong className="text-[#1A1A1A] font-mono">₹{(fin.ratePerSqFt * 21).toLocaleString('en-IN')}</strong>
                                       </div>
                                     )}
                                   </div>
@@ -2331,7 +3077,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       setQuickEditFinishId(fin.id);
                                       setQuickEditFinishRate(fin.ratePerSqFt);
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-amber-400 hover:text-amber-300 border border-stone-700 text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                                    className="px-2.5 py-1 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] hover:text-[#C89211] border border-[#E5E5E5] text-[11px] font-semibold flex items-center gap-1 transition-colors"
                                   >
                                     <Edit2 className="w-3 h-3" />
                                     <span>Edit ₹</span>
@@ -2341,20 +3087,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </div>
 
                             <div className="mt-3">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block mb-1">
                                 Details & Spec:
                               </span>
-                              <p className="text-xs text-stone-300 bg-stone-900/40 p-2.5 rounded-xl border border-stone-800/60">
+                              <p className="text-xs text-[#1A1A1A] bg-white p-2.5 rounded-xl border border-[#E5E5E5]">
                                 {fin.description || 'No specific finish description.'}
                               </p>
                             </div>
                           </div>
 
                           {/* Action Buttons */}
-                          <div className="pt-2 border-t border-stone-800 flex items-center gap-2">
+                          <div className="pt-2 border-t border-[#E5E5E5] flex items-center gap-2">
                             <button
                               onClick={() => setEditingFinish(fin)}
-                              className="flex-1 py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                              className="flex-1 py-2 px-3 rounded-xl bg-[#FFF7E3] hover:bg-[#FFF7E3] text-[#C89211] hover:text-amber-200 border border-[#C89211]/30 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                               <span>Edit Price & Details</span>
@@ -2369,7 +3115,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   showToast('Finish deleted');
                                 }
                               }}
-                              className="p-2 rounded-xl bg-stone-800 hover:bg-red-950/60 text-stone-400 hover:text-red-300 border border-stone-700"
+                              className="p-2 rounded-xl bg-[#F8F8F6] hover:bg-red-950/60 text-[#666666] hover:text-red-300 border border-[#E5E5E5]"
                               title="Delete Finish"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -2381,227 +3127,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 )}
 
-                {/* 5. DOOR FRAMES (CHAUKHAT) (Section 15) */}
+                {/* 5. CHAUKHAT & FRAME MANAGEMENT */}
                 {activeTab === 'frames' && (
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-serif text-xl font-bold text-white">
-                          Door Frames (Chaukhat) Fixed Pricing
-                        </h3>
-                        <p className="text-xs text-stone-400">
-                          Configure Chaukhat prices: Normal Frame (₹3,500), Designer Frame (₹11,025), Hand Carving Frame (₹11,637)
-                        </p>
-                      </div>
-                      <button
-                        onClick={() =>
-                          setEditingFrame({
-                            name: '',
-                            price: 3500,
-                            description: '',
-                            active: true,
-                          })
-                        }
-                        className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Add Frame Option
-                      </button>
-                    </div>
-
-                    {/* Edit Frame Form */}
-                    {editingFrame && (
-                      <div className="p-4 rounded-xl bg-stone-800 border border-stone-700 space-y-3 text-xs">
-                        <div className="flex justify-between items-center font-bold text-amber-400 border-b border-stone-700 pb-2">
-                          <span>{editingFrame.id ? 'Edit Frame Price' : 'Add Chaukhat Frame'}</span>
-                          <button onClick={() => setEditingFrame(null)}><X className="w-4 h-4" /></button>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-stone-300 mb-1">Frame Design Name</label>
-                            <input
-                              type="text"
-                              value={editingFrame.name || ''}
-                              onChange={e => setEditingFrame({ ...editingFrame, name: e.target.value })}
-                              placeholder="e.g. Hand Carving Frame"
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-stone-300 mb-1">Fixed Price (₹)</label>
-                            <input
-                              type="number"
-                              value={editingFrame.price || 0}
-                              onChange={e => setEditingFrame({ ...editingFrame, price: Number(e.target.value) })}
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100 font-mono"
-                            />
-                          </div>
-                          <div className="sm:col-span-2">
-                            <label className="block text-stone-300 mb-1">Description / Section Size</label>
-                            <input
-                              type="text"
-                              value={editingFrame.description || ''}
-                              onChange={e => setEditingFrame({ ...editingFrame, description: e.target.value })}
-                              placeholder="e.g. 5x3 inch section with stepped moldings"
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex justify-end gap-2 pt-2 border-t border-stone-700">
-                          <button onClick={() => setEditingFrame(null)} className="px-3 py-1.5 rounded bg-stone-700 text-stone-300">Cancel</button>
-                          <button
-                            onClick={async () => {
-                              if (!editingFrame.name) return;
-                              if (editingFrame.id) {
-                                await updateFrame(editingFrame.id, editingFrame);
-                              } else {
-                                await createFrame(editingFrame);
-                              }
-                              setEditingFrame(null);
-                              loadData();
-                              onDataUpdated();
-                              showToast('Frame saved successfully');
-                            }}
-                            className="px-4 py-1.5 rounded bg-amber-600 text-stone-950 font-bold"
-                          >
-                            Save Frame
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {frames.map(frm => (
-                        <div
-                          key={frm.id}
-                          className="p-4 rounded-2xl bg-stone-850 border border-stone-750 flex flex-col justify-between text-xs space-y-3 shadow-sm hover:border-amber-500/40 transition-all"
-                        >
-                          <div>
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
-                                  <Layers className="w-4 h-4 text-amber-400" />
-                                </div>
-                                <div>
-                                  <div className="font-bold text-stone-100 text-sm">{frm.name}</div>
-                                  <div className="text-[10px] text-stone-400">Chaukhat Frame</div>
-                                </div>
-                              </div>
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${frm.active !== false ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-stone-800 text-stone-400 border-stone-700'}`}>
-                                {frm.active !== false ? 'Active' : 'Disabled'}
-                              </span>
-                            </div>
-
-                            {/* Price & Quick Edit */}
-                            <div className="mt-3 p-3 rounded-xl bg-stone-900/90 border border-stone-800">
-                              {quickEditFrameId === frm.id ? (
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between text-[11px] text-stone-400">
-                                    <span>Quick Edit Frame Price:</span>
-                                    <button onClick={() => setQuickEditFrameId(null)} className="text-stone-400 hover:text-white">
-                                      <X className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-amber-400 font-mono font-bold text-sm">₹</span>
-                                    <input
-                                      type="number"
-                                      value={quickEditFramePrice}
-                                      onChange={e => setQuickEditFramePrice(Number(e.target.value))}
-                                      className="w-full px-2.5 py-1.5 rounded-lg bg-stone-800 border border-amber-500/50 text-amber-300 font-mono font-bold text-sm"
-                                      autoFocus
-                                    />
-                                  </div>
-                                  <div className="flex items-center justify-between gap-1.5 pt-1">
-                                    <div className="flex gap-1">
-                                      <button
-                                        onClick={() => setQuickEditFramePrice(prev => Math.max(0, prev - 250))}
-                                        className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
-                                      >
-                                        -₹250
-                                      </button>
-                                      <button
-                                        onClick={() => setQuickEditFramePrice(prev => prev + 250)}
-                                        className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
-                                      >
-                                        +₹250
-                                      </button>
-                                    </div>
-                                    <button
-                                      onClick={() => handleQuickUpdateFramePrice(frm.id, quickEditFramePrice)}
-                                      className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs"
-                                    >
-                                      Save ₹
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <div className="flex items-baseline gap-1">
-                                      <span className="text-lg font-mono font-bold text-amber-400">
-                                        {frm.price > 0 ? `₹${frm.price.toLocaleString('en-IN')}` : '₹0 (No Frame)'}
-                                      </span>
-                                      <span className="text-[11px] text-stone-400">/ frame</span>
-                                    </div>
-                                    <div className="text-[10px] text-stone-400 mt-0.5">
-                                      Fixed Chaukhat add-on in quotation
-                                    </div>
-                                  </div>
-
-                                  <button
-                                    onClick={() => {
-                                      setQuickEditFrameId(frm.id);
-                                      setQuickEditFramePrice(frm.price);
-                                    }}
-                                    className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-amber-400 hover:text-amber-300 border border-stone-700 text-[11px] font-semibold flex items-center gap-1 transition-colors"
-                                  >
-                                    <Edit2 className="w-3 h-3" />
-                                    <span>Edit ₹</span>
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="mt-3">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
-                                Section / Description:
-                              </span>
-                              <p className="text-xs text-stone-300 bg-stone-900/40 p-2.5 rounded-xl border border-stone-800/60">
-                                {frm.description || 'Standard door frame section.'}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Action Buttons */}
-                          <div className="pt-2 border-t border-stone-800 flex items-center gap-2">
-                            <button
-                              onClick={() => setEditingFrame(frm)}
-                              className="flex-1 py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                              <span>Edit Price & Details</span>
-                            </button>
-
-                            <button
-                              onClick={async () => {
-                                if (confirm(`Delete frame ${frm.name}?`)) {
-                                  await deleteFrame(frm.id);
-                                  await loadData();
-                                  onDataUpdated();
-                                  showToast('Frame deleted');
-                                }
-                              }}
-                              className="p-2 rounded-xl bg-stone-800 hover:bg-red-950/60 text-stone-400 hover:text-red-300 border border-stone-700"
-                              title="Delete Frame"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <AdminChaukhatTab
+                    legacyFrames={frames}
+                    onLegacyFrameSave={async (frm) => {
+                      if (frm.id) {
+                        await updateFrame(frm.id, frm);
+                      } else {
+                        await createFrame(frm);
+                      }
+                      await loadData();
+                      onDataUpdated();
+                    }}
+                    onLegacyFrameDelete={async (id) => {
+                      if (!confirm('Are you sure you want to delete this frame?')) return;
+                      await deleteFrame(id);
+                      await loadData();
+                      onDataUpdated();
+                    }}
+                    showToast={showToast}
+                    onDataUpdated={onDataUpdated}
+                  />
                 )}
 
                 {/* 6. HARDWARE & ALDROPS (Section 15) */}
@@ -2612,7 +3159,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <h3 className="font-serif text-xl font-bold text-white">
                           Hardware & Aldrop Rates
                         </h3>
-                        <p className="text-xs text-stone-400">
+                        <p className="text-xs text-[#666666]">
                           Aldrop Single (₹700), Heavy Aldrop (₹1,300), Antique Heavy (₹1,700), Mortise lock sets
                         </p>
                       </div>
@@ -2622,11 +3169,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             name: '',
                             price: 700,
                             description: '',
+                            image: '',
                             defaultQty: 1,
                             active: true,
                           })
                         }
-                        className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5"
+                        className="px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5"
                       >
                         <Plus className="w-4 h-4" />
                         Add Hardware Item
@@ -2635,43 +3183,144 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     {/* Edit Form */}
                     {editingHardware && (
-                      <div className="p-4 rounded-xl bg-stone-800 border border-stone-700 space-y-3 text-xs">
-                        <div className="flex justify-between items-center font-bold text-amber-400 border-b border-stone-700 pb-2">
-                          <span>{editingHardware.id ? 'Edit Hardware Item' : 'Add Hardware Item'}</span>
+                      <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3 text-xs">
+                        <div className="flex justify-between items-center font-bold text-[#C89211] border-b border-[#E5E5E5] pb-2">
+                          <div className="flex items-center gap-2">
+                            <span>{editingHardware.id ? 'Edit Hardware Item' : 'Add Hardware Item'}</span>
+                            {editingHardware.id && (
+                              <span className="font-mono text-[10px] text-[#666666] bg-white px-2 py-0.5 rounded border border-[#E5E5E5]">
+                                ID: {editingHardware.id}
+                              </span>
+                            )}
+                          </div>
                           <button onClick={() => setEditingHardware(null)}><X className="w-4 h-4" /></button>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-stone-300 mb-1">Hardware Name</label>
+                            <label className="block text-[#1A1A1A] mb-1">Hardware Product Name <span className="text-[#C89211]">*</span></label>
                             <input
                               type="text"
                               value={editingHardware.name || ''}
                               onChange={e => setEditingHardware({ ...editingHardware, name: e.target.value })}
                               placeholder="e.g. Heavy Aldrop Kit"
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                              className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                             />
                           </div>
                           <div>
-                            <label className="block text-stone-300 mb-1">Unit Price (₹)</label>
+                            <label className="block text-[#1A1A1A] mb-1">Unit Price (₹) <span className="text-[#C89211]">*</span></label>
                             <input
                               type="number"
                               value={editingHardware.price || 0}
                               onChange={e => setEditingHardware({ ...editingHardware, price: Number(e.target.value) })}
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100 font-mono"
+                              className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[#1A1A1A] mb-1">Product ID / Code</label>
+                            <input
+                              type="text"
+                              value={editingHardware.id || ''}
+                              disabled={!!editingHardware.id}
+                              onChange={e => setEditingHardware({ ...editingHardware, id: e.target.value })}
+                              placeholder="Auto-generated (e.g. hwd-5)"
+                              className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#666666] font-mono text-xs disabled:opacity-75"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[#1A1A1A] mb-1">Default Qty per Door</label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={editingHardware.defaultQty ?? 1}
+                              onChange={e => setEditingHardware({ ...editingHardware, defaultQty: Number(e.target.value) })}
+                              className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono"
                             />
                           </div>
                           <div className="sm:col-span-2">
-                            <label className="block text-stone-300 mb-1">Description</label>
+                            <label className="block text-[#1A1A1A] mb-1">Description & Material Specs</label>
                             <input
                               type="text"
                               value={editingHardware.description || ''}
                               onChange={e => setEditingHardware({ ...editingHardware, description: e.target.value })}
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                              placeholder="e.g. Heavy-gauge forged brass / SS 12-inch security aldrop kit"
+                              className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                             />
                           </div>
+
+                          {/* Hardware Image Upload & URL */}
+                          <div className="sm:col-span-2 p-3 rounded-lg bg-white border border-[#E5E5E5] space-y-2">
+                            <label className="block text-[#1A1A1A] font-semibold mb-1">
+                              Hardware Product Image (Thumbnail & Full Preview)
+                            </label>
+                            <div className="flex flex-wrap items-center gap-3">
+                              <label className="cursor-pointer px-3.5 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition-colors">
+                                <Upload className="w-3.5 h-3.5" />
+                                {uploadingImage ? 'Uploading Image...' : 'Upload Image File'}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  disabled={uploadingImage}
+                                  onChange={e =>
+                                    handleFileUploadHelper(e, url => {
+                                      setEditingHardware({ ...editingHardware, image: url });
+                                    })
+                                  }
+                                  className="hidden"
+                                />
+                              </label>
+
+                              <span className="text-[#666666] text-xs">or URL:</span>
+
+                              <input
+                                type="text"
+                                value={editingHardware.image || ''}
+                                onChange={e => setEditingHardware({ ...editingHardware, image: e.target.value })}
+                                placeholder="https://images.unsplash.com/..."
+                                className="flex-1 min-w-[200px] px-3 py-1.5 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono"
+                              />
+
+                              {editingHardware.image && (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingHardware({ ...editingHardware, image: '' })}
+                                  className="px-2 py-1 rounded bg-red-950 text-red-300 hover:bg-red-900 border border-red-800 text-xs"
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+
+                            {editingHardware.image && (
+                              <div className="flex items-center gap-3 pt-1">
+                                <div className="w-16 h-16 rounded-lg overflow-hidden border border-amber-500/50 bg-[#F8F8F6] shrink-0">
+                                  <img
+                                    src={editingHardware.image}
+                                    alt="Hardware preview"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <span className="text-[11px] text-[#666666]">
+                                  This photo will be displayed in the calculator's Hardware &amp; Fittings section with thumbnail and full zoom preview.
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Active Status */}
+                          <div className="sm:col-span-2 pt-1">
+                            <label className="inline-flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={editingHardware.active !== false}
+                                onChange={e => setEditingHardware({ ...editingHardware, active: e.target.checked })}
+                                className="rounded accent-amber-500"
+                              />
+                              <span className="text-[#1A1A1A] font-medium">Active (Visible in Calculator)</span>
+                            </label>
+                          </div>
                         </div>
-                        <div className="flex justify-end gap-2 pt-2 border-t border-stone-700">
-                          <button onClick={() => setEditingHardware(null)} className="px-3 py-1.5 rounded bg-stone-700 text-stone-300">Cancel</button>
+                        <div className="flex justify-end gap-2 pt-2 border-t border-[#E5E5E5]">
+                          <button onClick={() => setEditingHardware(null)} className="px-3 py-1.5 rounded bg-stone-100 text-[#1A1A1A]">Cancel</button>
                           <button
                             onClick={async () => {
                               if (!editingHardware.name) return;
@@ -2683,9 +3332,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               setEditingHardware(null);
                               loadData();
                               onDataUpdated();
-                              showToast('Hardware updated');
+                              showToast('Hardware updated successfully');
                             }}
-                            className="px-4 py-1.5 rounded bg-amber-600 text-stone-950 font-bold"
+                            className="px-4 py-1.5 rounded bg-[#C89211] text-white font-bold"
                           >
                             Save Item
                           </button>
@@ -2697,41 +3346,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {hardware.map(hwd => (
                         <div
                           key={hwd.id}
-                          className="p-4 rounded-2xl bg-stone-850 border border-stone-750 flex flex-col justify-between text-xs space-y-3 shadow-sm hover:border-amber-500/40 transition-all"
+                          className="p-4 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5] flex flex-col justify-between text-xs space-y-3 shadow-sm hover:border-[#C89211]/40 transition-all"
                         >
                           <div>
                             <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
-                                  <Lock className="w-4 h-4 text-amber-400" />
-                                </div>
+                              <div className="flex items-center gap-2.5">
+                                {hwd.image ? (
+                                  <div className="w-12 h-12 rounded-xl overflow-hidden bg-white border border-[#E5E5E5] shrink-0">
+                                    <img src={hwd.image} alt={hwd.name} className="w-full h-full object-cover" />
+                                  </div>
+                                ) : (
+                                  <div className="w-12 h-12 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 flex items-center justify-center shrink-0">
+                                    <Lock className="w-5 h-5 text-[#C89211]" />
+                                  </div>
+                                )}
                                 <div>
-                                  <div className="font-bold text-stone-100 text-sm">{hwd.name}</div>
-                                  <div className="text-[10px] text-stone-400">Hardware & Fitting Accessory</div>
+                                  <div className="font-bold text-[#1A1A1A] text-sm flex items-center gap-1.5">
+                                    <span>{hwd.name}</span>
+                                    <span className="font-mono text-[9px] bg-white px-1.5 py-0.5 rounded text-[#666666] border border-[#E5E5E5]">
+                                      {hwd.id}
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-[#666666]">Hardware &amp; Fitting Accessory</div>
                                 </div>
                               </div>
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${hwd.active !== false ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-stone-800 text-stone-400 border-stone-700'}`}>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${hwd.active !== false ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-[#F8F8F6] text-[#666666] border-[#E5E5E5]'}`}>
                                 {hwd.active !== false ? 'Active' : 'Disabled'}
                               </span>
                             </div>
 
                             {/* Price & Quick Edit */}
-                            <div className="mt-3 p-3 rounded-xl bg-stone-900/90 border border-stone-800">
+                            <div className="mt-3 p-3 rounded-xl bg-white border border-[#E5E5E5]">
                               {quickEditHardwareId === hwd.id ? (
                                 <div className="space-y-2">
-                                  <div className="flex items-center justify-between text-[11px] text-stone-400">
+                                  <div className="flex items-center justify-between text-[11px] text-[#666666]">
                                     <span>Quick Edit Hardware Price:</span>
-                                    <button onClick={() => setQuickEditHardwareId(null)} className="text-stone-400 hover:text-white">
+                                    <button onClick={() => setQuickEditHardwareId(null)} className="text-[#666666] hover:text-white">
                                       <X className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <span className="text-amber-400 font-mono font-bold text-sm">₹</span>
+                                    <span className="text-[#C89211] font-mono font-bold text-sm">₹</span>
                                     <input
                                       type="number"
                                       value={quickEditHardwarePrice}
                                       onChange={e => setQuickEditHardwarePrice(Number(e.target.value))}
-                                      className="w-full px-2.5 py-1.5 rounded-lg bg-stone-800 border border-amber-500/50 text-amber-300 font-mono font-bold text-sm"
+                                      className="w-full px-2.5 py-1.5 rounded-lg bg-[#F8F8F6] border border-amber-500/50 text-[#C89211] font-mono font-bold text-sm"
                                       autoFocus
                                     />
                                   </div>
@@ -2739,20 +3399,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <div className="flex gap-1">
                                       <button
                                         onClick={() => setQuickEditHardwarePrice(prev => Math.max(0, prev - 50))}
-                                        className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
+                                        className="px-2 py-1 rounded bg-[#F8F8F6] hover:bg-stone-100 text-[10px] font-mono text-[#1A1A1A]"
                                       >
                                         -₹50
                                       </button>
                                       <button
                                         onClick={() => setQuickEditHardwarePrice(prev => prev + 50)}
-                                        className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] font-mono text-stone-300"
+                                        className="px-2 py-1 rounded bg-[#F8F8F6] hover:bg-stone-100 text-[10px] font-mono text-[#1A1A1A]"
                                       >
                                         +₹50
                                       </button>
                                     </div>
                                     <button
                                       onClick={() => handleQuickUpdateHardwarePrice(hwd.id, quickEditHardwarePrice)}
-                                      className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs"
+                                      className="px-3 py-1 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs"
                                     >
                                       Save ₹
                                     </button>
@@ -2762,12 +3422,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <div className="flex items-baseline gap-1">
-                                      <span className="text-lg font-mono font-bold text-amber-400">
+                                      <span className="text-lg font-mono font-bold text-[#C89211]">
                                         {hwd.price > 0 ? `₹${hwd.price.toLocaleString('en-IN')}` : '₹0'}
                                       </span>
-                                      <span className="text-[11px] text-stone-400">/ unit</span>
+                                      <span className="text-[11px] text-[#666666]">/ unit</span>
                                     </div>
-                                    <div className="text-[10px] text-stone-400 mt-0.5">
+                                    <div className="text-[10px] text-[#666666] mt-0.5">
                                       Default Qty: {hwd.defaultQty || 1}
                                     </div>
                                   </div>
@@ -2777,7 +3437,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       setQuickEditHardwareId(hwd.id);
                                       setQuickEditHardwarePrice(hwd.price);
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-amber-400 hover:text-amber-300 border border-stone-700 text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                                    className="px-2.5 py-1 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] hover:text-[#C89211] border border-[#E5E5E5] text-[11px] font-semibold flex items-center gap-1 transition-colors"
                                   >
                                     <Edit2 className="w-3 h-3" />
                                     <span>Edit ₹</span>
@@ -2787,20 +3447,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </div>
 
                             <div className="mt-3">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-[#666666] block mb-1">
                                 Description & Details:
                               </span>
-                              <p className="text-xs text-stone-300 bg-stone-900/40 p-2.5 rounded-xl border border-stone-800/60">
+                              <p className="text-xs text-[#1A1A1A] bg-white p-2.5 rounded-xl border border-[#E5E5E5]">
                                 {hwd.description || 'Hardware & lock accessory specification.'}
                               </p>
                             </div>
                           </div>
 
                           {/* Action Buttons */}
-                          <div className="pt-2 border-t border-stone-800 flex items-center gap-2">
+                          <div className="pt-2 border-t border-[#E5E5E5] flex items-center gap-2">
                             <button
                               onClick={() => setEditingHardware(hwd)}
-                              className="flex-1 py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                              className="flex-1 py-2 px-3 rounded-xl bg-[#FFF7E3] hover:bg-[#FFF7E3] text-[#C89211] hover:text-amber-200 border border-[#C89211]/30 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                               <span>Edit Price & Details</span>
@@ -2815,7 +3475,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   showToast('Hardware deleted');
                                 }
                               }}
-                              className="p-2 rounded-xl bg-stone-800 hover:bg-red-950/60 text-stone-400 hover:text-red-300 border border-stone-700"
+                              className="p-2 rounded-xl bg-[#F8F8F6] hover:bg-red-950/60 text-[#666666] hover:text-red-300 border border-[#E5E5E5]"
                               title="Delete Hardware"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -2827,173 +3487,1568 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 )}
 
-                {/* 7. HOME BANNERS (Section 16) */}
-                {activeTab === 'banners' && (
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-serif text-xl font-bold text-white">
-                          Home Slider Banners
-                        </h3>
-                        <p className="text-xs text-stone-400">
-                          Upload banner artwork, headline, subtitle, button text, and destination
-                        </p>
-                      </div>
-                      <button
-                        onClick={() =>
-                          setEditingBanner({
-                            title: '',
-                            subtitle: '',
-                            image: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1600&q=80',
-                            buttonText: 'Calculate Door Price',
-                            buttonAction: 'calculator',
-                            order: banners.length + 1,
-                            active: true,
-                          })
-                        }
-                        className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Add New Banner
-                      </button>
-                    </div>
+                {/* 7A. MAIN BANNER MANAGEMENT */}
+                {(activeTab === 'main-banners' || activeTab === 'banners') && (() => {
+                  const mainBannersList = banners
+                    .filter(b => b.bannerType === 'main' || b.slot === 'hero' || b.slot === 'main' || (!b.bannerType && (!b.slot || b.slot === 'hero' || b.slot === 'main' || b.id === 'ban-1' || b.id === 'ban-3')))
+                    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
 
-                    {/* Edit Banner */}
-                    {editingBanner && (
-                      <div className="p-4 rounded-xl bg-stone-800 border border-stone-700 space-y-3 text-xs">
-                        <div className="flex justify-between items-center font-bold text-amber-400 border-b border-stone-700 pb-2">
-                          <span>{editingBanner.id ? 'Edit Banner' : 'Create Banner'}</span>
-                          <button onClick={() => setEditingBanner(null)}><X className="w-4 h-4" /></button>
+                  return (
+                    <div className="space-y-6">
+                      {/* Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <h3 className="font-serif text-xl font-bold text-white flex items-center gap-2">
+                            <span>Main Banner Management</span>
+                            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#FFF7E3] text-[#C89211] font-sans font-semibold border border-[#C89211]/30">
+                              {mainBannersList.length} Main Banners
+                            </span>
+                          </h3>
+                          <p className="text-xs text-[#666666] mt-0.5">
+                            Manage wide full-bleed hero banners displayed in the main homepage carousel. Recommended size: 1500 × 500 px (3:1 aspect ratio). Upload complete artwork displayed in its original aspect ratio without cropped text.
+                          </p>
                         </div>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-stone-300 mb-1">Headline Title</label>
-                            <input
-                              type="text"
-                              value={editingBanner.title || ''}
-                              onChange={e => setEditingBanner({ ...editingBanner, title: e.target.value })}
-                              placeholder="e.g. Master Handcrafted Sagwan Doors"
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
-                            />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBannerUploadError(null);
+                            setEditingBanner({
+                              bannerType: 'main',
+                              slot: 'hero',
+                              title: '',
+                              image: '',
+                              destinationUrl: '',
+                              openInNewTab: false,
+                              order: mainBannersList.length + 1,
+                              active: true,
+                            });
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-2 shadow transition active:scale-95 cursor-pointer shrink-0"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add Main Banner
+                        </button>
+                      </div>
+
+                      {/* Edit / Create Main Banner Modal */}
+                      {editingBanner && (editingBanner.bannerType === 'main' || editingBanner.slot === 'hero' || activeTab === 'main-banners' || activeTab === 'banners') && (
+                        <div className="p-4 sm:p-6 rounded-2xl bg-white border border-[#E5E5E5] space-y-5 text-xs shadow-2xl">
+                          <div className="flex justify-between items-center font-bold text-[#C89211] border-b border-[#E5E5E5] pb-3">
+                            <div className="flex items-center gap-2">
+                              <ImageIcon className="w-5 h-5 text-[#C89211]" />
+                              <span className="text-base font-serif text-[#1A1A1A]">
+                                {editingBanner.id ? 'Edit Main Banner' : 'Upload New Main Banner (1500 × 500 px)'}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBanner(null);
+                                setBannerUploadError(null);
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-[#F8F8F6] text-[#666666] hover:text-[#1A1A1A] transition-colors cursor-pointer"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
                           </div>
 
-                          <div>
-                            <label className="block text-stone-300 mb-1">Subtitle</label>
-                            <input
-                              type="text"
-                              value={editingBanner.subtitle || ''}
-                              onChange={e => setEditingBanner({ ...editingBanner, subtitle: e.target.value })}
-                              placeholder="e.g. Direct factory rates and seasoned timber"
-                              className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
-                            />
-                          </div>
+                          {bannerUploadError && (
+                            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-2.5">
+                              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                              <div className="flex-1">
+                                <strong className="font-semibold block text-xs">Image Upload Error</strong>
+                                <span className="text-xs">{bannerUploadError}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setBannerUploadError(null)}
+                                className="text-rose-400 hover:text-rose-700 font-bold text-xs p-1 cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          )}
 
-                          <div>
-                            <label className="block text-stone-300 mb-1">Banner Image (Direct Upload)</label>
-                            <div className="flex items-center gap-3">
-                              <label className="cursor-pointer px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5">
-                                <Upload className="w-3.5 h-3.5" />
-                                {uploadingImage ? 'Uploading...' : 'Upload Image File'}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  disabled={uploadingImage}
-                                  onChange={e =>
-                                    handleFileUploadHelper(e, url => setEditingBanner({ ...editingBanner, image: url }))
-                                  }
-                                  className="hidden"
-                                />
+                          <div className="space-y-4">
+                            {/* Upload Image */}
+                            <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div>
+                                  <label className="block text-[#1A1A1A] font-bold text-xs sm:text-sm">
+                                    1. Main Banner Image (Device Upload or URL)
+                                  </label>
+                                  <p className="text-[11px] text-[#666666]">
+                                    Upload artwork from phone/PC. Stored in Cloudflare R2 media storage.
+                                  </p>
+                                </div>
+                                {bannerDimensions && (
+                                  <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full font-semibold">
+                                    📐 Dimensions: {bannerDimensions.width} × {bannerDimensions.height} px ({bannerDimensions.ratio})
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-3 pt-1">
+                                <label className="cursor-pointer px-4 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition active:scale-95">
+                                  {uploadingImage ? (
+                                    <>
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                      <span>Uploading to R2...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Upload className="w-4 h-4" />
+                                      <span>{editingBanner.image ? 'Replace Main Banner Image' : 'Upload Image from Device'}</span>
+                                    </>
+                                  )}
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp,image/svg+xml,image/gif,image/avif,image/*"
+                                    disabled={uploadingImage}
+                                    onChange={async e => {
+                                      const file = e.target.files?.[0];
+                                      if (!file) return;
+                                      setBannerUploadError(null);
+                                      if (!file.type.startsWith('image/')) {
+                                        const err = 'Invalid file type: Please select an image (JPG, PNG, WebP, SVG, AVIF).';
+                                        setBannerUploadError(err);
+                                        showToast(err);
+                                        return;
+                                      }
+                                      if (file.size > 15 * 1024 * 1024) {
+                                        const err = 'File size exceeds 15 MB limit. Please upload a smaller image.';
+                                        setBannerUploadError(err);
+                                        showToast(err);
+                                        return;
+                                      }
+                                      setUploadingImage(true);
+                                      try {
+                                        const res = await uploadImage(file);
+                                        setEditingBanner(prev => prev ? { ...prev, image: res.url, bannerType: 'main' } : null);
+                                        showToast('Main banner uploaded successfully!');
+                                      } catch (err: any) {
+                                        const msg = err?.message || 'Upload failed.';
+                                        setBannerUploadError(msg);
+                                        showToast(msg);
+                                      } finally {
+                                        setUploadingImage(false);
+                                        e.target.value = '';
+                                      }
+                                    }}
+                                    className="hidden"
+                                  />
+                                </label>
+
+                                <div className="flex-1 min-w-[220px] flex items-center gap-2">
+                                  <span className="text-[#666666] text-xs font-medium whitespace-nowrap">URL:</span>
+                                  <input
+                                    type="text"
+                                    value={editingBanner.image || ''}
+                                    onChange={e => setEditingBanner({ ...editingBanner, image: e.target.value, bannerType: 'main' })}
+                                    placeholder="https://..."
+                                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono focus:outline-none focus:border-[#C89211]"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 2. TEXT CONTENT & HEADLINES */}
+                            <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
+                              <label className="block text-[#1A1A1A] font-bold text-xs sm:text-sm">
+                                2. Banner Text &amp; Headings (Optional)
                               </label>
-                              {editingBanner.image && (
-                                <img src={editingBanner.image} alt="" className="w-20 h-10 object-cover rounded border border-stone-700" />
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                                <div>
+                                  <label className="block text-[#1A1A1A] mb-1 font-semibold text-xs">Pill Tag / Badge</label>
+                                  <input
+                                    type="text"
+                                    value={editingBanner.badge || ''}
+                                    onChange={e => setEditingBanner({ ...editingBanner, badge: e.target.value })}
+                                    placeholder="e.g. Direct From Manufacturer"
+                                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
+                                  />
+                                </div>
+                                <div className="sm:col-span-2">
+                                  <label className="block text-[#1A1A1A] mb-1 font-semibold text-xs">Main Headline / Title</label>
+                                  <input
+                                    type="text"
+                                    value={editingBanner.title || ''}
+                                    onChange={e => setEditingBanner({ ...editingBanner, title: e.target.value })}
+                                    placeholder="e.g. Direct From Manufacturer: Premium Sagwan Wood Doors"
+                                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-[#1A1A1A] mb-1 font-semibold text-xs">Subtitle / Description</label>
+                                <textarea
+                                  rows={2}
+                                  value={editingBanner.subtitle || ''}
+                                  onChange={e => setEditingBanner({ ...editingBanner, subtitle: e.target.value })}
+                                  placeholder="e.g. Precision Handcrafted, Seasoned Timber & Transparent Square Feet Pricing"
+                                  className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
+                                />
+                              </div>
+                            </div>
+
+                            {/* 3. BUTTON LABEL & DESTINATION LINK */}
+                            <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
+                              <label className="block text-[#1A1A1A] font-bold text-xs sm:text-sm">
+                                3. Call to Action Button &amp; Link
+                              </label>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                                <div>
+                                  <label className="block text-[#1A1A1A] mb-1 font-semibold text-xs">Button Label (CTA)</label>
+                                  <input
+                                    type="text"
+                                    value={editingBanner.buttonText || ''}
+                                    onChange={e => setEditingBanner({ ...editingBanner, buttonText: e.target.value })}
+                                    placeholder="e.g. Calculate Door Price, Explore Designs"
+                                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[#1A1A1A] mb-1 font-semibold text-xs">Destination Route or URL</label>
+                                  <input
+                                    type="text"
+                                    value={editingBanner.destinationUrl || ''}
+                                    onChange={e => setEditingBanner({ ...editingBanner, destinationUrl: e.target.value, buttonAction: e.target.value })}
+                                    placeholder="e.g. calculator, gallery, whatsapp, https://..."
+                                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono text-xs focus:outline-none focus:border-[#C89211]"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 pt-1">
+                                <label className="text-[#1A1A1A] font-semibold flex items-center gap-2 cursor-pointer select-none text-xs">
+                                  <input
+                                    type="checkbox"
+                                    checked={editingBanner.openInNewTab === true}
+                                    onChange={e => setEditingBanner({ ...editingBanner, openInNewTab: e.target.checked })}
+                                    className="w-4 h-4 rounded text-[#C89211] accent-amber-500"
+                                  />
+                                  <span>Open destination link in a new browser tab</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* 4. SORT ORDER & ACTIVE */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                              <div>
+                                <label className="block text-[#1A1A1A] mb-1 font-semibold text-xs">Slide Order</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={editingBanner.order ?? 1}
+                                  onChange={e => setEditingBanner({ ...editingBanner, order: Number(e.target.value) })}
+                                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
+                                />
+                              </div>
+                              <div className="flex items-center sm:pt-5">
+                                <label className="text-[#1A1A1A] font-semibold flex items-center gap-2 cursor-pointer select-none text-xs">
+                                  <input
+                                    type="checkbox"
+                                    checked={editingBanner.active !== false}
+                                    onChange={e => setEditingBanner({ ...editingBanner, active: e.target.checked })}
+                                    className="w-4 h-4 rounded text-[#C89211] accent-amber-500"
+                                  />
+                                  <span className={editingBanner.active !== false ? 'text-emerald-600 font-bold' : 'text-stone-500'}>
+                                    {editingBanner.active !== false ? 'Active in Main Carousel' : 'Disabled (Draft)'}
+                                  </span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* 5. LIVE HERO PREVIEW */}
+                            <div className="pt-2">
+                              <label className="block text-[#1A1A1A] font-bold text-xs mb-1">
+                                Main Hero Banner Live Preview
+                              </label>
+                              <div className="relative w-full h-[180px] sm:h-[240px] rounded-xl bg-stone-900 border-2 border-dashed border-[#C89211]/50 flex items-center justify-center overflow-hidden">
+                                {editingBanner.image ? (
+                                  <>
+                                    <img
+                                      src={editingBanner.image}
+                                      alt="Preview"
+                                      className="w-full h-full object-cover object-center block"
+                                    />
+                                    {/* Overlay Gradient */}
+                                    {(editingBanner.title || editingBanner.buttonText) && (
+                                      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
+                                    )}
+                                    {/* Text Overlay */}
+                                    <div className="absolute inset-0 p-4 sm:p-6 flex flex-col justify-end">
+                                      {editingBanner.badge && (
+                                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-semibold w-fit mb-1 border border-amber-500/30">
+                                          <Sparkles className="w-3 h-3 text-amber-400" />
+                                          <span>{editingBanner.badge}</span>
+                                        </div>
+                                      )}
+                                      {editingBanner.title && (
+                                        <h3 className="font-serif text-base sm:text-xl font-bold text-white drop-shadow">
+                                          {editingBanner.title}
+                                        </h3>
+                                      )}
+                                      {editingBanner.subtitle && (
+                                        <p className="text-white/80 text-[11px] sm:text-xs line-clamp-2 mt-0.5 max-w-lg">
+                                          {editingBanner.subtitle}
+                                        </p>
+                                      )}
+                                      {editingBanner.buttonText && (
+                                        <div className="mt-2">
+                                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#C89211] text-white font-bold text-[11px]">
+                                            {editingBanner.buttonText}
+                                            <ArrowRight className="w-3 h-3" />
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <span className="text-stone-400 text-xs">No main banner image uploaded yet</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex justify-end gap-3 pt-3 border-t border-[#E5E5E5]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBanner(null);
+                                setBannerUploadError(null);
+                              }}
+                              className="px-4 py-2.5 rounded-xl bg-[#F8F8F6] text-[#1A1A1A] font-semibold transition cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const image = (editingBanner.image || '').trim();
+                                if (!image) {
+                                  alert('Please upload or enter a main banner image.');
+                                  return;
+                                }
+                                const payload: Partial<HomeBanner> = {
+                                  ...editingBanner,
+                                  bannerType: 'main',
+                                  slot: 'hero',
+                                  title: (editingBanner.title || '').trim() || `Main Banner #${editingBanner.order || mainBannersList.length + 1}`,
+                                  subtitle: (editingBanner.subtitle || '').trim(),
+                                  badge: (editingBanner.badge || '').trim(),
+                                  buttonText: (editingBanner.buttonText || '').trim(),
+                                  buttonAction: (editingBanner.destinationUrl || editingBanner.buttonAction || '').trim(),
+                                  image,
+                                  destinationUrl: (editingBanner.destinationUrl || editingBanner.buttonAction || '').trim(),
+                                  openInNewTab: Boolean(editingBanner.openInNewTab),
+                                  order: Number(editingBanner.order) || mainBannersList.length + 1,
+                                  active: editingBanner.active !== false,
+                                };
+                                try {
+                                  if (editingBanner.id) {
+                                    await updateBanner(editingBanner.id, payload);
+                                  } else {
+                                    await createBanner(payload);
+                                  }
+                                  setEditingBanner(null);
+                                  setBannerUploadError(null);
+                                  loadData();
+                                  onDataUpdated();
+                                  showToast('Main banner saved successfully!');
+                                } catch (err: any) {
+                                  alert(err.message || 'Failed to save main banner');
+                                }
+                              }}
+                              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold text-xs sm:text-sm shadow-md transition active:scale-95 cursor-pointer flex items-center gap-2"
+                            >
+                              <Check className="w-4 h-4" />
+                              <span>Save Main Banner</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Main Banners List */}
+                      <div className="space-y-3">
+                        {mainBannersList.map((b, idx, arr) => (
+                          <div
+                            key={b.id || idx}
+                            className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs ${
+                              b.active !== false ? 'bg-white border-[#E5E5E5] shadow-sm' : 'bg-white border-[#E5E5E5] opacity-60'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                              <span className="w-8 h-8 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex items-center justify-center font-mono font-bold text-[#C89211] shrink-0">
+                                #{b.order || idx + 1}
+                              </span>
+                              <div className="w-32 sm:w-44 h-16 sm:h-20 rounded-xl overflow-hidden bg-stone-900 border border-[#E5E5E5] shrink-0 flex items-center justify-center p-1">
+                                <img src={b.image} alt={b.title || 'Main Banner'} className="max-w-full max-h-full object-contain block" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <span className="font-bold text-[#1A1A1A] text-sm block truncate">{b.title || `Main Banner #${b.order || idx + 1}`}</span>
+                                <div className="text-[11px] text-[#666666] mt-1 flex flex-wrap items-center gap-2">
+                                  {b.destinationUrl ? (
+                                    <span className="font-mono text-[#C89211] font-semibold bg-[#FFF7E3] px-2 py-0.5 rounded border border-[#C89211]/30">
+                                      🔗 {b.destinationUrl}
+                                    </span>
+                                  ) : (
+                                    <span className="text-stone-500 bg-stone-100 px-2 py-0.5 rounded font-medium">Non-Clickable</span>
+                                  )}
+                                  <span>•</span>
+                                  <span className={b.active !== false ? 'text-emerald-600 font-semibold' : 'text-stone-500'}>
+                                    {b.active !== false ? 'Active' : 'Disabled'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={async () => {
+                                  if (idx === 0) return;
+                                  const prev = arr[idx - 1];
+                                  await updateBanner(b.id, { order: prev.order || idx });
+                                  await updateBanner(prev.id, { order: b.order || idx + 1 });
+                                  loadData();
+                                  onDataUpdated();
+                                }}
+                                className="p-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] disabled:opacity-30 cursor-pointer"
+                                title="Move Up"
+                              >
+                                <ArrowUp className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === arr.length - 1}
+                                onClick={async () => {
+                                  if (idx === arr.length - 1) return;
+                                  const next = arr[idx + 1];
+                                  await updateBanner(b.id, { order: next.order || idx + 2 });
+                                  await updateBanner(next.id, { order: b.order || idx + 1 });
+                                  loadData();
+                                  onDataUpdated();
+                                }}
+                                className="p-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] disabled:opacity-30 cursor-pointer"
+                                title="Move Down"
+                              >
+                                <ArrowDown className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await updateBanner(b.id, { active: b.active === false ? true : false });
+                                  loadData();
+                                  onDataUpdated();
+                                }}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                                  b.active !== false ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-[#F8F8F6] text-[#666666] border-[#E5E5E5]'
+                                }`}
+                              >
+                                {b.active !== false ? 'Enabled' : 'Disabled'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingBanner({ ...b, bannerType: 'main' })}
+                                className="p-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] cursor-pointer"
+                                title="Edit Main Banner"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (confirm(`Delete main banner "${b.title || 'Untitled'}"?`)) {
+                                    await deleteBanner(b.id);
+                                    loadData();
+                                    onDataUpdated();
+                                    showToast('Main banner deleted successfully');
+                                  }
+                                }}
+                                className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 cursor-pointer"
+                                title="Delete Main Banner"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 7B. PROMOTION BANNER MANAGEMENT - INDEPENDENT SLOT A & SLOT B */}
+                {activeTab === 'promotion-banners' && (() => {
+                  const allPromoBanners = banners
+                    .filter(b => b.bannerType === 'promotion' || (b.slot && b.slot !== 'hero' && b.slot !== 'main'))
+                    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+
+                  const slotABanners = allPromoBanners.filter(b => b.slot === 'slot_1' || b.slot === 'slot_a');
+                  const slotBBanners = allPromoBanners.filter(b => b.slot === 'slot_2' || b.slot === 'slot_b');
+                  const otherPromoBanners = allPromoBanners.filter(
+                    b => b.slot !== 'slot_1' && b.slot !== 'slot_a' && b.slot !== 'slot_2' && b.slot !== 'slot_b'
+                  );
+
+                  // Primary active/first banner for each slot
+                  const primaryBannerA = slotABanners[0] || null;
+                  const primaryBannerB = slotBBanners[0] || null;
+
+                  return (
+                    <div className="space-y-8">
+                      {/* Section Header */}
+                      <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E5E5E5] shadow-sm">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <h3 className="font-serif text-xl sm:text-2xl font-bold text-[#1A1A1A] flex items-center gap-2.5">
+                              <Sparkles className="w-5 h-5 text-[#C89211]" />
+                              <span>Homepage Promotional Banners</span>
+                            </h3>
+                            <p className="text-xs text-[#666666] mt-1 max-w-3xl leading-relaxed">
+                              Manage the <strong>two independent promotional banner slots</strong> on your homepage. Each slot has its own isolated image upload, clickable destination URL, and enable/disable toggle. Changes to one slot never affect the other.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 shrink-0">
+                            <span className="text-xs px-3 py-1 rounded-full bg-[#FFF7E3] text-[#C89211] font-bold border border-[#C89211]/30">
+                              Slot A: {slotABanners.length} slide{slotABanners.length === 1 ? '' : 's'}
+                            </span>
+                            <span className="text-xs px-3 py-1 rounded-full bg-[#FFF7E3] text-[#C89211] font-bold border border-[#C89211]/30">
+                              Slot B: {slotBBanners.length} slide{slotBBanners.length === 1 ? '' : 's'}
+                            </span>
+                            {otherPromoBanners.length > 0 && (
+                              <span className="text-xs px-3 py-1 rounded-full bg-amber-50 text-amber-800 font-bold border border-amber-300">
+                                Unassigned: {otherPromoBanners.length}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Edit / Add Modal (for specific slide details) */}
+                      {editingBanner && (editingBanner.bannerType === 'promotion' || activeTab === 'promotion-banners') && (
+                        <div className="p-4 sm:p-6 rounded-2xl bg-white border-2 border-[#C89211] space-y-5 text-xs shadow-2xl animate-in fade-in duration-200">
+                          <div className="flex justify-between items-center font-bold text-[#C89211] border-b border-[#E5E5E5] pb-3">
+                            <div className="flex items-center gap-2">
+                              <Sparkles className="w-5 h-5 text-[#C89211]" />
+                              <span className="text-base font-serif text-[#1A1A1A]">
+                                {editingBanner.id ? 'Edit Promotional Slide' : 'Add New Promotional Slide'}
+                              </span>
+                              <span className="text-[11px] px-2 py-0.5 rounded bg-[#FFF7E3] text-[#C89211] font-bold uppercase">
+                                {editingBanner.slot === 'slot_2' || editingBanner.slot === 'slot_b' ? 'Banner Slot B' : 'Banner Slot A'}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBanner(null);
+                                setBannerUploadError(null);
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-[#F8F8F6] text-[#666666] hover:text-[#1A1A1A] transition-colors cursor-pointer"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {bannerUploadError && (
+                            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-2.5">
+                              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                              <div className="flex-1">
+                                <strong className="font-semibold block text-xs">Upload Error</strong>
+                                <span className="text-xs">{bannerUploadError}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setBannerUploadError(null)}
+                                className="text-rose-400 hover:text-rose-700 font-bold text-xs p-1 cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="space-y-4">
+                            {/* Upload Image */}
+                            <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div>
+                                  <label className="block text-[#1A1A1A] font-bold text-xs sm:text-sm">
+                                    Promotional Banner Image (Phone/PC or URL)
+                                  </label>
+                                  <p className="text-[11px] text-[#666666]">
+                                    Upload complete promotional graphic (recommended ratio: ~3:1, e.g. 1500 × 500 px). Stored permanently in Cloudflare R2 / Server storage.
+                                  </p>
+                                </div>
+                                {bannerDimensions && (
+                                  <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full font-semibold">
+                                    📐 {bannerDimensions.width} × {bannerDimensions.height} px ({bannerDimensions.ratio})
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-3 pt-1">
+                                <label className="cursor-pointer px-4 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition active:scale-95">
+                                  {uploadingImage ? (
+                                    <>
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                      <span>Uploading to R2...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Upload className="w-4 h-4" />
+                                      <span>{editingBanner.image ? 'Replace Image' : 'Upload Image from Device'}</span>
+                                    </>
+                                  )}
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp,image/svg+xml,image/gif,image/avif,image/*"
+                                    disabled={uploadingImage}
+                                    onChange={async e => {
+                                      const file = e.target.files?.[0];
+                                      if (!file) return;
+                                      setBannerUploadError(null);
+                                      if (!file.type.startsWith('image/')) {
+                                        const err = 'Invalid file type: Please select an image (JPG, PNG, WebP, SVG, AVIF).';
+                                        setBannerUploadError(err);
+                                        showToast(err);
+                                        return;
+                                      }
+                                      if (file.size > 15 * 1024 * 1024) {
+                                        const err = 'File size exceeds 15 MB limit. Please upload a smaller image.';
+                                        setBannerUploadError(err);
+                                        showToast(err);
+                                        return;
+                                      }
+                                      setUploadingImage(true);
+                                      try {
+                                        const res = await uploadImage(file);
+                                        setEditingBanner(prev => prev ? { ...prev, image: res.url, bannerType: 'promotion' } : null);
+                                        showToast('Promotion banner uploaded successfully!');
+                                      } catch (err: any) {
+                                        const msg = err?.message || 'Upload failed.';
+                                        setBannerUploadError(msg);
+                                        showToast(msg);
+                                      } finally {
+                                        setUploadingImage(false);
+                                        e.target.value = '';
+                                      }
+                                    }}
+                                    className="hidden"
+                                  />
+                                </label>
+
+                                <div className="flex-1 min-w-[220px] flex items-center gap-2">
+                                  <span className="text-[#666666] text-xs font-medium whitespace-nowrap">URL:</span>
+                                  <input
+                                    type="text"
+                                    value={editingBanner.image || ''}
+                                    onChange={e => setEditingBanner({ ...editingBanner, image: e.target.value, bannerType: 'promotion' })}
+                                    placeholder="https://... or /uploads/..."
+                                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono focus:outline-none focus:border-[#C89211]"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Destination URL */}
+                            <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
+                              <label className="block text-[#1A1A1A] font-bold text-xs sm:text-sm">
+                                Clickable Destination Link (Optional)
+                              </label>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                                <input
+                                  type="text"
+                                  value={editingBanner.destinationUrl || ''}
+                                  onChange={e => setEditingBanner({ ...editingBanner, destinationUrl: e.target.value })}
+                                  placeholder="e.g. gallery, calculator, whatsapp, or https://..."
+                                  className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono text-xs focus:outline-none focus:border-[#C89211]"
+                                />
+                                <label className="text-[#1A1A1A] font-semibold flex items-center gap-2 cursor-pointer select-none text-xs">
+                                  <input
+                                    type="checkbox"
+                                    checked={editingBanner.openInNewTab === true}
+                                    onChange={e => setEditingBanner({ ...editingBanner, openInNewTab: e.target.checked })}
+                                    className="w-4 h-4 rounded text-[#C89211] accent-amber-500"
+                                  />
+                                  <span>Open link in new browser tab</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* Slot Assignment, Internal Title, Order, Active Toggle */}
+                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5">
+                              <div>
+                                <label className="block text-[#1A1A1A] mb-1 font-semibold text-xs">Slot Assignment</label>
+                                <select
+                                  value={editingBanner.slot === 'slot_2' || editingBanner.slot === 'slot_b' ? 'slot_2' : 'slot_1'}
+                                  onChange={e => setEditingBanner({ ...editingBanner, slot: e.target.value as any })}
+                                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] font-semibold text-xs focus:outline-none focus:border-[#C89211]"
+                                >
+                                  <option value="slot_1">Banner A (Below Popular Categories)</option>
+                                  <option value="slot_2">Banner B (Below Trust Badges)</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[#1A1A1A] mb-1 font-semibold text-xs">Slide Label / Title</label>
+                                <input
+                                  type="text"
+                                  value={editingBanner.title || ''}
+                                  onChange={e => setEditingBanner({ ...editingBanner, title: e.target.value })}
+                                  placeholder="e.g. Teak Door Offer"
+                                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[#1A1A1A] mb-1 font-semibold text-xs">Sort Order</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={editingBanner.order ?? 1}
+                                  onChange={e => setEditingBanner({ ...editingBanner, order: Number(e.target.value) })}
+                                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
+                                />
+                              </div>
+                              <div className="flex items-center sm:pt-5">
+                                <label className="text-[#1A1A1A] font-semibold flex items-center gap-2 cursor-pointer select-none text-xs">
+                                  <input
+                                    type="checkbox"
+                                    checked={editingBanner.active !== false}
+                                    onChange={e => setEditingBanner({ ...editingBanner, active: e.target.checked })}
+                                    className="w-4 h-4 rounded text-[#C89211] accent-amber-500"
+                                  />
+                                  <span className={editingBanner.active !== false ? 'text-emerald-600 font-bold' : 'text-stone-500'}>
+                                    {editingBanner.active !== false ? 'Active' : 'Disabled'}
+                                  </span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* Live Preview */}
+                            <div className="pt-2">
+                              <label className="block text-[#1A1A1A] font-bold text-xs mb-1">
+                                Full-Width Card Preview (Matches Uploaded Aspect Ratio)
+                              </label>
+                              <div
+                                className="relative w-full rounded-xl bg-stone-100 border-2 border-dashed border-[#C89211]/50 overflow-hidden flex items-center justify-center max-h-[220px]"
+                                style={{
+                                  aspectRatio: bannerDimensions && bannerDimensions.width && bannerDimensions.height
+                                    ? `${bannerDimensions.width / bannerDimensions.height}`
+                                    : '3 / 1',
+                                }}
+                              >
+                                {editingBanner.image ? (
+                                  <img
+                                    src={editingBanner.image}
+                                    alt="Preview"
+                                    className="w-full h-full object-cover block"
+                                  />
+                                ) : (
+                                  <span className="text-stone-400 text-xs py-8">No banner image uploaded yet</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Modal Actions */}
+                          <div className="flex flex-wrap justify-between items-center gap-3 pt-3 border-t border-[#E5E5E5]">
+                            <div>
+                              {editingBanner.id && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (confirm(`Are you sure you want to permanently delete banner "${editingBanner.title || 'Untitled'}" (ID: ${editingBanner.id})? This cannot be undone.`)) {
+                                      try {
+                                        await deleteBanner(editingBanner.id);
+                                        setBanners(prev => prev.filter(b => b.id !== editingBanner.id));
+                                        setEditingBanner(null);
+                                        setBannerUploadError(null);
+                                        loadData();
+                                        onDataUpdated();
+                                        showToast('Promotional banner deleted successfully');
+                                      } catch (err: any) {
+                                        alert(err.message || 'Failed to delete banner');
+                                      }
+                                    }
+                                  }}
+                                  className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                                  title="Delete this banner permanently"
+                                >
+                                  <Trash2 className="w-4 h-4 text-rose-600" />
+                                  <span>Delete Banner</span>
+                                </button>
                               )}
                             </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-stone-300 mb-1">Button Label</label>
-                              <input
-                                type="text"
-                                value={editingBanner.buttonText || ''}
-                                onChange={e => setEditingBanner({ ...editingBanner, buttonText: e.target.value })}
-                                className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-stone-300 mb-1">Button Action</label>
-                              <select
-                                value={editingBanner.buttonAction || 'calculator'}
-                                onChange={e => setEditingBanner({ ...editingBanner, buttonAction: e.target.value })}
-                                className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingBanner(null);
+                                  setBannerUploadError(null);
+                                }}
+                                className="px-4 py-2.5 rounded-xl bg-[#F8F8F6] text-[#1A1A1A] font-semibold transition cursor-pointer"
                               >
-                                <option value="calculator">Open Price Calculator</option>
-                                <option value="gallery">Open Door Gallery</option>
-                                <option value="whatsapp">Open WhatsApp Enquiry</option>
-                              </select>
-                            </div>
+                                Cancel
+                              </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const image = (editingBanner.image || '').trim();
+                                if (!image) {
+                                  alert('Please upload or enter a promotion banner image.');
+                                  return;
+                                }
+                                const targetSlot = editingBanner.slot === 'slot_2' || editingBanner.slot === 'slot_b' ? 'slot_2' : 'slot_1';
+                                const payload: Partial<HomeBanner> = {
+                                  ...editingBanner,
+                                  bannerType: 'promotion',
+                                  slot: targetSlot,
+                                  title: (editingBanner.title || '').trim() || `Promotion Banner (${targetSlot === 'slot_1' ? 'Slot A' : 'Slot B'})`,
+                                  image,
+                                  destinationUrl: (editingBanner.destinationUrl || '').trim(),
+                                  openInNewTab: Boolean(editingBanner.openInNewTab),
+                                  order: Number(editingBanner.order) || 1,
+                                  active: editingBanner.active !== false,
+                                };
+                                try {
+                                  if (editingBanner.id) {
+                                    await updateBanner(editingBanner.id, payload);
+                                  } else {
+                                    await createBanner(payload);
+                                  }
+                                  setEditingBanner(null);
+                                  setBannerUploadError(null);
+                                  loadData();
+                                  onDataUpdated();
+                                  showToast('Promotional slide saved successfully!');
+                                } catch (err: any) {
+                                  alert(err.message || 'Failed to save promotional slide');
+                                }
+                              }}
+                              className="px-6 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs sm:text-sm shadow-md transition active:scale-95 cursor-pointer flex items-center gap-2"
+                            >
+                              <Check className="w-4 h-4" />
+                              <span>Save Promotional Slide</span>
+                            </button>
                           </div>
-                        </div>
-
-                        <div className="flex justify-end gap-2 pt-2 border-t border-stone-700">
-                          <button onClick={() => setEditingBanner(null)} className="px-3 py-1.5 rounded bg-stone-700 text-stone-300">Cancel</button>
-                          <button
-                            onClick={async () => {
-                              if (!editingBanner.title) return;
-                              if (editingBanner.id) {
-                                await updateBanner(editingBanner.id, editingBanner);
-                              } else {
-                                await createBanner(editingBanner);
-                              }
-                              setEditingBanner(null);
-                              loadData();
-                              onDataUpdated();
-                              showToast('Banner saved');
-                            }}
-                            className="px-4 py-1.5 rounded bg-amber-600 text-stone-950 font-bold"
-                          >
-                            Save Banner
-                          </button>
                         </div>
                       </div>
                     )}
 
-                    {/* Banner cards */}
-                    <div className="space-y-3">
-                      {banners.map(b => (
-                        <div key={b.id} className="p-3 rounded-xl bg-stone-800 border border-stone-700 flex items-center justify-between gap-3 text-xs">
-                          <div className="flex items-center gap-3">
-                            <img src={b.image} alt="" className="w-24 h-14 object-cover rounded bg-stone-900 border border-stone-700" />
-                            <div>
-                              <div className="font-bold text-stone-100">{b.title}</div>
-                              <div className="text-stone-400 text-[11px] line-clamp-1">{b.subtitle}</div>
-                              <div className="text-amber-400 text-[10px] mt-0.5 font-medium">Button: "{b.buttonText}" → {b.buttonAction}</div>
+                      {/* ========================================================================= */}
+                      {/* SLOT A: UPPER PROMOTIONAL BANNER (BELOW POPULAR CATEGORIES) */}
+                      {/* ========================================================================= */}
+                      <div className="p-5 sm:p-6 rounded-2xl bg-white border border-[#E5E5E5] shadow-sm space-y-5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[#E5E5E5] gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] font-bold flex items-center justify-center text-xs border border-[#C89211]/30">
+                                A
+                              </span>
+                              <h4 className="font-serif text-lg font-bold text-[#1A1A1A]">
+                                Promotional Banner A (Upper Slot)
+                              </h4>
+                              {primaryBannerA?.active !== false ? (
+                                <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200">
+                                  ● Active on Homepage
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-600 text-[11px] font-bold border border-stone-200">
+                                  ○ Disabled
+                                </span>
+                              )}
                             </div>
+                            <p className="text-xs text-[#666666] mt-1">
+                              <strong>Position:</strong> Below <em>“Popular Door Categories”</em> and above <em>“Why Indian Homeowners Trust Our Doors”</em>.
+                            </p>
                           </div>
 
-                          <div className="flex items-center gap-1.5">
-                            <button onClick={() => setEditingBanner(b)} className="p-1.5 rounded bg-stone-700 text-stone-200">
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
+                          <div className="flex items-center gap-2">
                             <button
-                              onClick={async () => {
-                                if (confirm('Delete this banner?')) {
-                                  await deleteBanner(b.id);
-                                  loadData();
-                                  onDataUpdated();
-                                  showToast('Banner deleted');
-                                }
+                              type="button"
+                              onClick={() => {
+                                setBannerUploadError(null);
+                                setEditingBanner({
+                                  bannerType: 'promotion',
+                                  slot: 'slot_1',
+                                  title: `Slot A Slide #${slotABanners.length + 1}`,
+                                  image: '',
+                                  destinationUrl: 'gallery',
+                                  openInNewTab: false,
+                                  order: slotABanners.length + 1,
+                                  active: true,
+                                });
                               }}
-                              className="p-1.5 rounded bg-red-900/40 text-red-300"
+                              className="px-3.5 py-2 rounded-xl bg-[#F8F8F6] hover:bg-[#EFEFEF] text-[#1A1A1A] font-semibold text-xs flex items-center gap-1.5 border border-[#E5E5E5] transition cursor-pointer"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Plus className="w-3.5 h-3.5 text-[#C89211]" />
+                              <span>+ Add Slide to Banner A</span>
                             </button>
                           </div>
                         </div>
-                      ))}
+
+                        {/* Banner A Direct Control Card */}
+                        {primaryBannerA ? (
+                          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                            {/* Visual Preview */}
+                            <div className="lg:col-span-5 space-y-2">
+                              <div className="relative w-full rounded-xl overflow-hidden bg-stone-100 border border-[#E5E5E5] shadow-xs group aspect-[3/1] max-h-[160px] flex items-center justify-center">
+                                <img
+                                  src={primaryBannerA.image}
+                                  alt={primaryBannerA.title || 'Banner A'}
+                                  className="w-full h-full object-cover block"
+                                />
+                                {primaryBannerA.destinationUrl && (
+                                  <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/60 backdrop-blur-xs text-white text-[10px] font-mono">
+                                    🔗 {primaryBannerA.destinationUrl}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-[#666666] flex items-center justify-between px-1">
+                                <span className="truncate max-w-[220px]" title={primaryBannerA.image}>
+                                  Source: {primaryBannerA.image}
+                                </span>
+                                <span className="font-semibold text-[#C89211]">
+                                  {slotABanners.length} slide{slotABanners.length === 1 ? '' : 's'} in Slot A
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Slot A Direct Controls Form */}
+                            <div className="lg:col-span-7 space-y-3.5 text-xs">
+                              {/* Direct Upload / Replace */}
+                              <div>
+                                <label className="block text-[#1A1A1A] font-bold mb-1">
+                                  1. Upload / Replace Banner A Image
+                                </label>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <label className="cursor-pointer px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95">
+                                    {uploadingImage ? (
+                                      <>
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Uploading...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Upload className="w-3.5 h-3.5" />
+                                        <span>Upload New Image</span>
+                                      </>
+                                    )}
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      disabled={uploadingImage}
+                                      onChange={async e => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        setUploadingImage(true);
+                                        try {
+                                          const res = await uploadImage(file);
+                                          await updateSlotBanner('slot_1', { image: res.url });
+                                          loadData();
+                                          onDataUpdated();
+                                          showToast('Banner A image updated successfully!');
+                                        } catch (err: any) {
+                                          showToast(err?.message || 'Upload failed');
+                                        } finally {
+                                          setUploadingImage(false);
+                                          e.target.value = '';
+                                        }
+                                      }}
+                                      className="hidden"
+                                    />
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={primaryBannerA.image}
+                                    onChange={async e => {
+                                      const newImg = e.target.value;
+                                      await updateSlotBanner('slot_1', { image: newImg });
+                                      loadData();
+                                      onDataUpdated();
+                                    }}
+                                    placeholder="Image URL..."
+                                    className="flex-1 min-w-[200px] px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] font-mono text-[11px] focus:outline-none focus:border-[#C89211]"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Destination Link */}
+                              <div>
+                                <label className="block text-[#1A1A1A] font-bold mb-1">
+                                  2. Destination Link & Target
+                                </label>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={primaryBannerA.destinationUrl || ''}
+                                    onChange={async e => {
+                                      const url = e.target.value;
+                                      await updateSlotBanner('slot_1', { destinationUrl: url });
+                                      loadData();
+                                      onDataUpdated();
+                                    }}
+                                    placeholder="e.g. gallery, calculator, https://..."
+                                    className="flex-1 min-w-[180px] px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] font-mono text-xs focus:outline-none focus:border-[#C89211]"
+                                  />
+                                  <label className="flex items-center gap-1.5 cursor-pointer font-semibold select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={primaryBannerA.openInNewTab === true}
+                                      onChange={async e => {
+                                        await updateSlotBanner('slot_1', { openInNewTab: e.target.checked });
+                                        loadData();
+                                        onDataUpdated();
+                                      }}
+                                      className="w-4 h-4 rounded text-[#C89211] accent-amber-500"
+                                    />
+                                    <span>Open in New Tab</span>
+                                  </label>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-[#666666]">
+                                  <span>Quick Links:</span>
+                                  {['gallery', 'calculator', 'whatsapp', 'chaukhat-calculator'].map(link => (
+                                    <button
+                                      key={link}
+                                      type="button"
+                                      onClick={async () => {
+                                        await updateSlotBanner('slot_1', { destinationUrl: link });
+                                        loadData();
+                                        onDataUpdated();
+                                        showToast(`Banner A destination set to "${link}"`);
+                                      }}
+                                      className="px-2 py-0.5 rounded bg-stone-100 hover:bg-[#FFF7E3] hover:text-[#C89211] transition-colors cursor-pointer"
+                                    >
+                                      {link}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Active Status & Edit Slide */}
+                              <div className="flex items-center justify-between pt-2 border-t border-[#E5E5E5]">
+                                <label className="flex items-center gap-2 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={primaryBannerA.active !== false}
+                                    onChange={async e => {
+                                      await updateSlotBanner('slot_1', { active: e.target.checked });
+                                      loadData();
+                                      onDataUpdated();
+                                      showToast(e.target.checked ? 'Banner A Enabled' : 'Banner A Disabled');
+                                    }}
+                                    className="w-4 h-4 rounded text-[#C89211] accent-amber-500"
+                                  />
+                                  <span className={primaryBannerA.active !== false ? 'text-emerald-600 font-bold' : 'text-stone-500 font-medium'}>
+                                    {primaryBannerA.active !== false ? 'Slot A is Visible on Homepage' : 'Slot A is Hidden (Disabled)'}
+                                  </span>
+                                </label>
+
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingBanner(primaryBannerA)}
+                                    className="px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] font-semibold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <span>Edit Slide Details</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (confirm(`Are you sure you want to permanently delete Promotional Banner A ("${primaryBannerA.title || 'Untitled'}")?`)) {
+                                        try {
+                                          await deleteBanner(primaryBannerA.id);
+                                          setBanners(prev => prev.filter(b => b.id !== primaryBannerA.id));
+                                          loadData();
+                                          onDataUpdated();
+                                          showToast('Banner A deleted successfully');
+                                        } catch (err: any) {
+                                          showToast(`Delete failed: ${err.message}`);
+                                        }
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                                    title="Delete Banner A"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Delete Banner</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-8 rounded-xl bg-[#F8F8F6] border-2 border-dashed border-[#E5E5E5] text-center space-y-3">
+                            <ImageIcon className="w-8 h-8 text-stone-400 mx-auto" />
+                            <p className="text-xs text-stone-500">No banner currently assigned to Slot A.</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBanner({
+                                  bannerType: 'promotion',
+                                  slot: 'slot_1',
+                                  title: 'Promotion Banner A',
+                                  image: '',
+                                  destinationUrl: 'gallery',
+                                  openInNewTab: false,
+                                  order: 1,
+                                  active: true,
+                                });
+                              }}
+                              className="px-4 py-2 rounded-xl bg-[#C89211] text-white font-bold text-xs"
+                            >
+                              Assign Banner to Slot A
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Slides in Slot A */}
+                        {slotABanners.length > 0 && (
+                          <div className="pt-3 border-t border-[#E5E5E5] space-y-2">
+                            <span className="text-xs font-bold text-[#1A1A1A] block">
+                              All Slides in Slot A ({slotABanners.length}) — {slotABanners.length > 1 ? 'auto-rotates every 4.5s' : 'active promotional banner'}
+                            </span>
+                            <div className="space-y-1.5">
+                              {slotABanners.map((b, idx) => (
+                                <div key={b.id || idx} className="p-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex items-center justify-between gap-3 text-xs">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <span className="font-mono font-bold text-[#C89211]">#{idx + 1}</span>
+                                    <img src={b.image} alt="" className="w-16 h-8 object-cover rounded border border-[#E5E5E5]" />
+                                    <span className="font-semibold text-[#1A1A1A] truncate">{b.title || `Slide #${idx + 1}`}</span>
+                                    <span className="text-[11px] text-[#666666] hidden sm:inline">🔗 {b.destinationUrl || 'None'}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingBanner(b)}
+                                      className="p-1.5 rounded-lg hover:bg-stone-200 text-[#1A1A1A] cursor-pointer"
+                                      title="Edit Slide"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (confirm(`Delete slide "${b.title || 'Untitled'}" (ID: ${b.id}) from Slot A?`)) {
+                                          try {
+                                            await deleteBanner(b.id);
+                                            setBanners(prev => prev.filter(item => item.id !== b.id));
+                                            loadData();
+                                            onDataUpdated();
+                                            showToast('Slide deleted from Slot A');
+                                          } catch (err: any) {
+                                            showToast(`Delete failed: ${err.message}`);
+                                          }
+                                        }
+                                      }}
+                                      className="p-1.5 rounded-lg hover:bg-rose-100 text-rose-600 cursor-pointer"
+                                      title="Delete Slide"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ========================================================================= */}
+                      {/* SLOT B: LOWER PROMOTIONAL BANNER (BELOW TRUST BADGES) */}
+                      {/* ========================================================================= */}
+                      <div className="p-5 sm:p-6 rounded-2xl bg-white border border-[#E5E5E5] shadow-sm space-y-5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[#E5E5E5] gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] font-bold flex items-center justify-center text-xs border border-[#C89211]/30">
+                                B
+                              </span>
+                              <h4 className="font-serif text-lg font-bold text-[#1A1A1A]">
+                                Promotional Banner B (Lower Slot)
+                              </h4>
+                              {primaryBannerB?.active !== false ? (
+                                <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200">
+                                  ● Active on Homepage
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-600 text-[11px] font-bold border border-stone-200">
+                                  ○ Disabled
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#666666] mt-1">
+                              <strong>Position:</strong> Below <em>“Why Indian Homeowners Trust Our Doors”</em> and above <em>“Our Story & Heritage”</em>.
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBannerUploadError(null);
+                                setEditingBanner({
+                                  bannerType: 'promotion',
+                                  slot: 'slot_2',
+                                  title: `Slot B Slide #${slotBBanners.length + 1}`,
+                                  image: '',
+                                  destinationUrl: 'calculator',
+                                  openInNewTab: false,
+                                  order: slotBBanners.length + 1,
+                                  active: true,
+                                });
+                              }}
+                              className="px-3.5 py-2 rounded-xl bg-[#F8F8F6] hover:bg-[#EFEFEF] text-[#1A1A1A] font-semibold text-xs flex items-center gap-1.5 border border-[#E5E5E5] transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5 text-[#C89211]" />
+                              <span>+ Add Slide to Banner B</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Banner B Direct Control Card */}
+                        {primaryBannerB ? (
+                          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                            {/* Visual Preview */}
+                            <div className="lg:col-span-5 space-y-2">
+                              <div className="relative w-full rounded-xl overflow-hidden bg-stone-100 border border-[#E5E5E5] shadow-xs group aspect-[3/1] max-h-[160px] flex items-center justify-center">
+                                <img
+                                  src={primaryBannerB.image}
+                                  alt={primaryBannerB.title || 'Banner B'}
+                                  className="w-full h-full object-cover block"
+                                />
+                                {primaryBannerB.destinationUrl && (
+                                  <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/60 backdrop-blur-xs text-white text-[10px] font-mono">
+                                    🔗 {primaryBannerB.destinationUrl}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-[#666666] flex items-center justify-between px-1">
+                                <span className="truncate max-w-[220px]" title={primaryBannerB.image}>
+                                  Source: {primaryBannerB.image}
+                                </span>
+                                <span className="font-semibold text-[#C89211]">
+                                  {slotBBanners.length} slide{slotBBanners.length === 1 ? '' : 's'} in Slot B
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Slot B Direct Controls Form */}
+                            <div className="lg:col-span-7 space-y-3.5 text-xs">
+                              {/* Direct Upload / Replace */}
+                              <div>
+                                <label className="block text-[#1A1A1A] font-bold mb-1">
+                                  1. Upload / Replace Banner B Image
+                                </label>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <label className="cursor-pointer px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95">
+                                    {uploadingImage ? (
+                                      <>
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Uploading...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Upload className="w-3.5 h-3.5" />
+                                        <span>Upload New Image</span>
+                                      </>
+                                    )}
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      disabled={uploadingImage}
+                                      onChange={async e => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        setUploadingImage(true);
+                                        try {
+                                          const res = await uploadImage(file);
+                                          await updateSlotBanner('slot_2', { image: res.url });
+                                          loadData();
+                                          onDataUpdated();
+                                          showToast('Banner B image updated successfully!');
+                                        } catch (err: any) {
+                                          showToast(err?.message || 'Upload failed');
+                                        } finally {
+                                          setUploadingImage(false);
+                                          e.target.value = '';
+                                        }
+                                      }}
+                                      className="hidden"
+                                    />
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={primaryBannerB.image}
+                                    onChange={async e => {
+                                      const newImg = e.target.value;
+                                      await updateSlotBanner('slot_2', { image: newImg });
+                                      loadData();
+                                      onDataUpdated();
+                                    }}
+                                    placeholder="Image URL..."
+                                    className="flex-1 min-w-[200px] px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] font-mono text-[11px] focus:outline-none focus:border-[#C89211]"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Destination Link */}
+                              <div>
+                                <label className="block text-[#1A1A1A] font-bold mb-1">
+                                  2. Destination Link & Target
+                                </label>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={primaryBannerB.destinationUrl || ''}
+                                    onChange={async e => {
+                                      const url = e.target.value;
+                                      await updateSlotBanner('slot_2', { destinationUrl: url });
+                                      loadData();
+                                      onDataUpdated();
+                                    }}
+                                    placeholder="e.g. calculator, whatsapp, https://..."
+                                    className="flex-1 min-w-[180px] px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] font-mono text-xs focus:outline-none focus:border-[#C89211]"
+                                  />
+                                  <label className="flex items-center gap-1.5 cursor-pointer font-semibold select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={primaryBannerB.openInNewTab === true}
+                                      onChange={async e => {
+                                        await updateSlotBanner('slot_2', { openInNewTab: e.target.checked });
+                                        loadData();
+                                        onDataUpdated();
+                                      }}
+                                      className="w-4 h-4 rounded text-[#C89211] accent-amber-500"
+                                    />
+                                    <span>Open in New Tab</span>
+                                  </label>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-[#666666]">
+                                  <span>Quick Links:</span>
+                                  {['calculator', 'whatsapp', 'gallery', 'contact'].map(link => (
+                                    <button
+                                      key={link}
+                                      type="button"
+                                      onClick={async () => {
+                                        await updateSlotBanner('slot_2', { destinationUrl: link });
+                                        loadData();
+                                        onDataUpdated();
+                                        showToast(`Banner B destination set to "${link}"`);
+                                      }}
+                                      className="px-2 py-0.5 rounded bg-stone-100 hover:bg-[#FFF7E3] hover:text-[#C89211] transition-colors cursor-pointer"
+                                    >
+                                      {link}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Active Status & Edit Slide */}
+                              <div className="flex items-center justify-between pt-2 border-t border-[#E5E5E5]">
+                                <label className="flex items-center gap-2 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={primaryBannerB.active !== false}
+                                    onChange={async e => {
+                                      await updateSlotBanner('slot_2', { active: e.target.checked });
+                                      loadData();
+                                      onDataUpdated();
+                                      showToast(e.target.checked ? 'Banner B Enabled' : 'Banner B Disabled');
+                                    }}
+                                    className="w-4 h-4 rounded text-[#C89211] accent-amber-500"
+                                  />
+                                  <span className={primaryBannerB.active !== false ? 'text-emerald-600 font-bold' : 'text-stone-500 font-medium'}>
+                                    {primaryBannerB.active !== false ? 'Slot B is Visible on Homepage' : 'Slot B is Hidden (Disabled)'}
+                                  </span>
+                                </label>
+
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingBanner(primaryBannerB)}
+                                    className="px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] font-semibold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <span>Edit Slide Details</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (confirm(`Are you sure you want to permanently delete Promotional Banner B ("${primaryBannerB.title || 'Untitled'}")?`)) {
+                                        try {
+                                          await deleteBanner(primaryBannerB.id);
+                                          setBanners(prev => prev.filter(b => b.id !== primaryBannerB.id));
+                                          loadData();
+                                          onDataUpdated();
+                                          showToast('Banner B deleted successfully');
+                                        } catch (err: any) {
+                                          showToast(`Delete failed: ${err.message}`);
+                                        }
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                                    title="Delete Banner B"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Delete Banner</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-8 rounded-xl bg-[#F8F8F6] border-2 border-dashed border-[#E5E5E5] text-center space-y-3">
+                            <ImageIcon className="w-8 h-8 text-stone-400 mx-auto" />
+                            <p className="text-xs text-stone-500">No banner currently assigned to Slot B.</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBanner({
+                                  bannerType: 'promotion',
+                                  slot: 'slot_2',
+                                  title: 'Promotion Banner B',
+                                  image: '',
+                                  destinationUrl: 'calculator',
+                                  openInNewTab: false,
+                                  order: 1,
+                                  active: true,
+                                });
+                              }}
+                              className="px-4 py-2 rounded-xl bg-[#C89211] text-white font-bold text-xs"
+                            >
+                              Assign Banner to Slot B
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Slides in Slot B */}
+                        {slotBBanners.length > 0 && (
+                          <div className="pt-3 border-t border-[#E5E5E5] space-y-2">
+                            <span className="text-xs font-bold text-[#1A1A1A] block">
+                              All Slides in Slot B ({slotBBanners.length}) — {slotBBanners.length > 1 ? 'auto-rotates every 4.5s' : 'active promotional banner'}
+                            </span>
+                            <div className="space-y-1.5">
+                              {slotBBanners.map((b, idx) => (
+                                <div key={b.id || idx} className="p-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex items-center justify-between gap-3 text-xs">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <span className="font-mono font-bold text-[#C89211]">#{idx + 1}</span>
+                                    <img src={b.image} alt="" className="w-16 h-8 object-cover rounded border border-[#E5E5E5]" />
+                                    <span className="font-semibold text-[#1A1A1A] truncate">{b.title || `Slide #${idx + 1}`}</span>
+                                    <span className="text-[11px] text-[#666666] hidden sm:inline">🔗 {b.destinationUrl || 'None'}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingBanner(b)}
+                                      className="p-1.5 rounded-lg hover:bg-stone-200 text-[#1A1A1A] cursor-pointer"
+                                      title="Edit Slide"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (confirm(`Delete slide "${b.title || 'Untitled'}" (ID: ${b.id}) from Slot B?`)) {
+                                          try {
+                                            await deleteBanner(b.id);
+                                            setBanners(prev => prev.filter(item => item.id !== b.id));
+                                            loadData();
+                                            onDataUpdated();
+                                            showToast('Slide deleted from Slot B');
+                                          } catch (err: any) {
+                                            showToast(`Delete failed: ${err.message}`);
+                                          }
+                                        }
+                                      }}
+                                      className="p-1.5 rounded-lg hover:bg-rose-100 text-rose-600 cursor-pointer"
+                                      title="Delete Slide"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ========================================================================= */}
+                      {/* OTHER / UNASSIGNED PROMOTIONAL BANNERS */}
+                      {/* ========================================================================= */}
+                      {otherPromoBanners.length > 0 && (
+                        <div className="p-5 sm:p-6 rounded-2xl bg-amber-50/50 border border-amber-200 shadow-sm space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-amber-200 gap-2">
+                            <div>
+                              <h4 className="font-serif text-base font-bold text-[#1A1A1A] flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 text-[#C89211]" />
+                                <span>Unassigned &amp; Legacy Promotional Banners ({otherPromoBanners.length})</span>
+                              </h4>
+                              <p className="text-xs text-[#666666] mt-0.5">
+                                These promotional banners are currently not assigned to Slot A or Slot B. You can assign them or delete them below.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            {otherPromoBanners.map((b, idx) => (
+                              <div key={b.id || idx} className="p-3 rounded-xl bg-white border border-[#E5E5E5] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <img src={b.image} alt="" className="w-20 h-10 object-cover rounded border border-[#E5E5E5] shrink-0" />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-semibold text-[#1A1A1A] truncate">{b.title || 'Untitled Banner'}</span>
+                                      <span className="px-2 py-0.5 rounded bg-stone-100 text-stone-600 text-[10px] font-mono">
+                                        Slot: {b.slot || 'None'}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-[#666666] truncate mt-0.5">
+                                      ID: <span className="font-mono text-stone-500">{b.id}</span> • Link: <span className="font-mono">{b.destinationUrl || 'None'}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingBanner({ ...b, bannerType: 'promotion' })}
+                                    className="px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-200 text-[#1A1A1A] font-semibold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <span>Edit / Assign</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (confirm(`Permanently delete promotional banner "${b.title || 'Untitled'}" (ID: ${b.id})?`)) {
+                                        try {
+                                          await deleteBanner(b.id);
+                                          setBanners(prev => prev.filter(item => item.id !== b.id));
+                                          loadData();
+                                          onDataUpdated();
+                                          showToast('Promotional banner deleted successfully');
+                                        } catch (err: any) {
+                                          showToast(`Delete failed: ${err.message}`);
+                                        }
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                                    title="Delete Banner"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* 8. ARTICLES / BLOG (Section 17) */}
                 {activeTab === 'articles' && (
@@ -3015,16 +5070,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <h3 className="font-serif text-xl font-bold text-white">
                           Customer Quotations & Leads
                         </h3>
-                        <p className="text-xs text-stone-400">
+                        <p className="text-xs text-[#666666]">
                           Review all estimates generated by customers with full breakdown and contact details
                         </p>
                       </div>
                     </div>
 
                     {quotes.length > 0 ? (
-                      <div className="border border-stone-800 rounded-xl overflow-hidden text-xs">
+                      <div className="border border-[#E5E5E5] rounded-xl overflow-hidden text-xs">
                         <table className="w-full text-left">
-                          <thead className="bg-stone-950 text-stone-400 border-b border-stone-800">
+                          <thead className="bg-[#F8F8F6] text-[#666666] border-b border-[#E5E5E5]">
                             <tr>
                               <th className="p-3">Ref No.</th>
                               <th className="p-3">Customer</th>
@@ -3034,24 +5089,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <th className="p-3">Actions</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-stone-800/60">
+                          <tbody className="divide-y divide-[#E5E5E5]">
                             {quotes.map(q => (
-                              <tr key={q.id} className="hover:bg-stone-800/40">
-                                <td className="p-3 font-mono font-bold text-amber-400">{q.quoteNumber}</td>
+                              <tr key={q.id} className="hover:bg-[#F8F8F6]">
+                                <td className="p-3 font-mono font-bold text-[#C89211]">{q.quoteNumber}</td>
                                 <td className="p-3">
-                                  <div className="font-bold text-stone-100">{q.customerName}</div>
-                                  <div className="text-stone-400 font-mono">{q.customerPhone}</div>
-                                  {q.customerCity && <div className="text-[10px] text-stone-500">{q.customerCity}</div>}
+                                  <div className="font-bold text-[#1A1A1A]">{q.customerName}</div>
+                                  <div className="text-[#666666] font-mono">{q.customerPhone}</div>
+                                  {q.customerCity && <div className="text-[10px] text-[#666666]">{q.customerCity}</div>}
                                 </td>
                                 <td className="p-3">
-                                  <div className="font-medium text-stone-200">{q.doorName}</div>
-                                  <div className="text-stone-400 font-mono">{q.widthInch}" × {q.heightInch}" ({q.sqFt.toFixed(2)})</div>
+                                  <div className="font-medium text-[#1A1A1A]">{q.doorName}</div>
+                                  <div className="text-[#666666] font-mono">{q.widthInch}" × {q.heightInch}" ({q.sqFt.toFixed(2)})</div>
                                 </td>
-                                <td className="p-3 text-stone-300">
+                                <td className="p-3 text-[#1A1A1A]">
                                   <div>{q.materialName} ({q.finishName})</div>
-                                  <div className="text-[10px] text-stone-400">{q.frameName}</div>
+                                  <div className="text-[10px] text-[#666666]">{q.frameName}</div>
                                 </td>
-                                <td className="p-3 font-mono font-bold text-amber-400 text-sm">
+                                <td className="p-3 font-mono font-bold text-[#C89211] text-sm">
                                   ₹{q.total.toLocaleString('en-IN')}
                                 </td>
                                 <td className="p-3 space-x-2">
@@ -3085,7 +5140,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </table>
                       </div>
                     ) : (
-                      <div className="p-8 text-center text-stone-400 text-xs bg-stone-800/40 rounded-xl border border-stone-800">
+                      <div className="p-8 text-center text-[#666666] text-xs bg-[#F8F8F6] rounded-xl border border-[#E5E5E5]">
                         No customer quotations recorded yet.
                       </div>
                     )}
@@ -3099,31 +5154,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <h3 className="font-serif text-xl font-bold text-white">
                         Business & WhatsApp Settings
                       </h3>
-                      <p className="text-xs text-stone-400">
+                      <p className="text-xs text-[#666666]">
                         Configure brand name, phone, official WhatsApp inquiry routing number, and quotation terms
                       </p>
                     </div>
 
-                    <div className="p-5 rounded-2xl bg-stone-800 border border-stone-700 space-y-4 text-xs">
+                    <div className="p-5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-4 text-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         
                         <div>
-                          <label className="block font-semibold text-stone-300 mb-1">Business Name</label>
+                          <label className="block font-semibold text-[#1A1A1A] mb-1">Business Name</label>
                           <input
                             type="text"
                             value={settings.businessName}
                             onChange={e => setSettings({ ...settings, businessName: e.target.value })}
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                            className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                           />
                         </div>
 
                         <div>
-                          <label className="block font-semibold text-stone-300 mb-1">Tagline</label>
+                          <label className="block font-semibold text-[#1A1A1A] mb-1">Tagline</label>
                           <input
                             type="text"
                             value={settings.tagline}
                             onChange={e => setSettings({ ...settings, tagline: e.target.value })}
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                            className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                           />
                         </div>
 
@@ -3137,17 +5192,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             value={settings.whatsappNumber}
                             onChange={e => setSettings({ ...settings, whatsappNumber: e.target.value.replace(/[^0-9]/g, '') })}
                             placeholder="e.g. 7887412884"
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-emerald-600/50 text-emerald-300 font-mono"
+                            className="w-full px-3 py-2 rounded bg-white border border-emerald-600/50 text-emerald-300 font-mono"
                           />
-                          <span className="text-[10px] text-stone-400 mt-1 block">
+                          <span className="text-[10px] text-[#666666] mt-1 block">
                             Official customer WhatsApp number (e.g. 7887412884). Customer WhatsApp actions route via +91 {settings.whatsappNumber}.
                           </span>
                         </div>
 
                         {/* Google Maps Location URL */}
                         <div className="sm:col-span-2">
-                          <label className="block font-semibold text-amber-400 mb-1 flex items-center gap-1.5">
-                            <MapPin className="w-4 h-4 text-amber-400" />
+                          <label className="block font-semibold text-[#C89211] mb-1 flex items-center gap-1.5">
+                            <MapPin className="w-4 h-4 text-[#C89211]" />
                             Google Maps Location (URL)
                           </label>
                           <input
@@ -3168,89 +5223,89 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               });
                             }}
                             placeholder="https://maps.app.goo.gl/n2xV9vhz5tpVumc6A?g_st=ac"
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-amber-600/50 text-amber-200 font-mono text-xs sm:text-sm"
+                            className="w-full px-3 py-2 rounded bg-white border border-amber-600/50 text-amber-200 font-mono text-xs sm:text-sm"
                           />
-                          <span className="text-[10px] text-stone-400 mt-1 block">
+                          <span className="text-[10px] text-[#666666] mt-1 block">
                             Direct Google Maps link opened by the "View Shop Location" buttons across Contact Us, About Us, and Footer.
                           </span>
                         </div>
 
                         <div>
-                          <label className="block font-semibold text-stone-300 mb-1">Display Contact Phone</label>
+                          <label className="block font-semibold text-[#1A1A1A] mb-1">Display Contact Phone</label>
                           <input
                             type="text"
                             value={settings.phone}
                             onChange={e => setSettings({ ...settings, phone: e.target.value })}
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                            className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                           />
                         </div>
 
                         <div>
-                          <label className="block font-semibold text-stone-300 mb-1">Contact Email</label>
+                          <label className="block font-semibold text-[#1A1A1A] mb-1">Contact Email</label>
                           <input
                             type="email"
                             value={settings.email}
                             onChange={e => setSettings({ ...settings, email: e.target.value })}
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                            className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                           />
                         </div>
 
                         <div>
-                          <label className="block font-semibold text-stone-300 mb-1">GST Number</label>
+                          <label className="block font-semibold text-[#1A1A1A] mb-1">GST Number</label>
                           <input
                             type="text"
                             value={settings.gstNumber || ''}
                             onChange={e => setSettings({ ...settings, gstNumber: e.target.value })}
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100 font-mono"
+                            className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono"
                           />
                         </div>
 
                         <div className="sm:col-span-2">
-                          <label className="block font-semibold text-stone-300 mb-1">Factory / Workshop Address</label>
+                          <label className="block font-semibold text-[#1A1A1A] mb-1">Factory / Workshop Address</label>
                           <input
                             type="text"
                             value={settings.address}
                             onChange={e => setSettings({ ...settings, address: e.target.value })}
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100"
+                            className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                           />
                         </div>
 
                         <div>
-                          <label className="block font-semibold text-stone-300 mb-1">Quotation Ref Prefix</label>
+                          <label className="block font-semibold text-[#1A1A1A] mb-1">Quotation Ref Prefix</label>
                           <input
                             type="text"
                             value={settings.quotePrefix}
                             onChange={e => setSettings({ ...settings, quotePrefix: e.target.value })}
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100 font-mono"
+                            className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono"
                           />
                         </div>
 
                         <div>
-                          <label className="block font-semibold text-stone-300 mb-1">Tax / Additional Charge % (Optional)</label>
+                          <label className="block font-semibold text-[#1A1A1A] mb-1">Tax / Additional Charge % (Optional)</label>
                           <input
                             type="number"
                             value={settings.additionalChargePercentage || 0}
                             onChange={e => setSettings({ ...settings, additionalChargePercentage: Number(e.target.value) })}
-                            className="w-full px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100 font-mono"
+                            className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono"
                           />
                         </div>
 
                         {/* Admin Password Change */}
-                        <div className="sm:col-span-2 pt-2 border-t border-stone-700">
-                          <label className="block font-semibold text-amber-400 mb-1">
+                        <div className="sm:col-span-2 pt-2 border-t border-[#E5E5E5]">
+                          <label className="block font-semibold text-[#C89211] mb-1">
                             Update Admin Security Key (Password)
                           </label>
                           <input
                             type="text"
                             placeholder="Leave blank to keep current password, or enter new password"
                             id="change-admin-password-input"
-                            className="w-full max-w-sm px-3 py-2 rounded bg-stone-900 border border-stone-700 text-stone-100 font-mono"
+                            className="w-full max-w-sm px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A] font-mono"
                           />
                         </div>
 
                       </div>
 
-                      <div className="flex justify-end pt-3 border-t border-stone-700">
+                      <div className="flex justify-end pt-3 border-t border-[#E5E5E5]">
                         <button
                           onClick={async () => {
                             const newPassElem = document.getElementById('change-admin-password-input') as HTMLInputElement;
@@ -3268,7 +5323,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               alert(err.message || 'Settings update failed');
                             }
                           }}
-                          className="px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs shadow-md"
+                          className="px-6 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs shadow-md"
                         >
                           Save Business Settings
                         </button>
@@ -3276,20 +5331,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
 
                     {/* Content Protection & Anti-Copy System Card */}
-                    <div className="bg-stone-900 border border-stone-800 rounded-2xl p-6 shadow-xl space-y-6">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-800 pb-4">
+                    <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-xl space-y-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E5E5E5] pb-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                          <div className="w-10 h-10 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 flex items-center justify-center text-[#C89211]">
                             <ShieldCheck className="w-5 h-5" />
                           </div>
                           <div>
-                            <h3 className="text-base font-bold text-stone-100 flex items-center gap-2">
+                            <h3 className="text-base font-bold text-[#1A1A1A] flex items-center gap-2">
                               Content Protection & Anti-Copy System
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                                 Active Guard
                               </span>
                             </h3>
-                            <p className="text-xs text-stone-400 mt-0.5">
+                            <p className="text-xs text-[#666666] mt-0.5">
                               Safeguard door designs, gallery renders, and catalog images against unauthorized saving and capture.
                             </p>
                           </div>
@@ -3317,7 +5372,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               alert(err.message || 'Failed to save content protection settings');
                             }
                           }}
-                          className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs shadow-md flex items-center gap-1.5 self-start sm:self-auto"
+                          className="px-5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs shadow-md flex items-center gap-1.5 self-start sm:self-auto"
                         >
                           <Check className="w-3.5 h-3.5" />
                           Save Protection Settings
@@ -3325,17 +5380,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
 
                       {/* Technical Platform Transparency Notice */}
-                      <div className="rounded-xl bg-amber-950/20 border border-amber-500/30 p-4 text-xs text-amber-200/90 flex gap-3">
-                        <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                      <div className="rounded-xl bg-amber-950/20 border border-[#C89211]/30 p-4 text-xs text-amber-200/90 flex gap-3">
+                        <AlertTriangle className="w-5 h-5 text-[#C89211] shrink-0 mt-0.5" />
                         <div className="space-y-1">
-                          <p className="font-semibold text-amber-300">
+                          <p className="font-semibold text-[#C89211]">
                             Platform Security Architecture Notice
                           </p>
-                          <p className="text-stone-300 text-[11px] leading-relaxed">
+                          <p className="text-[#1A1A1A] text-[11px] leading-relaxed">
                             <strong>Web / PWA:</strong> Browsers do not provide an operating-system API to guarantee 100% screenshot prevention. Our web layer blocks right-click saving, drag-to-desktop, print-to-PDF scraping, direct image URL exposure, and PrintScreen clipboard capture.
                           </p>
-                          <p className="text-emerald-300 text-[11px] leading-relaxed">
-                            <strong>Native Android:</strong> Hardware-level <code className="bg-black/40 px-1 py-0.5 rounded text-amber-300 font-mono">WindowManager.LayoutParams.FLAG_SECURE</code> is fully implemented in the Android native wrapper. When enabled, Android SurfaceFlinger hardware blocks screenshots, screen recording, and app switcher thumbnails across all protected customer screens.
+                          <p className="text-emerald-700 text-[11px] leading-relaxed">
+                            <strong>Native Android:</strong> Hardware-level <code className="bg-stone-200/80 px-1 py-0.5 rounded text-[#C89211] font-mono">WindowManager.LayoutParams.FLAG_SECURE</code> is fully implemented in the Android native wrapper. When enabled, Android SurfaceFlinger hardware blocks screenshots, screen recording, and app switcher thumbnails across all protected customer screens.
                           </p>
                         </div>
                       </div>
@@ -3343,14 +5398,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {/* Controls Grid */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* 1. Core Image Protection */}
-                        <div className="bg-stone-950/60 border border-stone-800/80 rounded-xl p-4 space-y-4">
+                        <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl p-4 space-y-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <span className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
-                                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                              <span className="text-xs font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                                <Lock className="w-3.5 h-3.5 text-[#C89211]" />
                                 Image Download Protection
                               </span>
-                              <p className="text-[11px] text-stone-400 mt-0.5">
+                              <p className="text-[11px] text-[#666666] mt-0.5">
                                 Disable right-click &quot;Save Image As&quot;, drag-to-desktop, and print-to-PDF.
                               </p>
                             </div>
@@ -3367,18 +5422,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 }}
                                 className="sr-only peer"
                               />
-                              <div className="w-9 h-5 bg-stone-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                              <div className="w-9 h-5 bg-stone-100 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
                             </label>
                           </div>
 
-                          <div className="border-t border-stone-800/80 pt-3">
+                          <div className="border-t border-[#E5E5E5] pt-3">
                             <div className="flex items-center justify-between">
                               <div>
-                                <span className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
-                                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                <span className="text-xs font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                                  <Sparkles className="w-3.5 h-3.5 text-[#C89211]" />
                                   Dynamic Brand Watermark
                                 </span>
-                                <p className="text-[11px] text-stone-400 mt-0.5">
+                                <p className="text-[11px] text-[#666666] mt-0.5">
                                   Overlay semi-transparent brand watermark on catalog images.
                                 </p>
                               </div>
@@ -3395,15 +5450,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   }}
                                   className="sr-only peer"
                                 />
-                                <div className="w-9 h-5 bg-stone-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                                <div className="w-9 h-5 bg-stone-100 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
                               </label>
                             </div>
                           </div>
 
                           {/* Watermark Config Fields */}
-                          <div className="space-y-3 pt-2 border-t border-stone-800/80">
+                          <div className="space-y-3 pt-2 border-t border-[#E5E5E5]">
                             <div>
-                              <label className="block text-[11px] font-semibold text-stone-300 mb-1">
+                              <label className="block text-[11px] font-semibold text-[#1A1A1A] mb-1">
                                 Watermark Text
                               </label>
                               <input
@@ -3418,13 +5473,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 }}
                                 placeholder="Jai Hanuman Door"
                                 maxLength={50}
-                                className="w-full px-3 py-1.5 rounded-lg bg-stone-900 border border-stone-700 text-stone-100 text-xs font-medium focus:border-amber-500 outline-none"
+                                className="w-full px-3 py-1.5 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs font-medium focus:border-[#C89211] outline-none"
                               />
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
                               <div>
-                                <label className="block text-[11px] font-semibold text-stone-300 mb-1">
+                                <label className="block text-[11px] font-semibold text-[#1A1A1A] mb-1">
                                   Pattern / Position
                                 </label>
                                 <select
@@ -3439,7 +5494,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       },
                                     });
                                   }}
-                                  className="w-full px-3 py-1.5 rounded-lg bg-stone-900 border border-stone-700 text-stone-100 text-xs focus:border-amber-500 outline-none"
+                                  className="w-full px-3 py-1.5 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none"
                                 >
                                   <option value="diagonal">Diagonal Repeated Grid</option>
                                   <option value="center">Center Artisan Crest</option>
@@ -3450,10 +5505,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                               <div>
                                 <div className="flex justify-between items-center mb-1">
-                                  <label className="text-[11px] font-semibold text-stone-300">
+                                  <label className="text-[11px] font-semibold text-[#1A1A1A]">
                                     Opacity
                                   </label>
-                                  <span className="text-[11px] font-mono text-amber-400">
+                                  <span className="text-[11px] font-mono text-[#C89211]">
                                     {Math.round((settings.contentProtection?.watermarkOpacity ?? 0.22) * 100)}%
                                   </span>
                                 </div>
@@ -3473,7 +5528,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       },
                                     });
                                   }}
-                                  className="w-full accent-amber-500 cursor-pointer h-1.5 bg-stone-700 rounded-lg"
+                                  className="w-full accent-amber-500 cursor-pointer h-1.5 bg-stone-100 rounded-lg"
                                 />
                               </div>
                             </div>
@@ -3483,16 +5538,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         {/* 2. Android Native & Preview */}
                         <div className="space-y-4">
                           {/* Android Native Flags */}
-                          <div className="bg-stone-950/60 border border-stone-800/80 rounded-xl p-4 space-y-3">
-                            <span className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
-                              <Smartphone className="w-3.5 h-3.5 text-amber-400" />
+                          <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl p-4 space-y-3">
+                            <span className="text-xs font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                              <Smartphone className="w-3.5 h-3.5 text-[#C89211]" />
                               Android Native Protections (FLAG_SECURE)
                             </span>
 
                             <div className="flex items-center justify-between pt-1">
                               <div>
-                                <p className="text-xs text-stone-300 font-medium">Screenshot Protection</p>
-                                <p className="text-[10px] text-stone-400">Blanks OS screenshots in native Android build.</p>
+                                <p className="text-xs text-[#1A1A1A] font-medium">Screenshot Protection</p>
+                                <p className="text-[10px] text-[#666666]">Blanks OS screenshots in native Android build.</p>
                               </div>
                               <label className="relative inline-flex items-center cursor-pointer">
                                 <input
@@ -3507,14 +5562,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   }}
                                   className="sr-only peer"
                                 />
-                                <div className="w-9 h-5 bg-stone-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                                <div className="w-9 h-5 bg-stone-100 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
                               </label>
                             </div>
 
-                            <div className="flex items-center justify-between border-t border-stone-800/80 pt-2">
+                            <div className="flex items-center justify-between border-t border-[#E5E5E5] pt-2">
                               <div>
-                                <p className="text-xs text-stone-300 font-medium">Screen Recording Protection</p>
-                                <p className="text-[10px] text-stone-400">Blocks screen recording capture &amp; recent task previews.</p>
+                                <p className="text-xs text-[#1A1A1A] font-medium">Screen Recording Protection</p>
+                                <p className="text-[10px] text-[#666666]">Blocks screen recording capture &amp; recent task previews.</p>
                               </div>
                               <label className="relative inline-flex items-center cursor-pointer">
                                 <input
@@ -3529,23 +5584,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   }}
                                   className="sr-only peer"
                                 />
-                                <div className="w-9 h-5 bg-stone-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                                <div className="w-9 h-5 bg-stone-100 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
                               </label>
                             </div>
                           </div>
 
                           {/* Live Watermark Interactive Preview */}
-                          <div className="bg-stone-950/60 border border-stone-800/80 rounded-xl p-3">
+                          <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl p-3">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-[11px] font-bold text-stone-300 uppercase tracking-wider">
+                              <span className="text-[11px] font-bold text-[#1A1A1A] uppercase tracking-wider">
                                 Live Customer View Preview
                               </span>
-                              <span className="text-[10px] text-stone-400 font-mono">
+                              <span className="text-[10px] text-[#666666] font-mono">
                                 Pattern: {settings.contentProtection?.watermarkPattern || 'diagonal'}
                               </span>
                             </div>
 
-                            <div className="h-36 rounded-lg overflow-hidden border border-stone-700 relative">
+                            <div className="h-36 rounded-lg overflow-hidden border border-[#E5E5E5] relative">
                               <ProtectedImage
                                 src={doors[0]?.image || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80'}
                                 alt="Watermark Preview"
@@ -3555,7 +5610,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 containerClassName="w-full h-full"
                               />
                             </div>
-                            <p className="text-[10px] text-stone-400 mt-2 text-center">
+                            <p className="text-[10px] text-[#666666] mt-2 text-center">
                               Right-clicking or dragging this preview will be automatically prevented by the protection shield.
                             </p>
                           </div>
@@ -3582,6 +5637,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onDataUpdated();
                     }}
                     settings={settings || undefined}
+                  />
+                )}
+
+                {/* Brand & Company Story Admin Tab */}
+                {activeTab === 'story' && (
+                  <AdminBrandStoryTab
+                    settings={settings}
+                    onDataUpdated={async () => {
+                      await loadData();
+                      onDataUpdated();
+                    }}
+                    showToast={showToast}
                   />
                 )}
 
@@ -3623,6 +5690,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       await loadData();
                       onDataUpdated();
                     }}
+                  />
+                )}
+
+                {/* Order Tracking & Manufacturing Progress Admin Tab */}
+                {activeTab === 'tracking' && (
+                  <AdminOrderTrackingTab
+                    quotes={quotes}
+                    officialWhatsApp={settings?.whatsappNumber || '7887412884'}
+                  />
+                )}
+
+                {/* All India Delivery & Customer Stories Admin Tab */}
+                {activeTab === 'delivery' && (
+                  <AdminDeliveryTab
+                    states={deliveryStates}
+                    stories={deliveryStories}
+                    onRefresh={async () => {
+                      await loadData();
+                      onDataUpdated();
+                    }}
+                    showToast={showToast}
+                  />
+                )}
+
+                {/* 3D & AR Design Management Tab */}
+                {activeTab === 'visualizer' && (
+                  <AdminVisualizerTab
+                    doors={doors}
+                    onDoorUpdated={async () => {
+                      await loadData();
+                      onDataUpdated();
+                    }}
+                    showToast={showToast}
                   />
                 )}
 

@@ -152,7 +152,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
   );
 
   return (
-    <div id="contact-us-page" className="min-h-screen bg-stone-950 text-stone-100 py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
+    <div id="contact-us-page" className="min-h-screen bg-white text-[#1A1A1A] py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto">
         
         {/* Top Breadcrumb & Back button */}
@@ -160,52 +160,58 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
           <button
             id="contact-back-btn"
             onClick={onBack}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-300 hover:text-amber-400 hover:border-stone-700 transition-all text-xs font-semibold group shadow-sm"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] hover:text-[#C89211] hover:border-[#C89211] transition-all text-xs font-semibold group shadow-sm"
           >
-            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform text-amber-500" />
+            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform text-[#C89211]" />
             <span>Back to Storefront</span>
           </button>
 
-          <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[11px] font-mono text-[#16803A] bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-[#16803A] animate-pulse" />
             Factory Workshop Open
           </span>
         </div>
 
         {/* Hero Header */}
-        <div className="rounded-3xl bg-gradient-to-b from-stone-900 via-stone-900 to-stone-950 border border-stone-800/90 p-6 sm:p-10 shadow-2xl relative overflow-hidden mb-10">
-          <div className="absolute top-0 right-0 -mt-10 -mr-10 w-48 h-48 rounded-full bg-amber-600/10 blur-3xl pointer-events-none" />
+        <div className="rounded-3xl bg-[#F8F8F6] border border-[#E5E5E5] p-6 sm:p-10 shadow-sm relative overflow-hidden mb-10">
+          <div className="absolute top-0 right-0 -mt-10 -mr-10 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
           
-          <div className="flex items-center gap-2.5 text-amber-400 text-xs font-bold tracking-widest uppercase mb-3">
+          <div className="flex items-center gap-2.5 text-[#C89211] text-xs font-bold tracking-widest uppercase mb-3">
             <Building className="w-4 h-4" />
             <span>Direct Workshop & Showroom Connect</span>
           </div>
 
-          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-tight">
+          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#1A1A1A] tracking-tight leading-tight">
             Contact Us & Factory Inquiries
           </h1>
 
-          <p className="text-stone-300 text-sm sm:text-base mt-4 leading-relaxed max-w-2xl">
+          <p className="text-[#666666] text-sm sm:text-base mt-4 leading-relaxed max-w-2xl">
             Reach out directly to <strong>{settings.businessName || 'Jai Hanuman Door'}</strong> for rough opening measurements, custom carving consultations, kiln-seasoned timber verification, and factory pricing.
           </p>
 
           {/* Quick Action Chips */}
-          <div className="flex flex-wrap items-center gap-2.5 mt-6 pt-6 border-t border-stone-800 text-xs">
+          <div className="flex flex-wrap items-center gap-2.5 mt-6 pt-6 border-t border-[#E5E5E5] text-xs">
             <a
               id="contact-hero-shop-location-btn"
               href={googleMapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-semibold flex items-center gap-1.5 transition-colors"
+              className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-[#FFF8E8] hover:bg-[#FFF2D4] border border-[#C89211] text-[#222222] font-semibold text-left transition-all duration-200 shadow-xs hover:shadow-sm group"
+              title="Open Shop Location in Google Maps"
             >
-              <MapPin className="w-3.5 h-3.5 text-amber-400" />
-              <span>View Shop Location</span>
+              <div className="w-6 h-6 rounded-md bg-white border border-[#C89211]/30 flex items-center justify-center text-[#C89211] shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                <MapPin className="w-3.5 h-3.5 text-[#C89211] fill-[#C89211]/20" />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-bold text-xs leading-none">Shop Location</span>
+                <span className="text-[10px] text-[#C89211] font-semibold leading-tight mt-0.5">View on Maps →</span>
+              </div>
             </a>
             <a
               href={`tel:${settings.phone}`}
-              className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 text-stone-200 font-semibold flex items-center gap-1.5 transition-colors"
+              className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
             >
-              <Phone className="w-3.5 h-3.5 text-amber-400" />
+              <Phone className="w-3.5 h-3.5 text-[#C89211]" />
               Call Factory Now
             </a>
             <a
@@ -213,23 +219,23 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
               href={getWhatsAppUrl(settings.whatsappNumber, `Hello ${settings.businessName || 'Jai Hanuman Door'}, I have an inquiry.`)}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3.5 py-2 rounded-xl bg-emerald-950/80 hover:bg-emerald-900/90 border border-emerald-800/80 text-emerald-300 font-semibold flex items-center gap-1.5 transition-colors"
+              className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[#16803A] font-semibold flex items-center gap-1.5 transition-colors"
             >
-              <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
+              <MessageCircle className="w-3.5 h-3.5 text-[#16803A]" />
               WhatsApp Us
             </a>
             <button
               onClick={() => handleQuickEnquiryType('Site Visit / Measurement Request')}
-              className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 text-stone-200 font-semibold flex items-center gap-1.5 transition-colors"
+              className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
             >
-              <MapPin className="w-3.5 h-3.5 text-amber-400" />
+              <MapPin className="w-3.5 h-3.5 text-[#C89211]" />
               Book Site Visit / Measurement
             </button>
             <button
               onClick={() => handleQuickEnquiryType('Custom Door Carving Design')}
-              className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 text-stone-200 font-semibold flex items-center gap-1.5 transition-colors"
+              className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <Sparkles className="w-3.5 h-3.5 text-[#C89211]" />
               Request Custom Design
             </button>
           </div>
@@ -239,16 +245,16 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
           {/* Left Column (5 Cols): Verified Business Details & Workshop Info */}
-          <div className="lg:col-span-5 bg-stone-900 border border-stone-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl">
+          <div className="lg:col-span-5 bg-white border border-[#E5E5E5] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
             
             <div>
-              <span className="px-2.5 py-1 rounded text-[11px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase tracking-wide">
+              <span className="px-2.5 py-1 rounded text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase tracking-wide">
                 Direct Manufacturing Workshop
               </span>
-              <h2 className="font-serif text-2xl font-bold text-white mt-3">
+              <h2 className="font-serif text-2xl font-bold text-[#1A1A1A] mt-3">
                 {settings.businessName || 'Jai Hanuman Door'}
               </h2>
-              <p className="text-xs text-stone-400 mt-1">
+              <p className="text-xs text-[#666666] mt-1">
                 {settings.tagline || 'Solid Sagwan & Teak Wood Doors'}
               </p>
             </div>
@@ -257,23 +263,23 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
             <div className="space-y-4 text-xs sm:text-sm">
               
               {/* Visit Our Shop / Shop Location Section */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-amber-500/10 via-stone-950/80 to-stone-950 border border-amber-500/30 shadow-lg">
-                <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider mb-2">
-                  <MapPin className="w-4 h-4 text-amber-400" />
+              <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#FFF7E3] via-white to-white border border-[#C89211]/30 shadow-sm">
+                <div className="flex items-center gap-2 text-[#C89211] text-xs font-bold uppercase tracking-wider mb-2">
+                  <MapPin className="w-4 h-4 text-[#C89211]" />
                   <span>Visit Our Shop</span>
                 </div>
                 
-                <h3 className="font-serif text-lg font-bold text-white flex items-center gap-1.5">
+                <h3 className="font-serif text-lg font-bold text-[#1A1A1A] flex items-center gap-1.5">
                   <span>📍</span>
                   <span>{settings.businessName || 'Jai Hanuman Door'}</span>
                 </h3>
                 
-                <p className="text-stone-300 text-xs mt-1 leading-relaxed">
+                <p className="text-[#666666] text-xs mt-1 leading-relaxed">
                   {settings.address || 'Near Old Timber Market, Industrial Estate, Pune, Maharashtra 411002, India'}
                 </p>
                 
-                <div className="mt-3 pt-3 border-t border-stone-800/80">
-                  <div className="text-[11px] text-stone-400 mb-2 font-medium">
+                <div className="mt-3 pt-3 border-t border-[#E5E5E5]">
+                  <div className="text-[11px] text-[#666666] mb-2 font-medium">
                     View Shop Location on Google Maps:
                   </div>
                   <a
@@ -281,66 +287,76 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                     href={googleMapsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs shadow-md transition-all active:scale-[0.99]"
+                    className="inline-flex items-center gap-3 w-full py-3 px-4 rounded-xl bg-[#FFF8E8] hover:bg-[#FFF2D4] border border-[#C89211] text-[#222222] shadow-xs hover:shadow-sm transition-all duration-200 group"
+                    title="Open Shop Location in Google Maps"
                   >
-                    <MapPin className="w-4 h-4 text-stone-950" />
-                    <span>View Shop Location</span>
-                    <ExternalLink className="w-3.5 h-3.5 text-stone-950/80" />
+                    <div className="w-9 h-9 rounded-lg bg-white border border-[#C89211]/30 flex items-center justify-center text-[#C89211] shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                      <MapPin className="w-5 h-5 text-[#C89211] fill-[#C89211]/20" />
+                    </div>
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="font-bold text-sm text-[#222222] leading-tight">
+                        Shop Location
+                      </div>
+                      <div className="text-[11px] text-[#C89211] font-semibold flex items-center gap-1 mt-0.5 leading-none">
+                        <span>View on Google Maps</span>
+                        <span className="group-hover:translate-x-1 transition-transform">→</span>
+                      </div>
+                    </div>
                   </a>
                 </div>
               </div>
 
               {/* Phone */}
-              <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-stone-950/60 border border-stone-800/80">
-                <div className="w-9 h-9 rounded-xl bg-stone-800 text-amber-400 flex items-center justify-center shrink-0 border border-stone-700">
+              <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5]">
+                <div className="w-9 h-9 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center shrink-0 border border-[#C89211]/20">
                   <Phone className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-bold text-stone-200 text-xs">Factory Phone Helpline</div>
+                  <div className="font-bold text-[#1A1A1A] text-xs">Factory Phone Helpline</div>
                   <a
                     href={`tel:${settings.phone}`}
-                    className="text-amber-400 font-mono text-sm hover:underline block mt-0.5 font-bold"
+                    className="text-[#C89211] font-mono text-sm hover:underline block mt-0.5 font-bold"
                   >
                     {settings.phone || '+91 98765 43210'}
                   </a>
-                  <span className="text-[11px] text-stone-400 block mt-0.5">
+                  <span className="text-[11px] text-[#666666] block mt-0.5">
                     Direct workshop supervisor assistance
                   </span>
                 </div>
               </div>
 
               {/* WhatsApp */}
-              <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-900/50">
-                <div className="w-9 h-9 rounded-xl bg-emerald-900/70 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-700/60">
+              <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-[#16803A] flex items-center justify-center shrink-0 border border-emerald-300">
                   <MessageCircle className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-bold text-emerald-200 text-xs">Official WhatsApp Support</div>
+                  <div className="font-bold text-[#16803A] text-xs">Official WhatsApp Support</div>
                   <a
                     id="contact-whatsapp-link"
                     href={getWhatsAppUrl(settings.whatsappNumber, `Hello ${settings.businessName || 'Jai Hanuman Door'}, I have an inquiry.`)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-emerald-400 font-mono text-sm hover:underline block mt-0.5 font-bold"
+                    className="text-[#16803A] font-mono text-sm hover:underline block mt-0.5 font-bold"
                   >
                     {formatWhatsAppDisplay(settings.whatsappNumber)}
                   </a>
-                  <span className="text-[11px] text-emerald-400/80 block mt-0.5">
+                  <span className="text-[11px] text-[#16803A]/80 block mt-0.5">
                     Share opening photos & receive catalogs
                   </span>
                 </div>
               </div>
 
               {/* Email */}
-              <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-stone-950/60 border border-stone-800/80">
-                <div className="w-9 h-9 rounded-xl bg-stone-800 text-amber-400 flex items-center justify-center shrink-0 border border-stone-700">
+              <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5]">
+                <div className="w-9 h-9 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center shrink-0 border border-[#C89211]/20">
                   <Mail className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-bold text-stone-200 text-xs">Official Email</div>
+                  <div className="font-bold text-[#1A1A1A] text-xs">Official Email</div>
                   <a
                     href={`mailto:${settings.email}`}
-                    className="text-stone-300 text-xs hover:text-amber-400 hover:underline block mt-0.5 break-all"
+                    className="text-[#666666] text-xs hover:text-[#C89211] hover:underline block mt-0.5 break-all"
                   >
                     {settings.email || 'shivshahidoors@gmail.com'}
                   </a>
@@ -348,13 +364,13 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
               </div>
 
               {/* Operating Hours */}
-              <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-stone-950/60 border border-stone-800/80">
-                <div className="w-9 h-9 rounded-xl bg-stone-800 text-amber-400 flex items-center justify-center shrink-0 border border-stone-700">
+              <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5]">
+                <div className="w-9 h-9 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center shrink-0 border border-[#C89211]/20">
                   <Clock className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-bold text-stone-200 text-xs">Factory Operating Hours</div>
-                  <p className="text-stone-400 text-xs mt-1 leading-relaxed">
+                  <div className="font-bold text-[#1A1A1A] text-xs">Factory Operating Hours</div>
+                  <p className="text-[#666666] text-xs mt-1 leading-relaxed">
                     <strong>Monday – Saturday:</strong> 9:00 AM – 8:00 PM<br />
                     <strong>Sunday:</strong> 10:00 AM – 3:00 PM (By Appointment)
                   </p>
@@ -364,13 +380,13 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
             </div>
 
             {/* GSTIN & Verified Manufacturer Badge */}
-            <div className="pt-4 border-t border-stone-800 flex flex-wrap items-center justify-between gap-2 text-xs text-stone-400">
-              <span className="flex items-center gap-1.5 text-emerald-400">
+            <div className="pt-4 border-t border-[#E5E5E5] flex flex-wrap items-center justify-between gap-2 text-xs text-[#666666]">
+              <span className="flex items-center gap-1.5 text-[#16803A] font-semibold">
                 <ShieldCheck className="w-4 h-4" />
                 100% Kiln-Seasoned Sagwan Wood
               </span>
               {settings.gstNumber && (
-                <span className="font-mono text-[11px] text-amber-400/90">
+                <span className="font-mono text-[11px] text-[#C89211]">
                   GSTIN: {settings.gstNumber}
                 </span>
               )}
@@ -378,15 +394,15 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
 
             {/* Social Media Links (if configured) */}
             {settings.legalSettings?.socialLinks && (
-              <div className="pt-4 border-t border-stone-800">
-                <span className="text-xs font-semibold text-stone-400 block mb-2">Connect Online:</span>
+              <div className="pt-4 border-t border-[#E5E5E5]">
+                <span className="text-xs font-semibold text-[#666666] block mb-2">Connect Online:</span>
                 <div className="flex flex-wrap gap-2 text-xs">
                   {settings.legalSettings.socialLinks.instagram && (
                     <a
                       href={settings.legalSettings.socialLinks.instagram}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-1.5 rounded-lg bg-stone-950 border border-stone-800 text-stone-300 hover:text-amber-400 transition-colors"
+                      className="px-3 py-1.5 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] hover:text-[#C89211] transition-colors"
                     >
                       Instagram
                     </a>
@@ -396,7 +412,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                       href={settings.legalSettings.socialLinks.facebook}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-1.5 rounded-lg bg-stone-950 border border-stone-800 text-stone-300 hover:text-amber-400 transition-colors"
+                      className="px-3 py-1.5 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] hover:text-[#C89211] transition-colors"
                     >
                       Facebook
                     </a>
@@ -406,7 +422,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                       href={settings.legalSettings.socialLinks.youtube}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-1.5 rounded-lg bg-stone-950 border border-stone-800 text-stone-300 hover:text-amber-400 transition-colors"
+                      className="px-3 py-1.5 rounded-lg bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] hover:text-[#C89211] transition-colors"
                     >
                       YouTube
                     </a>
@@ -417,7 +433,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
 
             {/* Admin Guidance Notes (if set) */}
             {settings.legalSettings?.contactInfoNotes && (
-              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200/90 leading-relaxed">
+              <div className="p-4 rounded-2xl bg-[#FFF7E3] border border-[#C89211]/30 text-xs text-[#1A1A1A] leading-relaxed">
                 {settings.legalSettings.contactInfoNotes}
               </div>
             )}
@@ -425,37 +441,37 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
           </div>
 
           {/* Right Column (7 Cols): Interactive Customer Enquiry Form */}
-          <div className="lg:col-span-7 bg-stone-900 border border-stone-800 rounded-3xl p-6 sm:p-8 shadow-xl">
+          <div className="lg:col-span-7 bg-white border border-[#E5E5E5] rounded-3xl p-6 sm:p-8 shadow-sm">
             
-            <div className="border-b border-stone-800 pb-5 mb-6">
-              <span className="text-amber-400 text-xs font-bold uppercase tracking-wider">
+            <div className="border-b border-[#E5E5E5] pb-5 mb-6">
+              <span className="text-[#C89211] text-xs font-bold uppercase tracking-wider">
                 Direct Contact Form
               </span>
-              <h2 className="font-serif text-2xl font-bold text-white mt-1">
+              <h2 className="font-serif text-2xl font-bold text-[#1A1A1A] mt-1">
                 Send Requirement or Request Site Visit
               </h2>
-              <p className="text-xs text-stone-400 mt-1">
+              <p className="text-xs text-[#666666] mt-1">
                 Fill in your details below. Your enquiry will be saved directly into our factory queue and our carpenter representative will call you with quotation guidance.
               </p>
             </div>
 
             {/* SUCCESS CONFIRMATION STATE */}
             {submittedEnquiryId ? (
-              <div className="p-6 sm:p-8 rounded-2xl bg-emerald-950/40 border border-emerald-800/80 text-center space-y-4">
-                <div className="w-14 h-14 rounded-full bg-emerald-600/30 border-2 border-emerald-500 text-emerald-400 flex items-center justify-center mx-auto">
+              <div className="p-6 sm:p-8 rounded-2xl bg-emerald-50 border border-emerald-200 text-center space-y-4">
+                <div className="w-14 h-14 rounded-full bg-emerald-100 border-2 border-emerald-400 text-[#16803A] flex items-center justify-center mx-auto">
                   <CheckCircle2 className="w-8 h-8" />
                 </div>
                 
-                <h3 className="font-serif text-2xl font-bold text-white">
+                <h3 className="font-serif text-2xl font-bold text-[#1A1A1A]">
                   Enquiry Successfully Registered!
                 </h3>
 
-                <p className="text-xs sm:text-sm text-stone-300 max-w-md mx-auto leading-relaxed">
+                <p className="text-xs sm:text-sm text-[#666666] max-w-md mx-auto leading-relaxed">
                   Thank you, <strong>{lastSubmittedPayload?.name}</strong>! Your requirement has been logged in our factory database under enquiry ID:{' '}
-                  <span className="font-mono text-amber-400 font-bold">{submittedEnquiryId}</span>.
+                  <span className="font-mono text-[#C89211] font-bold">{submittedEnquiryId}</span>.
                 </p>
 
-                <div className="p-4 rounded-xl bg-stone-950/80 border border-stone-800 text-xs text-stone-400 text-left space-y-1 max-w-md mx-auto">
+                <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] text-xs text-[#666666] text-left space-y-1 max-w-md mx-auto">
                   <div><strong>Phone:</strong> {lastSubmittedPayload?.phone}</div>
                   {lastSubmittedPayload?.city && <div><strong>Location:</strong> {lastSubmittedPayload.city}</div>}
                   <div><strong>Type:</strong> {lastSubmittedPayload?.enquiryType}</div>
@@ -465,7 +481,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                 <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
                   <button
                     onClick={forwardToWhatsApp}
-                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95"
+                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-transform active:scale-95"
                   >
                     <MessageCircle className="w-4 h-4" />
                     Send to WhatsApp as well (Instant)
@@ -480,7 +496,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                       setCity('');
                       setMessage('');
                     }}
-                    className="w-full sm:w-auto px-5 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs"
+                    className="w-full sm:w-auto px-5 py-3 rounded-xl bg-[#F8F8F6] hover:bg-[#E5E5E5] text-[#1A1A1A] font-semibold text-xs border border-[#E5E5E5]"
                   >
                     Submit Another Enquiry
                   </button>
@@ -491,8 +507,8 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
               <form id="contact-enquiry-form" onSubmit={handleSubmit} className="space-y-4">
                 
                 {errorMsg && (
-                  <div className="p-3.5 rounded-xl bg-red-950/80 border border-red-500/40 text-red-200 text-xs flex items-start gap-2.5">
-                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                  <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-[#C62828] text-xs flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-[#C62828] shrink-0 mt-0.5" />
                     <span>{errorMsg}</span>
                   </div>
                 )}
@@ -500,8 +516,8 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                 {/* Name & Phone */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                      Your Full Name <span className="text-amber-500">*</span>
+                    <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
+                      Your Full Name <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -509,13 +525,13 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                       placeholder="e.g. Ramesh Kulkarni"
                       value={name}
                       onChange={e => setName(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/60"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#F7F7F7] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/40 focus:border-[#C89211]"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                      Mobile Number <span className="text-amber-500">*</span>
+                    <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
+                      Mobile Number <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="tel"
@@ -523,7 +539,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                       placeholder="e.g. 98220 12345"
                       value={phone}
                       onChange={e => setPhone(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/60 font-mono"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#F7F7F7] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/40 focus:border-[#C89211] font-mono"
                     />
                   </div>
                 </div>
@@ -531,28 +547,28 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                 {/* Email & City */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                      Email Address <span className="text-stone-500 font-normal">(Optional)</span>
+                    <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
+                      Email Address <span className="text-[#666666] font-normal">(Optional)</span>
                     </label>
                     <input
                       type="email"
                       placeholder="e.g. ramesh@example.com"
                       value={email}
                       onChange={e => setEmail(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/60"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#F7F7F7] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/40 focus:border-[#C89211]"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                      City / Site Location <span className="text-stone-500 font-normal">(Optional)</span>
+                    <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
+                      City / Site Location <span className="text-[#666666] font-normal">(Optional)</span>
                     </label>
                     <input
                       type="text"
                       placeholder="e.g. Pune, Kothrud, Baner"
                       value={city}
                       onChange={e => setCity(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/60"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#F7F7F7] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/40 focus:border-[#C89211]"
                     />
                   </div>
                 </div>
@@ -560,13 +576,13 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                 {/* Enquiry Type & Selected Door */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
                       Enquiry Purpose
                     </label>
                     <select
                       value={enquiryType}
                       onChange={e => setEnquiryType(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#F7F7F7] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/40"
                     >
                       <option value="General Inquiry">General Question / Factory Visit</option>
                       <option value="Price Quotation Request">Price Quotation & Timber Rates</option>
@@ -577,13 +593,13 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                      Specific Door Model <span className="text-stone-500 font-normal">(Optional)</span>
+                    <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
+                      Specific Door Model <span className="text-[#666666] font-normal">(Optional)</span>
                     </label>
                     <select
                       value={selectedDoorId}
                       onChange={e => setSelectedDoorId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#F7F7F7] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/40"
                     >
                       <option value="">-- No specific door (General inquiry) --</option>
                       {doors.map(door => (
@@ -597,8 +613,8 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
 
                 {/* Message */}
                 <div>
-                  <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                    Your Door Requirements / Approximate Dimensions <span className="text-amber-500">*</span>
+                  <label className="block text-xs font-semibold text-[#1A1A1A] mb-1.5">
+                    Your Door Requirements / Approximate Dimensions <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     rows={4}
@@ -606,7 +622,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                     placeholder="e.g. Need 1 main Sagwan entrance door (3.5 ft x 7 ft) with heavy chaukhat, and 4 bedroom doors. Please share rate per sq.ft and dispatch timing."
                     value={message}
                     onChange={e => setMessage(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#F7F7F7] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/40"
                   />
                 </div>
 
@@ -614,7 +630,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full py-3.5 px-5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-stone-950 font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-950/30 transition-all active:scale-[0.99]"
+                  className="w-full py-3.5 px-5 rounded-xl bg-[#C89211] hover:bg-amber-600 disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.99]"
                 >
                   {submitting ? (
                     <span>Registering Requirement...</span>
@@ -626,7 +642,7 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
                   )}
                 </button>
 
-                <p className="text-[11px] text-stone-500 text-center mt-2">
+                <p className="text-[11px] text-[#666666] text-center mt-2">
                   🔒 Your phone number is kept private and used exclusively by our workshop to provide quotation assistance.
                 </p>
 
@@ -642,22 +658,22 @@ ${lastSubmittedPayload.doorName ? `Selected Door: ${lastSubmittedPayload.doorNam
           {onOpenCalculator && (
             <button
               onClick={onOpenCalculator}
-              className="p-5 rounded-2xl bg-stone-900 border border-stone-800 hover:border-amber-500/40 text-left transition-colors group shadow-lg"
+              className="p-5 rounded-2xl bg-white border border-[#E5E5E5] hover:border-[#C89211]/40 text-left transition-colors group shadow-sm"
             >
-              <Calculator className="w-6 h-6 text-amber-400 mb-2 group-hover:scale-110 transition-transform" />
-              <h3 className="font-bold text-sm text-stone-200">Price Calculator</h3>
-              <p className="text-stone-400 mt-1">Calculate exact square-foot cost including frame and polish.</p>
+              <Calculator className="w-6 h-6 text-[#C89211] mb-2 group-hover:scale-110 transition-transform" />
+              <h3 className="font-bold text-sm text-[#1A1A1A]">Price Calculator</h3>
+              <p className="text-[#666666] mt-1">Calculate exact square-foot cost including frame and polish.</p>
             </button>
           )}
 
           {onOpenGallery && (
             <button
               onClick={onOpenGallery}
-              className="p-5 rounded-2xl bg-stone-900 border border-stone-800 hover:border-amber-500/40 text-left transition-colors group shadow-lg"
+              className="p-5 rounded-2xl bg-white border border-[#E5E5E5] hover:border-[#C89211]/40 text-left transition-colors group shadow-sm"
             >
-              <Compass className="w-6 h-6 text-amber-400 mb-2 group-hover:scale-110 transition-transform" />
-              <h3 className="font-bold text-sm text-stone-200">Catalog Gallery</h3>
-              <p className="text-stone-400 mt-1">Browse all carved Sagwan doors and modern minimalist designs.</p>
+              <Compass className="w-6 h-6 text-[#C89211] mb-2 group-hover:scale-110 transition-transform" />
+              <h3 className="font-bold text-sm text-[#1A1A1A]">Catalog Gallery</h3>
+              <p className="text-[#666666] mt-1">Browse all carved Sagwan doors and modern minimalist designs.</p>
             </button>
           )}
         </div>

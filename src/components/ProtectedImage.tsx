@@ -45,6 +45,11 @@ export const ProtectedImage: React.FC<ProtectedImageProps> = ({
   const [hasError, setHasError] = useState(false);
   const [adminDownloading, setAdminDownloading] = useState(false);
 
+  React.useEffect(() => {
+    setImgSrc(src || fallbackSrc);
+    setHasError(false);
+  }, [src, fallbackSrc]);
+
   const protection = watermarkSettings || DEFAULT_CONTENT_PROTECTION;
   const isProtected = protection.enableImageProtection !== false;
   const isWatermarkActive = isProtected && showWatermark && (protection.enableWatermark !== false);
@@ -219,7 +224,7 @@ export const ProtectedImage: React.FC<ProtectedImageProps> = ({
           <button
             onClick={handleAdminDownload}
             disabled={adminDownloading}
-            className="p-1.5 rounded-lg bg-stone-900/90 hover:bg-stone-800 text-amber-300 border border-amber-500/40 text-[10px] font-semibold flex items-center gap-1 shadow-lg transition-all backdrop-blur-md hover:scale-105"
+            className="p-1.5 rounded-lg bg-white/95 hover:bg-white text-[#C89211] border border-[#C89211]/30 text-[10px] font-semibold flex items-center gap-1 shadow-md transition-all backdrop-blur-md hover:scale-105 cursor-pointer"
             title="Authorized Admin: Download Original High-Res Asset"
           >
             <Download className="w-3 h-3" />
@@ -229,12 +234,12 @@ export const ProtectedImage: React.FC<ProtectedImageProps> = ({
       )}
 
       {/* Print protection notice rendered exclusively during print preview */}
-      <div className="hidden protected-print-notice absolute inset-0 bg-stone-900 text-stone-200 flex flex-col items-center justify-center p-4 text-center z-50">
-        <ShieldCheck className="w-8 h-8 text-amber-500 mb-1" />
-        <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+      <div className="hidden protected-print-notice absolute inset-0 bg-white text-[#1A1A1A] border border-[#E5E5E5] flex flex-col items-center justify-center p-4 text-center z-50">
+        <ShieldCheck className="w-8 h-8 text-[#C89211] mb-1" />
+        <span className="text-xs font-bold text-[#C89211] uppercase tracking-wider">
           Jai Hanuman Door • Content Protected
         </span>
-        <span className="text-[10px] text-stone-400 mt-0.5">
+        <span className="text-[10px] text-[#666666] mt-0.5">
           Proprietary handcrafted wood door design. Unauthorized copying or redistribution is strictly prohibited.
         </span>
       </div>

@@ -129,26 +129,26 @@ export const NotificationPreferencesModal: React.FC<NotificationPreferencesModal
   return (
     <div
       id="notification-preferences-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     >
-      <div className="bg-stone-900 text-stone-100 rounded-3xl max-w-lg w-full border border-stone-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white text-[#1A1A1A] rounded-3xl max-w-lg w-full border border-[#E5E5E5] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         
         {/* Header */}
-        <div className="p-6 border-b border-stone-800 flex items-center justify-between">
+        <div className="p-6 border-b border-[#E5E5E5] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center">
               <Bell className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-stone-100">Push Notification Settings</h3>
-              <p className="text-xs text-stone-400">Choose what updates you want to receive</p>
+              <h3 className="text-lg font-bold text-[#1A1A1A]">Push Notification Settings</h3>
+              <p className="text-xs text-[#666666]">Choose what updates you want to receive</p>
             </div>
           </div>
 
           <button
             onClick={onClose}
             aria-label="Close"
-            className="p-1.5 rounded-full text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
+            className="p-1.5 rounded-full text-[#666666] hover:text-[#1A1A1A] hover:bg-[#F8F8F6] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -159,52 +159,52 @@ export const NotificationPreferencesModal: React.FC<NotificationPreferencesModal
           
           {/* Permission Status Banner */}
           {permissionState === 'denied' ? (
-            <div className="p-3.5 rounded-2xl bg-red-950/40 border border-red-800/60 text-xs text-red-200 flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 text-xs text-[#C62828] flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-[#C62828] flex-shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold text-red-300 block mb-1">Browser Notifications Blocked</span>
-                <p className="text-stone-300 text-[11px] leading-relaxed">
+                <span className="font-bold text-[#C62828] block mb-1">Browser Notifications Blocked</span>
+                <p className="text-[#666666] text-[11px] leading-relaxed">
                   Your browser or phone has blocked notifications for this site. Click the site settings or lock icon 🔒 in your address bar to allow notifications.
                 </p>
               </div>
             </div>
           ) : permissionState === 'default' ? (
-            <div className="p-3.5 rounded-2xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-200 flex items-center justify-between gap-3">
+            <div className="p-3.5 rounded-2xl bg-[#FFF7E3] border border-[#C89211]/30 text-xs text-[#1A1A1A] flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <Smartphone className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                <Smartphone className="w-5 h-5 text-[#C89211] flex-shrink-0" />
                 <div>
-                  <span className="font-bold text-amber-300 block">Device Permission Needed</span>
-                  <p className="text-stone-400 text-[11px]">Grant permission to receive alerts on this phone/computer.</p>
+                  <span className="font-bold text-[#1A1A1A] block">Device Permission Needed</span>
+                  <p className="text-[#666666] text-[11px]">Grant permission to receive alerts on this phone/computer.</p>
                 </div>
               </div>
               <button
                 onClick={handleEnablePermission}
-                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs flex-shrink-0 shadow transition-all"
+                className="px-3 py-1.5 rounded-xl bg-[#C89211] hover:bg-amber-600 text-white font-bold text-xs flex-shrink-0 shadow transition-all"
               >
                 Allow
               </button>
             </div>
           ) : (
-            <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-800/50 text-xs text-emerald-300 flex items-center gap-2.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-[#16803A] flex items-center gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-[#16803A] flex-shrink-0" />
               <span>✓ Notifications enabled for this device. Active and ready.</span>
             </div>
           )}
 
           {/* Master Switch */}
-          <div className="flex items-center justify-between p-4 rounded-2xl bg-stone-800/70 border border-stone-750">
+          <div className="flex items-center justify-between p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5]">
             <div>
-              <span className="font-bold text-stone-100 text-sm block">Push Notifications</span>
-              <span className="text-xs text-stone-400">Master switch to enable or pause all door notifications</span>
+              <span className="font-bold text-[#1A1A1A] text-sm block">Push Notifications</span>
+              <span className="text-xs text-[#666666]">Master switch to enable or pause all door notifications</span>
             </div>
             <button
               onClick={() => handleToggle('enabled')}
               className={`w-13 h-7 rounded-full transition-colors relative flex items-center px-1 ${
-                preferences.enabled ? 'bg-amber-500' : 'bg-stone-700'
+                preferences.enabled ? 'bg-[#C89211]' : 'bg-stone-300'
               }`}
             >
               <div
-                className={`w-5 h-5 rounded-full bg-stone-950 shadow-md transform transition-transform ${
+                className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform ${
                   preferences.enabled ? 'translate-x-6' : 'translate-x-0'
                 }`}
               />
@@ -213,29 +213,29 @@ export const NotificationPreferencesModal: React.FC<NotificationPreferencesModal
 
           {/* Individual Category Toggles */}
           <div className={`space-y-3 transition-opacity ${preferences.enabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-            <h4 className="text-xs font-bold text-stone-400 uppercase tracking-wider px-1">
+            <h4 className="text-xs font-bold text-[#666666] uppercase tracking-wider px-1">
               Notification Categories
             </h4>
 
             {/* 1. New Designs */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-stone-850 border border-stone-800">
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-[#FFF7E3] text-[#C89211] flex items-center justify-center flex-shrink-0">
                   <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="font-semibold text-stone-200 text-xs block">New Door Designs</span>
-                  <span className="text-[11px] text-stone-400">Alerts when new carved Sagwan or modern doors launch</span>
+                  <span className="font-semibold text-[#1A1A1A] text-xs block">New Door Designs</span>
+                  <span className="text-[11px] text-[#666666]">Alerts when new carved Sagwan or modern doors launch</span>
                 </div>
               </div>
               <button
                 onClick={() => handleToggle('newDesigns')}
                 className={`w-11 h-6 rounded-full transition-colors relative flex items-center px-0.5 ${
-                  preferences.newDesigns ? 'bg-amber-500' : 'bg-stone-700'
+                  preferences.newDesigns ? 'bg-[#C89211]' : 'bg-stone-300'
                 }`}
               >
                 <div
-                  className={`w-5 h-5 rounded-full bg-stone-950 shadow transform transition-transform ${
+                  className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform ${
                     preferences.newDesigns ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
@@ -243,24 +243,24 @@ export const NotificationPreferencesModal: React.FC<NotificationPreferencesModal
             </div>
 
             {/* 2. Offers & Deals */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-stone-850 border border-stone-800">
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#16803A] flex items-center justify-center flex-shrink-0 border border-emerald-200">
                   <Tag className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="font-semibold text-stone-200 text-xs block">Offers & Deals</span>
-                  <span className="text-[11px] text-stone-400">Festival discounts, bundled hardware & polish offers</span>
+                  <span className="font-semibold text-[#1A1A1A] text-xs block">Offers & Deals</span>
+                  <span className="text-[11px] text-[#666666]">Festival discounts, bundled hardware & polish offers</span>
                 </div>
               </div>
               <button
                 onClick={() => handleToggle('offers')}
                 className={`w-11 h-6 rounded-full transition-colors relative flex items-center px-0.5 ${
-                  preferences.offers ? 'bg-amber-500' : 'bg-stone-700'
+                  preferences.offers ? 'bg-[#C89211]' : 'bg-stone-300'
                 }`}
               >
                 <div
-                  className={`w-5 h-5 rounded-full bg-stone-950 shadow transform transition-transform ${
+                  className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform ${
                     preferences.offers ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
@@ -268,24 +268,24 @@ export const NotificationPreferencesModal: React.FC<NotificationPreferencesModal
             </div>
 
             {/* 3. Price Updates */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-stone-850 border border-stone-800">
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0 border border-blue-200">
                   <DollarSign className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="font-semibold text-stone-200 text-xs block">Price Updates</span>
-                  <span className="text-[11px] text-stone-400">Timber rate adjustments and price drop alerts</span>
+                  <span className="font-semibold text-[#1A1A1A] text-xs block">Price Updates</span>
+                  <span className="text-[11px] text-[#666666]">Timber rate adjustments and price drop alerts</span>
                 </div>
               </div>
               <button
                 onClick={() => handleToggle('priceUpdates')}
                 className={`w-11 h-6 rounded-full transition-colors relative flex items-center px-0.5 ${
-                  preferences.priceUpdates ? 'bg-amber-500' : 'bg-stone-700'
+                  preferences.priceUpdates ? 'bg-[#C89211]' : 'bg-stone-300'
                 }`}
               >
                 <div
-                  className={`w-5 h-5 rounded-full bg-stone-950 shadow transform transition-transform ${
+                  className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform ${
                     preferences.priceUpdates ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
@@ -293,24 +293,24 @@ export const NotificationPreferencesModal: React.FC<NotificationPreferencesModal
             </div>
 
             {/* 4. Door & Wood Tips */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-stone-850 border border-stone-800">
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center flex-shrink-0 border border-amber-200">
                   <BookOpen className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="font-semibold text-stone-200 text-xs block">Door & Wood Tips</span>
-                  <span className="text-[11px] text-stone-400">Sagwan vs Pine guides, termite prevention, polish care</span>
+                  <span className="font-semibold text-[#1A1A1A] text-xs block">Door & Wood Tips</span>
+                  <span className="text-[11px] text-[#666666]">Sagwan vs Pine guides, termite prevention, polish care</span>
                 </div>
               </div>
               <button
                 onClick={() => handleToggle('doorTips')}
                 className={`w-11 h-6 rounded-full transition-colors relative flex items-center px-0.5 ${
-                  preferences.doorTips ? 'bg-amber-500' : 'bg-stone-700'
+                  preferences.doorTips ? 'bg-[#C89211]' : 'bg-stone-300'
                 }`}
               >
                 <div
-                  className={`w-5 h-5 rounded-full bg-stone-950 shadow transform transition-transform ${
+                  className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform ${
                     preferences.doorTips ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
@@ -318,24 +318,24 @@ export const NotificationPreferencesModal: React.FC<NotificationPreferencesModal
             </div>
 
             {/* 5. Important Updates */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-stone-850 border border-stone-800">
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-stone-500/20 text-stone-300 flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-stone-100 text-stone-700 flex items-center justify-center flex-shrink-0 border border-stone-200">
                   <AlertCircle className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="font-semibold text-stone-200 text-xs block">Important Updates</span>
-                  <span className="text-[11px] text-stone-400">Workshop holiday notices and quotation order updates</span>
+                  <span className="font-semibold text-[#1A1A1A] text-xs block">Important Updates</span>
+                  <span className="text-[11px] text-[#666666]">Workshop holiday notices and quotation order updates</span>
                 </div>
               </div>
               <button
                 onClick={() => handleToggle('importantUpdates')}
                 className={`w-11 h-6 rounded-full transition-colors relative flex items-center px-0.5 ${
-                  preferences.importantUpdates ? 'bg-amber-500' : 'bg-stone-700'
+                  preferences.importantUpdates ? 'bg-[#C89211]' : 'bg-stone-300'
                 }`}
               >
                 <div
-                  className={`w-5 h-5 rounded-full bg-stone-950 shadow transform transition-transform ${
+                  className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform ${
                     preferences.importantUpdates ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
@@ -344,11 +344,11 @@ export const NotificationPreferencesModal: React.FC<NotificationPreferencesModal
           </div>
 
           {/* Test notification trigger */}
-          <div className="pt-2 border-t border-stone-800/80 flex items-center justify-between">
-            <span className="text-xs text-stone-400">Verify in-app delivery on this screen:</span>
+          <div className="pt-2 border-t border-[#E5E5E5] flex items-center justify-between">
+            <span className="text-xs text-[#666666]">Verify in-app delivery on this screen:</span>
             <button
               onClick={handleSendTestNotification}
-              className="px-3 py-1.5 rounded-xl border border-stone-700 hover:bg-stone-800 text-stone-300 text-xs font-medium transition-colors"
+              className="px-3 py-1.5 rounded-xl border border-[#E5E5E5] hover:bg-[#F8F8F6] text-[#1A1A1A] text-xs font-medium transition-colors"
             >
               Test Preview
             </button>
@@ -357,10 +357,10 @@ export const NotificationPreferencesModal: React.FC<NotificationPreferencesModal
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-stone-800 bg-stone-900/90 flex items-center justify-end">
+        <div className="p-4 border-t border-[#E5E5E5] bg-[#F8F8F6] flex items-center justify-end">
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs transition-colors shadow"
+            className="px-5 py-2 rounded-xl bg-[#C89211] hover:bg-amber-600 text-white font-bold text-xs transition-colors shadow"
           >
             Done
           </button>

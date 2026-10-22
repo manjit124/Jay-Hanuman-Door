@@ -97,18 +97,18 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
     <div id="admin-legal-tab" className="space-y-6">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-800 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E5E5E5] pb-5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase">
+            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase">
               Page Content Management
             </span>
-            <span className="text-xs text-stone-400">Jai Hanuman Door</span>
+            <span className="text-xs text-[#666666]">Jai Hanuman Door</span>
           </div>
           <h3 className="font-serif text-xl sm:text-2xl font-bold text-white mt-1">
             Legal & Information Pages
           </h3>
-          <p className="text-xs text-stone-400 mt-0.5">
+          <p className="text-xs text-[#666666] mt-0.5">
             Configure content, legal notices, workshop heritage narratives, and verified social media links.
           </p>
         </div>
@@ -116,38 +116,38 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
         {/* Quick Preview Links */}
         {onPreviewPage && (
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-stone-500 text-[11px] mr-1">Live Previews:</span>
+            <span className="text-[#666666] text-[11px] mr-1">Live Previews:</span>
             <button
               type="button"
               onClick={() => onPreviewPage('privacy')}
-              className="px-2.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 flex items-center gap-1 transition-colors"
+              className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] flex items-center gap-1 transition-colors"
             >
               <span>Privacy</span>
-              <ExternalLink className="w-3 h-3 text-amber-400" />
+              <ExternalLink className="w-3 h-3 text-[#C89211]" />
             </button>
             <button
               type="button"
               onClick={() => onPreviewPage('about')}
-              className="px-2.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 flex items-center gap-1 transition-colors"
+              className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] flex items-center gap-1 transition-colors"
             >
               <span>About Us</span>
-              <ExternalLink className="w-3 h-3 text-amber-400" />
+              <ExternalLink className="w-3 h-3 text-[#C89211]" />
             </button>
             <button
               type="button"
               onClick={() => onPreviewPage('contact')}
-              className="px-2.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 flex items-center gap-1 transition-colors"
+              className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] flex items-center gap-1 transition-colors"
             >
               <span>Contact</span>
-              <ExternalLink className="w-3 h-3 text-amber-400" />
+              <ExternalLink className="w-3 h-3 text-[#C89211]" />
             </button>
             <button
               type="button"
               onClick={() => onPreviewPage('disclaimer')}
-              className="px-2.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 flex items-center gap-1 transition-colors"
+              className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] flex items-center gap-1 transition-colors"
             >
               <span>Disclaimer</span>
-              <ExternalLink className="w-3 h-3 text-amber-400" />
+              <ExternalLink className="w-3 h-3 text-[#C89211]" />
             </button>
           </div>
         )}
@@ -156,16 +156,16 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
       <form onSubmit={handleSave} className="space-y-6">
         
         {/* Date of Last Revision */}
-        <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-4 rounded-2xl bg-white border border-[#E5E5E5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-stone-800 text-amber-400 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-[#F8F8F6] text-[#C89211] flex items-center justify-center shrink-0">
               <Calendar className="w-4 h-4" />
             </div>
             <div>
-              <label className="block text-xs font-bold text-stone-200">
+              <label className="block text-xs font-bold text-[#1A1A1A]">
                 Effective Legal Revision Date
               </label>
-              <p className="text-[11px] text-stone-400">
+              <p className="text-[11px] text-[#666666]">
                 Displayed at the top of Privacy Policy and Disclaimer pages.
               </p>
             </div>
@@ -175,17 +175,17 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
             value={lastUpdated}
             onChange={e => setLastUpdated(e.target.value)}
             placeholder="e.g. September 2026"
-            className="w-full sm:w-56 px-3 py-1.5 rounded-xl bg-stone-950 border border-stone-700 text-stone-200 text-xs font-mono focus:border-amber-500 outline-none"
+            className="w-full sm:w-56 px-3 py-1.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono focus:border-[#C89211] outline-none"
           />
         </div>
 
         {/* 1. Privacy Policy Custom Notice */}
-        <div className="p-5 sm:p-6 rounded-2xl bg-stone-900 border border-stone-800 space-y-3">
-          <div className="flex items-center gap-2 text-stone-200 font-bold text-sm">
-            <Shield className="w-4 h-4 text-amber-400" />
+        <div className="p-5 sm:p-6 rounded-2xl bg-white border border-[#E5E5E5] space-y-3">
+          <div className="flex items-center gap-2 text-[#1A1A1A] font-bold text-sm">
+            <Shield className="w-4 h-4 text-[#C89211]" />
             <span>1. Privacy Policy — Factory Notice & Custom Terms</span>
           </div>
-          <p className="text-xs text-stone-400 leading-relaxed">
+          <p className="text-xs text-[#666666] leading-relaxed">
             The Privacy Policy already provides comprehensive disclosures (image handling, camera bounds fitting, no third-party data broker sale, hashed passwords). You can add specific factory notices, registration clauses, or data protection contact details here.
           </p>
           <textarea
@@ -193,17 +193,17 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
             value={privacyPolicy}
             onChange={e => setPrivacyPolicy(e.target.value)}
             placeholder="e.g. Shivshahi Doors guarantees that all customer door specifications and inquiries are treated with strict confidentiality. Customer phone numbers will only be used by our direct workshop team..."
-            className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-200 text-xs focus:border-amber-500 outline-none leading-relaxed"
+            className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none leading-relaxed"
           />
         </div>
 
         {/* 2. About Us Narrative & Heritage Story */}
-        <div className="p-5 sm:p-6 rounded-2xl bg-stone-900 border border-stone-800 space-y-3">
-          <div className="flex items-center gap-2 text-stone-200 font-bold text-sm">
-            <FileText className="w-4 h-4 text-amber-400" />
+        <div className="p-5 sm:p-6 rounded-2xl bg-white border border-[#E5E5E5] space-y-3">
+          <div className="flex items-center gap-2 text-[#1A1A1A] font-bold text-sm">
+            <FileText className="w-4 h-4 text-[#C89211]" />
             <span>2. About Us — Workshop Heritage & Mission Statement</span>
           </div>
-          <p className="text-xs text-stone-400 leading-relaxed">
+          <p className="text-xs text-[#666666] leading-relaxed">
             Highlight your woodworking legacy, timber sourcing philosophies, master carpenter expertise, or special machinery:
           </p>
           <textarea
@@ -211,17 +211,17 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
             value={aboutUs}
             onChange={e => setAboutUs(e.target.value)}
             placeholder="e.g. At Jai Hanuman Door, our journey began over twenty years ago in Pune's timber trade. Today, we combine authentic seasoned Sagwan woodcraft with modern manufacturing precision to give customers unmatched quality..."
-            className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-200 text-xs focus:border-amber-500 outline-none leading-relaxed"
+            className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none leading-relaxed"
           />
         </div>
 
         {/* 3. Disclaimer Advisory */}
-        <div className="p-5 sm:p-6 rounded-2xl bg-stone-900 border border-stone-800 space-y-3">
-          <div className="flex items-center gap-2 text-stone-200 font-bold text-sm">
-            <AlertCircle className="w-4 h-4 text-amber-400" />
+        <div className="p-5 sm:p-6 rounded-2xl bg-white border border-[#E5E5E5] space-y-3">
+          <div className="flex items-center gap-2 text-[#1A1A1A] font-bold text-sm">
+            <AlertCircle className="w-4 h-4 text-[#C89211]" />
             <span>3. Disclaimer & Estimation Terms</span>
           </div>
-          <p className="text-xs text-stone-400 leading-relaxed">
+          <p className="text-xs text-[#666666] leading-relaxed">
             Highlighted estimation warning displayed across quotation forms and the Disclaimer page:
           </p>
           <textarea
@@ -229,17 +229,17 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
             value={disclaimer}
             onChange={e => setDisclaimer(e.target.value)}
             placeholder="e.g. Prices calculated are preliminary estimates based on standard dimensions and current timber market rates. Final quotation will be confirmed upon physical site measurement and timber grading..."
-            className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-200 text-xs focus:border-amber-500 outline-none leading-relaxed"
+            className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none leading-relaxed"
           />
         </div>
 
         {/* 4. Contact Us Notes & Factory Instructions */}
-        <div className="p-5 sm:p-6 rounded-2xl bg-stone-900 border border-stone-800 space-y-3">
-          <div className="flex items-center gap-2 text-stone-200 font-bold text-sm">
-            <Info className="w-4 h-4 text-amber-400" />
+        <div className="p-5 sm:p-6 rounded-2xl bg-white border border-[#E5E5E5] space-y-3">
+          <div className="flex items-center gap-2 text-[#1A1A1A] font-bold text-sm">
+            <Info className="w-4 h-4 text-[#C89211]" />
             <span>4. Contact Us — Guidance Notes & Directions Note</span>
           </div>
-          <p className="text-xs text-stone-400 leading-relaxed">
+          <p className="text-xs text-[#666666] leading-relaxed">
             Provide visiting advice, landmark instructions, or measurement booking guidance on the Contact Us page:
           </p>
           <textarea
@@ -247,23 +247,23 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
             value={contactInfoNotes}
             onChange={e => setContactInfoNotes(e.target.value)}
             placeholder="e.g. Factory workshop visits are welcome between 9:00 AM and 8:00 PM. For on-site door measurements in Pune and PCMC areas, please call us 24 hours in advance."
-            className="w-full px-3.5 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-200 text-xs focus:border-amber-500 outline-none leading-relaxed"
+            className="w-full px-3.5 py-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none leading-relaxed"
           />
         </div>
 
         {/* 5. Verified Social Media & Google Maps Links */}
-        <div className="p-5 sm:p-6 rounded-2xl bg-stone-900 border border-stone-800 space-y-4">
-          <div className="flex items-center gap-2 text-stone-200 font-bold text-sm">
-            <Share2 className="w-4 h-4 text-amber-400" />
+        <div className="p-5 sm:p-6 rounded-2xl bg-white border border-[#E5E5E5] space-y-4">
+          <div className="flex items-center gap-2 text-[#1A1A1A] font-bold text-sm">
+            <Share2 className="w-4 h-4 text-[#C89211]" />
             <span>5. Social Profiles & Google Business Map URL</span>
           </div>
-          <p className="text-xs text-stone-400">
+          <p className="text-xs text-[#666666]">
             Only fill verified URLs that exist. Empty fields will not be shown to customers.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
             <div>
-              <label className="block text-stone-300 font-semibold mb-1">
+              <label className="block text-[#1A1A1A] font-semibold mb-1">
                 Instagram Profile URL
               </label>
               <input
@@ -271,12 +271,12 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
                 value={instagram}
                 onChange={e => setInstagram(e.target.value)}
                 placeholder="https://instagram.com/shivshahidoors"
-                className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs focus:border-amber-500 outline-none"
+                className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-stone-300 font-semibold mb-1">
+              <label className="block text-[#1A1A1A] font-semibold mb-1">
                 Facebook Page URL
               </label>
               <input
@@ -284,12 +284,12 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
                 value={facebook}
                 onChange={e => setFacebook(e.target.value)}
                 placeholder="https://facebook.com/shivshahidoors"
-                className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs focus:border-amber-500 outline-none"
+                className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-stone-300 font-semibold mb-1">
+              <label className="block text-[#1A1A1A] font-semibold mb-1">
                 YouTube Channel URL
               </label>
               <input
@@ -297,12 +297,12 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
                 value={youtube}
                 onChange={e => setYoutube(e.target.value)}
                 placeholder="https://youtube.com/@shivshahidoors"
-                className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs focus:border-amber-500 outline-none"
+                className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-stone-300 font-semibold mb-1">
+              <label className="block text-[#1A1A1A] font-semibold mb-1">
                 Google Business / Maps Direct Link
               </label>
               <input
@@ -310,21 +310,21 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
                 value={googleBusiness}
                 onChange={e => setGoogleBusiness(e.target.value)}
                 placeholder="https://maps.app.goo.gl/your-workshop"
-                className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs focus:border-amber-500 outline-none"
+                className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none"
               />
             </div>
           </div>
         </div>
 
         {/* Save Bar */}
-        <div className="sticky bottom-0 bg-stone-950/90 backdrop-blur-md p-4 rounded-2xl border border-stone-800 flex items-center justify-between gap-4 shadow-2xl">
-          <div className="text-xs text-stone-400">
+        <div className="sticky bottom-0 bg-[#F8F8F6] backdrop-blur-md p-4 rounded-2xl border border-[#E5E5E5] flex items-center justify-between gap-4 shadow-2xl">
+          <div className="text-xs text-[#666666]">
             Changes apply immediately across all legal and contact pages.
           </div>
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-stone-950 font-bold text-xs flex items-center gap-2 shadow-lg transition-transform active:scale-95"
+            className="px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition-transform active:scale-95"
           >
             {saving ? (
               <span>Saving Pages...</span>

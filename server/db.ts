@@ -1,6 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import {
+  fetchAuthoritativeFirestoreDb,
+  saveAuthoritativeFirestoreDb,
+  saveEntityToFirestore,
+  deleteEntityFromFirestore,
+} from './firestoreDb.ts';
+import {
   Door,
   Category,
   DoorMaterial,
@@ -25,7 +31,24 @@ import {
   AIWoodDetectorSettings,
   AdminAuditLogItem,
   WoodReferenceSample,
+  TrackingOrder,
+  IndiaDeliveryState,
+  DeliveryStory,
+  ChaukhatProduct,
+  ChaukhatSectionSize,
+  ChaukhatDimensionPreset,
+  ChaukhatWoodType,
 } from '../src/types.ts';
+import {
+  DEFAULT_INDIA_STATES,
+  DEFAULT_DELIVERY_STORIES,
+} from '../src/data/indiaDeliveryData.ts';
+import {
+  DEFAULT_CHAUKHAT_WOOD_TYPES,
+  DEFAULT_CHAUKHAT_SECTION_SIZES,
+  DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+  DEFAULT_CHAUKHAT_PRODUCT,
+} from '../src/data/chaukhatDefaults.ts';
 
 export interface UserRecord {
   id: string;
@@ -71,6 +94,13 @@ export interface DatabaseSchema {
   articleShares: { articleId: string; platform: string; timestamp: string }[];
   aiWoodDetectorLogs?: AIWoodDetectorLogItem[];
   woodReferences?: WoodReferenceSample[];
+  trackingOrders?: TrackingOrder[];
+  deliveryStates?: IndiaDeliveryState[];
+  deliveryStories?: DeliveryStory[];
+  chaukhatProducts?: ChaukhatProduct[];
+  chaukhatSectionSizes?: ChaukhatSectionSize[];
+  chaukhatPresets?: ChaukhatDimensionPreset[];
+  chaukhatWoodTypes?: ChaukhatWoodType[];
   version?: number;
   lastModified?: string;
   auditLogs?: AdminAuditLogItem[];
@@ -165,6 +195,235 @@ export function syncUploadedImages(): void {
   }
 }
 
+export const INITIAL_TRACKING_ORDERS: TrackingOrder[] = [
+  {
+    id: 'ord-101',
+    trackingId: 'JHD-2026-H8K24',
+    customerName: 'Rahul Patil',
+    customerPhone: '+91 98224 88712',
+    customerEmail: 'rahul.patil@example.com',
+    customerCity: 'Pune',
+    customerAddress: 'Bungalow No. 7, Baner Hills, Pune, Maharashtra 411045',
+    productName: 'Royal Sagwan Carved Main Door',
+    productCategory: 'Sagwan Door',
+    productImage: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80',
+    woodType: 'Sagwan (CP Teak)',
+    finishType: 'Natural Teak Wood Polish',
+    quantity: 1,
+    dimensions: {
+      widthInch: 36,
+      heightInch: 78,
+      sqFt: 19.5,
+    },
+    totalAmount: 18500,
+    advancePaid: 10000,
+    status: 'active',
+    currentStageId: 'mfg_25',
+    manufacturingPercent: 25,
+    deliveryStatusText: 'In Workshop (Manufacturing)',
+    stages: [
+      {
+        id: 'order_confirmed',
+        name: 'Order Confirmed',
+        customerDescription: 'Your order has been confirmed by Jai Hanuman Door.',
+        status: 'completed',
+        isMilestone: false,
+        startedAt: '2026-09-28T09:30:00.000Z',
+        completedAt: '2026-09-28T10:15:00.000Z',
+        customerNote: 'Order verified and technical measurements confirmed for Baner residence.',
+        updatedAt: '2026-09-28T10:15:00.000Z',
+      },
+      {
+        id: 'transferred_to_workshop',
+        name: 'Transferred to Workshop',
+        customerDescription: 'Your order has been transferred to our manufacturing workshop.',
+        status: 'completed',
+        isMilestone: false,
+        startedAt: '2026-09-28T11:00:00.000Z',
+        completedAt: '2026-09-28T12:00:00.000Z',
+        customerNote: 'Job card #JHD-W-881 issued to master craftsman Santosh Suthar.',
+        updatedAt: '2026-09-28T12:00:00.000Z',
+      },
+      {
+        id: 'wood_selection',
+        name: 'Wood Selection',
+        customerDescription: 'Wood is being selected according to your order specifications.',
+        status: 'completed',
+        isMilestone: false,
+        startedAt: '2026-09-29T08:00:00.000Z',
+        completedAt: '2026-09-29T16:30:00.000Z',
+        customerNote: 'Selected premium Grade-A seasoned Central Province Teak with 11% moisture balance.',
+        updatedAt: '2026-09-29T16:30:00.000Z',
+      },
+      {
+        id: 'mfg_25',
+        name: '25% Manufacturing Completed',
+        customerDescription: 'Initial manufacturing work on your door has been completed.',
+        status: 'completed',
+        isMilestone: true,
+        milestonePercent: 25,
+        startedAt: '2026-09-30T09:00:00.000Z',
+        completedAt: '2026-10-01T15:00:00.000Z',
+        customerNote: 'Frame timber planed, perimeter core joined and base panel dimensioning completed.',
+        updatedAt: '2026-10-01T15:00:00.000Z',
+      },
+      {
+        id: 'mfg_50',
+        name: '50% Manufacturing Completed',
+        customerDescription: 'Half of the door manufacturing work has been completed.',
+        status: 'in_progress',
+        isMilestone: true,
+        milestonePercent: 50,
+        startedAt: '2026-10-02T08:30:00.000Z',
+        customerNote: 'Joinery mortise & tenon interlocking in progress.',
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'mfg_75',
+        name: '75% Manufacturing Completed',
+        customerDescription: 'Most of the main manufacturing work has been completed.',
+        status: 'pending',
+        isMilestone: true,
+        milestonePercent: 75,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'carving_design',
+        name: 'Carving & Design Work',
+        customerDescription: 'Carving and designer work is in progress, if applicable to your order.',
+        status: 'pending',
+        isMilestone: false,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'finishing_polishing',
+        name: 'Finishing & Polishing',
+        customerDescription: 'Your door is undergoing finishing and polishing.',
+        status: 'pending',
+        isMilestone: false,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'mfg_100',
+        name: '100% Door Ready',
+        customerDescription: 'Your door manufacturing is complete and the product is ready.',
+        status: 'pending',
+        isMilestone: true,
+        milestonePercent: 100,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'transferred_to_showroom',
+        name: 'Transferred to Showroom',
+        customerDescription: 'Your completed door has arrived at Jai Hanuman Door showroom.',
+        status: 'pending',
+        isMilestone: false,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'searching_delivery_partner',
+        name: 'Searching for Delivery Partner',
+        customerDescription: 'We are arranging a suitable delivery or transport partner for your order.',
+        status: 'pending',
+        isMilestone: false,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'delivery_partner_confirmed',
+        name: 'Delivery Partner Confirmed',
+        customerDescription: 'Your delivery or transport partner has been confirmed.',
+        status: 'pending',
+        isMilestone: false,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'dispatched',
+        name: 'Dispatched',
+        customerDescription: 'Your order has been dispatched from our showroom.',
+        status: 'pending',
+        isMilestone: false,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'on_the_way',
+        name: 'On the Way to Your Address',
+        customerDescription: 'Your order is on its way to the delivery address.',
+        status: 'pending',
+        isMilestone: false,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+      {
+        id: 'delivered',
+        name: 'Delivered',
+        customerDescription: 'Your order has been delivered.',
+        status: 'pending',
+        isMilestone: false,
+        updatedAt: '2026-10-02T08:30:00.000Z',
+      },
+    ],
+    media: [
+      {
+        id: 'med-1',
+        stageId: 'wood_selection',
+        url: 'https://images.unsplash.com/photo-1546484396-fb3fc6f95f98?auto=format&fit=crop&w=1200&q=80',
+        type: 'image',
+        caption: 'Central Province seasoned Teak planks selected for frame & core',
+        isCustomerVisible: true,
+        uploadedAt: '2026-09-29T16:00:00.000Z',
+      },
+      {
+        id: 'med-2',
+        stageId: 'mfg_25',
+        url: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80',
+        type: 'image',
+        caption: '25% milestone reached: Core framing and precision mortise jointing',
+        isCustomerVisible: true,
+        uploadedAt: '2026-10-01T14:30:00.000Z',
+      },
+    ],
+    delivery: {
+      workshopTransferDate: '2026-09-28T12:00:00.000Z',
+      transferNotes: 'Workshop Unit 2, Artisan Bay #4',
+    },
+    estimatedCompletionDate: '2026-10-10',
+    expectedDispatchDate: '2026-10-12',
+    workshopNotes: 'Client requested extra care on bottom teak moisture sealant coat.',
+    adminInternalNotes: 'Customer advance received via UPI ₹10,000 on 28 Sep. Balance ₹8,500 on delivery.',
+    auditHistory: [
+      {
+        id: 'aud-1',
+        timestamp: '2026-09-28T10:15:00.000Z',
+        action: 'Created order & confirmed',
+        actor: 'Admin (shivshahidoors@gmail.com)',
+        details: 'Initial order created with Tracking ID JHD-2026-H8K24',
+      },
+      {
+        id: 'aud-2',
+        timestamp: '2026-09-28T12:00:00.000Z',
+        action: 'Transferred to workshop',
+        actor: 'Admin (shivshahidoors@gmail.com)',
+        details: 'Transferred to Workshop Unit 2',
+      },
+      {
+        id: 'aud-3',
+        timestamp: '2026-09-29T16:30:00.000Z',
+        action: 'Completed wood selection',
+        actor: 'Admin (shivshahidoors@gmail.com)',
+        details: 'Selected Grade-A Sagwan wood & uploaded proof photo',
+      },
+      {
+        id: 'aud-4',
+        timestamp: '2026-10-01T15:00:00.000Z',
+        action: '25% Manufacturing Completed',
+        actor: 'Admin (shivshahidoors@gmail.com)',
+        details: 'Milestone 25% marked completed and progress photo added',
+      },
+    ],
+    createdAt: '2026-09-28T10:15:00.000Z',
+    updatedAt: '2026-10-02T08:30:00.000Z',
+  },
+];
+
 export const INITIAL_DATA: DatabaseSchema = {
   doors: [
     {
@@ -173,7 +432,7 @@ export const INITIAL_DATA: DatabaseSchema = {
       category: 'Sagwan Door',
       description: 'Handcrafted solid Sagwan (CP Teak) wood main entrance door with intricate floral carving, brass studs, and deep natural polish. Built to withstand all seasons.',
       material: 'Sagwan',
-      startingPrice: 15600,
+      startingPrice: 21000,
       images: [
         'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80',
         'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=1200&q=80',
@@ -311,62 +570,92 @@ export const INITIAL_DATA: DatabaseSchema = {
     { id: 'cat-9', name: 'Door Frame / Chaukhat', slug: 'door-frame-chaukhat', description: 'Heavy timber frames in Sagwan & Sal wood' },
   ],
   materials: [
-    { id: 'mat-1', name: 'Sagwan', ratePerSqFt: 800, description: 'Premium grade Central Province (CP) Teak Wood with natural oil & high moisture resistance', active: true },
-    { id: 'mat-2', name: 'Sal Wood', ratePerSqFt: 650, description: 'Heavy, durable Indian hardwood renowned for extreme load-bearing strength', active: true },
-    { id: 'mat-3', name: 'Pine', ratePerSqFt: 450, description: 'Treated pine timber with light grain texture, kiln-dried for dimensional stability', active: true },
-    { id: 'mat-4', name: 'Plywood', ratePerSqFt: 350, description: 'Boiling Waterproof (BWP) marine grade core with hardwood internal framing', active: true },
-    { id: 'mat-5', name: 'Teak Veneer Flush Door', ratePerSqFt: 550, description: 'Solid core flush door with 4mm natural Burma teak wood veneer on both sides', active: true },
+    { id: 'mat-1', name: 'Sagwan', ratePerSqFt: 800, image: 'https://images.unsplash.com/photo-1546484396-fb3fc6f95f98?auto=format&fit=crop&w=600&q=80', description: 'Premium grade Central Province (CP) Teak Wood with natural oil & high moisture resistance', active: true },
+    { id: 'mat-2', name: 'Sal Wood', ratePerSqFt: 650, image: 'https://images.unsplash.com/photo-1549497538-303791108f95?auto=format&fit=crop&w=600&q=80', description: 'Heavy, durable Indian hardwood renowned for extreme load-bearing strength', active: true },
+    { id: 'mat-3', name: 'Pine', ratePerSqFt: 450, image: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=600&q=80', description: 'Treated pine timber with light grain texture, kiln-dried for dimensional stability', active: true },
+    { id: 'mat-4', name: 'Plywood', ratePerSqFt: 350, image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=600&q=80', description: 'Boiling Waterproof (BWP) marine grade core with hardwood internal framing', active: true },
+    { id: 'mat-5', name: 'Teak Veneer Flush Door', ratePerSqFt: 550, image: 'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=600&q=80', description: 'Solid core flush door with 4mm natural Burma teak wood veneer on both sides', active: true },
   ],
   finishes: [
-    { id: 'fin-1', name: 'Normal Polish', ratePerSqFt: 110, description: 'Standard hand-rubbed spirit French polish for natural wood luster', active: true },
-    { id: 'fin-2', name: 'Teak Polish', ratePerSqFt: 150, description: 'Deep teak oil stain with double protective sealant coat', active: true },
-    { id: 'fin-3', name: 'Melamine', ratePerSqFt: 180, description: 'Hard gloss or matte scratch-resistant coat with UV protection', active: true },
-    { id: 'fin-4', name: 'PU Finish', ratePerSqFt: 250, description: 'Premium Polyurethane Italian finish with anti-yellowing & waterproof coating', active: true },
-    { id: 'fin-0', name: 'Raw / Unpolished', ratePerSqFt: 0, description: 'Sanded ready for site-polishing or custom client painting', active: true },
+    { id: 'fin-1', name: 'Normal Polish', ratePerSqFt: 110, image: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=600&q=80', description: 'Standard hand-rubbed spirit French polish for natural wood luster', active: true },
+    { id: 'fin-2', name: 'Teak Polish', ratePerSqFt: 150, image: 'https://images.unsplash.com/photo-1546484396-fb3fc6f95f98?auto=format&fit=crop&w=600&q=80', description: 'Deep teak oil stain with double protective sealant coat', active: true },
+    { id: 'fin-3', name: 'Melamine', ratePerSqFt: 180, image: 'https://images.unsplash.com/photo-1534349762230-e0cadf78f5da?auto=format&fit=crop&w=600&q=80', description: 'Hard gloss or matte scratch-resistant coat with UV protection', active: true },
+    { id: 'fin-4', name: 'PU Finish', ratePerSqFt: 250, image: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=600&q=80', description: 'Premium Polyurethane Italian finish with anti-yellowing & waterproof coating', active: true },
+    { id: 'fin-0', name: 'Raw / Unpolished', ratePerSqFt: 0, image: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=600&q=80', description: 'Sanded ready for site-polishing or custom client painting', active: true },
   ],
   frames: [
-    { id: 'frm-1', name: 'Normal Frame', price: 3500, description: 'Standard 4×2.5 inch section plain timber Chaukhat with clean rebate', active: true },
-    { id: 'frm-2', name: 'Designer Frame', price: 11025, description: '5×3 inch section with stepped moldings, beading, and corner grooving', active: true },
-    { id: 'frm-3', name: 'Hand Carving Frame', price: 11637, description: 'Heavy 5×3.5 inch pure Sagwan Chaukhat with intricate hand-carved floral border', active: true },
+    { id: 'frm-1', name: 'Normal Frame', price: 3500, image: 'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=1200&q=80', description: 'Standard 4×2.5 inch section plain timber Chaukhat with clean rebate', active: true },
+    { id: 'frm-2', name: 'Designer Frame', price: 11025, image: 'https://images.unsplash.com/photo-1534349762230-e0cadf78f5da?auto=format&fit=crop&w=1200&q=80', description: '5×3 inch section with stepped moldings, beading, and corner grooving', active: true },
+    { id: 'frm-3', name: 'Hand Carving Frame', price: 11637, image: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=1200&q=80', description: 'Heavy 5×3.5 inch pure Sagwan Chaukhat with intricate hand-carved floral border', active: true },
     { id: 'frm-0', name: 'No Frame (Shutter Only)', price: 0, description: 'Only door shutter without Chaukhat frame', active: true },
   ],
   hardware: [
-    { id: 'hwd-1', name: 'Aldrop Single', price: 700, description: 'Stainless steel 10-inch single aldrop bolt set with tower bolt and latch', active: true, defaultQty: 1 },
-    { id: 'hwd-2', name: 'Heavy Aldrop', price: 1300, description: 'Heavy-gauge forged brass / SS 12-inch security aldrop kit with heavy duty staples', active: true, defaultQty: 1 },
-    { id: 'hwd-3', name: 'Antique Heavy', price: 1700, description: 'Antique brass finished royal heavy aldrop with lion crest handles & decorative rosette plates', active: true, defaultQty: 1 },
-    { id: 'hwd-4', name: 'Premium Mortise Handle Lock Set', price: 2400, description: 'High-security computer key double throw brass mortise lock with designer handles', active: true, defaultQty: 1 },
+    { id: 'hwd-1', name: 'Aldrop Single', price: 700, image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1200&q=80', description: 'Stainless steel 10-inch single aldrop bolt set with tower bolt and latch', active: true, defaultQty: 1 },
+    { id: 'hwd-2', name: 'Heavy Aldrop', price: 1300, image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=1200&q=80', description: 'Heavy-gauge forged brass / SS 12-inch security aldrop kit with heavy duty staples', active: true, defaultQty: 1 },
+    { id: 'hwd-3', name: 'Antique Heavy', price: 1700, image: 'https://images.unsplash.com/photo-1509644851169-2acc08aa25b5?auto=format&fit=crop&w=1200&q=80', description: 'Antique brass finished royal heavy aldrop with lion crest handles & decorative rosette plates', active: true, defaultQty: 1 },
+    { id: 'hwd-4', name: 'Premium Mortise Handle Lock Set', price: 2400, image: 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?auto=format&fit=crop&w=1200&q=80', description: 'High-security computer key double throw brass mortise lock with designer handles', active: true, defaultQty: 1 },
     { id: 'hwd-0', name: 'No Hardware Included', price: 0, description: 'Client supplies or fits own hardware', active: true, defaultQty: 0 },
   ],
   banners: [
     {
-      id: 'ban-1',
+      id: 'ban-main-1',
+      bannerType: 'main',
       title: 'Direct From Manufacturer: Premium Sagwan Wood Doors',
-      subtitle: 'Precision Handcrafted, Seasoned Timber & Transparent Square Feet Pricing',
-      image: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1600&q=80',
-      buttonText: 'Calculate Door Price',
-      buttonAction: 'calculator',
+      subtitle: 'Pure CP Teak Wood • 100% Kiln-Seasoned Core • Lifetime Anti-Termite Guarantee',
+      badge: 'Direct From Factory',
+      image: '/uploads/184809-1792324353484-424213.png',
+      buttonText: 'Explore Collection',
+      buttonAction: 'gallery',
+      destinationUrl: 'gallery',
+      openInNewTab: false,
       order: 1,
       active: true,
+      slot: 'hero',
     },
     {
-      id: 'ban-2',
-      title: 'Explore 50+ Royal Heritage & Modern Door Designs',
-      subtitle: 'From Grand Indian Double Entrances to Sleek Contemporary Fluted Teak',
-      image: 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=1600&q=80',
-      buttonText: 'Browse Door Designs',
-      buttonAction: 'gallery',
+      id: 'ban-main-2',
+      bannerType: 'main',
+      title: 'Precision Door & Chaukhat Price Calculator',
+      subtitle: 'Instant Factory Price Estimation by Height, Width and Wood Grade',
+      badge: 'Live Pricing Tool',
+      image: 'https://images.unsplash.com/photo-1549497538-303791108f95?auto=format&fit=crop&w=1600&q=80',
+      buttonText: 'Calculate Price',
+      buttonAction: 'calculator',
+      destinationUrl: 'calculator',
+      openInNewTab: false,
       order: 2,
       active: true,
+      slot: 'hero',
     },
     {
-      id: 'ban-3',
-      title: 'Instant WhatsApp Quotations & Custom Sizes',
-      subtitle: 'Get instant itemized cost estimate for any door size in seconds',
-      image: 'https://images.unsplash.com/photo-1534349762230-e0cadf78f5da?auto=format&fit=crop&w=1600&q=80',
-      buttonText: 'Open Calculator',
-      buttonAction: 'calculator',
-      order: 3,
+      id: 'ban-promo-slot-1',
+      bannerType: 'promotion',
+      title: 'Diwali Teak Door Mega Deal - Flat 30% Off',
+      subtitle: 'Direct Factory Offer on All Heavy Carved Entrance Doors',
+      badge: 'Special Deal',
+      image: '/uploads/184853-1792327641084-964640.png',
+      buttonText: 'View Designs',
+      buttonAction: 'gallery',
+      destinationUrl: 'gallery',
+      openInNewTab: false,
+      order: 1,
       active: true,
+      slot: 'slot_1',
+    },
+    {
+      id: 'ban-promo-slot-2',
+      bannerType: 'promotion',
+      title: 'Door + Chaukhat Complete Combo Package Deal',
+      subtitle: 'Seasoned Teak Frame with Handcrafted Matching Shutter',
+      badge: 'Combo Offer',
+      image: '/uploads/184849-1792327505463-568059.png',
+      buttonText: 'Calculate Price',
+      buttonAction: 'calculator',
+      destinationUrl: 'calculator',
+      openInNewTab: false,
+      order: 1,
+      active: true,
+      slot: 'slot_2',
     },
   ],
   articles: [
@@ -562,6 +851,21 @@ Multiply Width in inches by Height in inches, then divide by 144:
       maxDailyScans: 150,
       customNotice: '',
     },
+    storySettings: {
+      sectionTitle: 'Our Story & Heritage',
+      subtitle: 'A journey of craftsmanship, trust & quality',
+      storyHeading: 'From Craftsmanship to Trusted Door Manufacturing',
+      companyStory: `Jai Hanuman Door is a family-driven wooden door manufacturing business built on craftsmanship, quality and customer trust.\n\nWe specialize in handcrafted Sagwan (Teak) wood doors, custom main doors, wooden frames and premium entrance solutions.\n\nOur journey has grown from traditional woodworking and hands-on craftsmanship into a modern door manufacturing and customer service experience — while keeping the quality of real wood at the heart of our work.`,
+      ownerName: 'Manjeet Prajapati',
+      ownerDesignation: 'Founder & Owner — Jai Hanuman Door',
+      ownerDescription: 'Building Jai Hanuman Door with a focus on genuine wood quality, custom craftsmanship and transparent service for every customer.',
+      ownerPhotoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+      highlights: [
+        { title: '100% Genuine', subtitle: 'CP Teak & Hardwood' },
+        { title: 'Precision Fit', subtitle: 'Custom Millimetre Sizing' },
+        { title: 'Direct Factory', subtitle: 'Transparent Pricing' },
+      ],
+    },
   },
   adminPasswordHash: 'admin123', // Can be customized in Settings or via ADMIN_PASSWORD env
   users: [
@@ -600,6 +904,8 @@ Multiply Width in inches by Height in inches, then divide by 144:
             widthInch: 36,
             heightInch: 78,
             sqFt: 19.5,
+            doorBaseRate: 800,
+            doorCost: 0,
             materialName: 'Sagwan (CP Teak)',
             materialRate: 800,
             materialCost: 15600,
@@ -628,10 +934,10 @@ Multiply Width in inches by Height in inches, then divide by 144:
   teamMembers: [
     {
       id: 'team-1',
-      name: 'Sample Founder',
+      name: 'Manjeet Prajapati',
       designation: 'Founder & CEO',
       photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
-      shortBio: 'Sample profile — replace this information from Admin Panel.',
+      shortBio: '7+ Years Carpenter Experience',
       fullBio: 'Sample profile created for initial preview. You can edit, customize, or delete this profile directly in Admin Panel under Team Management. Add real leadership, craftsmen, and workshop heads anytime.',
       experience: '10+ Years',
       specialization: 'Sagwan Door Architecture & Timber Seasoning',
@@ -702,6 +1008,9 @@ Multiply Width in inches by Height in inches, then divide by 144:
   articleLikes: [],
   articleShares: [],
   aiWoodDetectorLogs: [],
+  trackingOrders: INITIAL_TRACKING_ORDERS,
+  deliveryStates: DEFAULT_INDIA_STATES,
+  deliveryStories: DEFAULT_DELIVERY_STORIES,
 };
 
 // ---------------- PERSISTENT PRODUCTION DATA ENGINE ----------------
@@ -845,13 +1154,60 @@ function normalizeDatabaseSchema(existingData: DatabaseSchema): DatabaseSchema {
     version: Number(existingData.version) || 1,
     lastModified: existingData.lastModified || new Date().toISOString(),
     auditLogs: Array.isArray(existingData.auditLogs) ? existingData.auditLogs : [],
-    doors: Array.isArray(existingData.doors) ? existingData.doors : INITIAL_DATA.doors,
+    doors: (Array.isArray(existingData.doors) ? existingData.doors : INITIAL_DATA.doors).map(d => ({
+      ...d,
+      pricingType: d.pricingType || (d.id === 'door-7' || d.id === 'door-8' ? 'fixed' : 'sqft'),
+      basePrice: d.basePrice !== undefined ? Number(d.basePrice) : (d.pricingType === 'fixed' || d.id === 'door-7' || d.id === 'door-8' ? d.startingPrice : Math.round(d.startingPrice / 19.5)),
+      minWidthInch: d.minWidthInch !== undefined ? Number(d.minWidthInch) : 24,
+      maxWidthInch: d.maxWidthInch !== undefined ? Number(d.maxWidthInch) : 72,
+      minHeightInch: d.minHeightInch !== undefined ? Number(d.minHeightInch) : 60,
+      maxHeightInch: d.maxHeightInch !== undefined ? Number(d.maxHeightInch) : 96,
+      minPrice: d.minPrice !== undefined ? Number(d.minPrice) : 0,
+      availableMaterialIds: Array.isArray(d.availableMaterialIds) ? d.availableMaterialIds : undefined,
+      materialPrices: d.materialPrices && typeof d.materialPrices === 'object' ? d.materialPrices : undefined,
+      availableFinishIds: Array.isArray(d.availableFinishIds) ? d.availableFinishIds : undefined,
+      finishPrices: d.finishPrices && typeof d.finishPrices === 'object' ? d.finishPrices : undefined,
+      availableFrameIds: Array.isArray(d.availableFrameIds) ? d.availableFrameIds : undefined,
+      framePrices: d.framePrices && typeof d.framePrices === 'object' ? d.framePrices : undefined,
+      availableHardwareIds: Array.isArray(d.availableHardwareIds) ? d.availableHardwareIds : undefined,
+      hardwarePrices: d.hardwarePrices && typeof d.hardwarePrices === 'object' ? d.hardwarePrices : undefined,
+    })),
     categories: Array.isArray(existingData.categories) ? existingData.categories : INITIAL_DATA.categories,
-    materials: Array.isArray(existingData.materials) ? existingData.materials : INITIAL_DATA.materials,
-    finishes: Array.isArray(existingData.finishes) ? existingData.finishes : INITIAL_DATA.finishes,
-    frames: Array.isArray(existingData.frames) ? existingData.frames : INITIAL_DATA.frames,
-    hardware: Array.isArray(existingData.hardware) ? existingData.hardware : INITIAL_DATA.hardware,
-    banners: Array.isArray(existingData.banners) ? existingData.banners : INITIAL_DATA.banners,
+    materials: (Array.isArray(existingData.materials) ? existingData.materials : INITIAL_DATA.materials).map(m => {
+      const def = INITIAL_DATA.materials.find(dm => dm.id === m.id || dm.name.toLowerCase() === m.name.toLowerCase());
+      return {
+        ...m,
+        image: m.image || def?.image || 'https://images.unsplash.com/photo-1546484396-fb3fc6f95f98?auto=format&fit=crop&w=600&q=80',
+      };
+    }),
+    finishes: (Array.isArray(existingData.finishes) ? existingData.finishes : INITIAL_DATA.finishes).map(f => {
+      const def = INITIAL_DATA.finishes.find(df => df.id === f.id || df.name.toLowerCase() === f.name.toLowerCase());
+      return {
+        ...f,
+        image: f.image || def?.image || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=600&q=80',
+      };
+    }),
+    frames: (Array.isArray(existingData.frames) ? existingData.frames : INITIAL_DATA.frames).map(fr => {
+      const def = INITIAL_DATA.frames.find(df => df.id === fr.id);
+      return {
+        ...fr,
+        image: fr.image || def?.image,
+      };
+    }),
+    hardware: (Array.isArray(existingData.hardware) ? existingData.hardware : INITIAL_DATA.hardware).map(h => {
+      const def = INITIAL_DATA.hardware.find(dh => dh.id === h.id);
+      return {
+        ...h,
+        image: h.image || def?.image,
+      };
+    }),
+    banners: (() => {
+      const source = Array.isArray(existingData.banners) ? existingData.banners : INITIAL_DATA.banners;
+      return source.map(b => ({
+        ...b,
+        bannerType: b.bannerType || (b.slot === 'hero' || b.slot === 'main' || b.id === 'ban-1' || b.id === 'ban-3' ? 'main' : 'promotion'),
+      }));
+    })(),
     articles: Array.isArray(existingData.articles) ? existingData.articles : INITIAL_DATA.articles,
     teamMembers: Array.isArray(existingData.teamMembers) ? existingData.teamMembers : INITIAL_DATA.teamMembers,
     quotes: Array.isArray(existingData.quotes) ? existingData.quotes : [],
@@ -859,6 +1215,7 @@ function normalizeDatabaseSchema(existingData: DatabaseSchema): DatabaseSchema {
     settings: existingData.settings
       ? {
           ...existingData.settings,
+          storySettings: existingData.settings.storySettings || INITIAL_DATA.settings.storySettings,
           aiWoodDetector: existingData.settings.aiWoodDetector || {
             enabled: true,
             maxDailyScans: 150,
@@ -877,7 +1234,63 @@ function normalizeDatabaseSchema(existingData: DatabaseSchema): DatabaseSchema {
     articleShares: Array.isArray(existingData.articleShares) ? existingData.articleShares : [],
     aiWoodDetectorLogs: Array.isArray(existingData.aiWoodDetectorLogs) ? existingData.aiWoodDetectorLogs : [],
     woodReferences: Array.isArray(existingData.woodReferences) ? existingData.woodReferences : [],
+    trackingOrders: Array.isArray(existingData.trackingOrders) ? existingData.trackingOrders : (INITIAL_DATA.trackingOrders || []),
+    deliveryStates: Array.isArray(existingData.deliveryStates) && existingData.deliveryStates.length > 0
+      ? existingData.deliveryStates
+      : (INITIAL_DATA.deliveryStates || DEFAULT_INDIA_STATES),
+    deliveryStories: Array.isArray(existingData.deliveryStories)
+      ? existingData.deliveryStories
+      : (INITIAL_DATA.deliveryStories || DEFAULT_DELIVERY_STORIES),
+    chaukhatProducts: Array.isArray(existingData.chaukhatProducts) && existingData.chaukhatProducts.length > 0
+      ? existingData.chaukhatProducts
+      : [DEFAULT_CHAUKHAT_PRODUCT],
+    chaukhatSectionSizes: Array.isArray(existingData.chaukhatSectionSizes) && existingData.chaukhatSectionSizes.length > 0
+      ? existingData.chaukhatSectionSizes
+      : DEFAULT_CHAUKHAT_SECTION_SIZES,
+    chaukhatPresets: Array.isArray(existingData.chaukhatPresets) && existingData.chaukhatPresets.length > 0
+      ? existingData.chaukhatPresets
+      : DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+    chaukhatWoodTypes: Array.isArray(existingData.chaukhatWoodTypes) && existingData.chaukhatWoodTypes.length > 0
+      ? existingData.chaukhatWoodTypes
+      : DEFAULT_CHAUKHAT_WOOD_TYPES,
   };
+}
+
+/**
+ * Asynchronously initializes authoritative database from persistent Firestore.
+ * Ensures Cloud Run container restarts NEVER reset to old image build defaults.
+ */
+export async function initCloudDatabase(): Promise<DatabaseSchema> {
+  try {
+    const cloudData = await fetchAuthoritativeFirestoreDb();
+    if (cloudData && Array.isArray(cloudData.doors) && cloudData.doors.length > 0) {
+      console.log(`🛡️ [PERSISTENCE] Successfully hydrated application state from Firestore cloud store (Doors: ${cloudData.doors.length}, Version: ${cloudData.version})`);
+      inMemoryDb = normalizeDatabaseSchema(cloudData);
+      lastLoadedMtime = Date.now();
+
+      // Mirror to local disk cache synchronously for instant cold reads
+      try {
+        writeAtomicJson(DB_FILE, inMemoryDb);
+        writeAtomicJson(ADMIN_STORE_FILE, inMemoryDb);
+        writeAtomicJson(MIRROR_FILE, inMemoryDb);
+      } catch {}
+
+      return inMemoryDb;
+    }
+  } catch (err: any) {
+    console.warn('⚠️ [PERSISTENCE] Firestore initialization check error:', err.message);
+  }
+
+  // If Firestore is empty or not yet seeded, use local authoritative data and seed Firestore
+  const localData = getDb();
+  try {
+    await saveAuthoritativeFirestoreDb(localData);
+    console.log(`📦 [PERSISTENCE] Seeded Firestore with current authoritative local data (${localData.doors.length} doors)`);
+  } catch (err: any) {
+    console.warn('⚠️ [PERSISTENCE] Could not seed Firestore:', err.message);
+  }
+
+  return localData;
 }
 
 /**
@@ -915,6 +1328,9 @@ export function getDb(): DatabaseSchema {
       if (!fs.existsSync(MIRROR_FILE)) writeAtomicJson(MIRROR_FILE, inMemoryDb);
     } catch {}
 
+    // Asynchronously ensure Firestore has this authoritative data as well
+    saveAuthoritativeFirestoreDb(inMemoryDb).catch(() => {});
+
     return inMemoryDb;
   }
 
@@ -939,6 +1355,7 @@ export interface SaveAuditContext {
 
 /**
  * Saves database state using verified atomic writes across primary, server store, mirror, and rolling backups.
+ * Synchronizes to Firestore persistent cloud store so data survives Cloud Run redeployments.
  * Records change audit history and throws if physical write fails.
  */
 export function saveDb(data: DatabaseSchema, auditContext?: SaveAuditContext): void {
@@ -1000,6 +1417,36 @@ export function saveDb(data: DatabaseSchema, auditContext?: SaveAuditContext): v
 
   if (successCount === 0 && lastError) {
     throw new Error(`CRITICAL: Failed to write database to any persistent location! ${lastError.message}`);
+  }
+
+  // 3. Persist to Firestore cloud database (permanent across Cloud Run container instances)
+  saveAuthoritativeFirestoreDb(data).catch(err => {
+    console.error('❌ Error updating Firestore cloud database:', err);
+  });
+
+  // 4. Granular atomic update for specific entity in Firestore
+  if (auditContext?.entity && auditContext?.targetId) {
+    const { entity, targetId, action } = auditContext;
+    if (action === 'delete') {
+      deleteEntityFromFirestore(entity + 's', targetId).catch(() => {});
+    } else {
+      let entityData: any = null;
+      if (entity === 'door') entityData = data.doors.find(d => d.id === targetId);
+      else if (entity === 'material') entityData = data.materials.find(m => m.id === targetId);
+      else if (entity === 'finish') entityData = data.finishes.find(f => f.id === targetId);
+      else if (entity === 'frame') entityData = data.frames.find(fr => fr.id === targetId);
+      else if (entity === 'hardware') entityData = data.hardware.find(h => h.id === targetId);
+      else if (entity === 'banner') entityData = data.banners.find(b => b.id === targetId);
+      else if (entity === 'article') entityData = data.articles.find(a => a.id === targetId);
+      else if (entity === 'settings') entityData = data.settings;
+      else if (entity === 'team_member') entityData = (data.teamMembers || []).find(tm => tm.id === targetId);
+      else if (entity === 'delivery_state') entityData = (data.deliveryStates || []).find(s => s.id === targetId);
+      else if (entity === 'delivery_story') entityData = (data.deliveryStories || []).find(s => s.id === targetId);
+
+      if (entityData) {
+        saveEntityToFirestore(entity + 's', targetId, entityData).catch(() => {});
+      }
+    }
   }
 
   // 3. Automated Rolling Backup (throttle to at most one snapshot per 3 seconds)
@@ -1098,6 +1545,7 @@ export function importDatabaseBackup(backupPayload: any): { success: boolean; me
     articleViews: Array.isArray(incomingData.articleViews) ? incomingData.articleViews : currentDb.articleViews,
     articleLikes: Array.isArray(incomingData.articleLikes) ? incomingData.articleLikes : currentDb.articleLikes,
     articleShares: Array.isArray(incomingData.articleShares) ? incomingData.articleShares : currentDb.articleShares,
+    trackingOrders: Array.isArray(incomingData.trackingOrders) ? incomingData.trackingOrders : currentDb.trackingOrders || [],
   };
 
   saveDb(restoredDb);
@@ -1294,5 +1742,181 @@ export function toggleVerifyWoodReference(
   };
   saveDb(db);
   return db.woodReferences[idx];
+}
+
+// ---------------- ALL INDIA DELIVERY MANAGEMENT ----------------
+
+export function getDeliveryStates(): IndiaDeliveryState[] {
+  const db = getDb();
+  return Array.isArray(db.deliveryStates) && db.deliveryStates.length > 0
+    ? db.deliveryStates
+    : DEFAULT_INDIA_STATES;
+}
+
+export function toggleStateDelivery(stateId: string): IndiaDeliveryState | null {
+  const db = getDb();
+  if (!Array.isArray(db.deliveryStates) || db.deliveryStates.length === 0) {
+    db.deliveryStates = [...DEFAULT_INDIA_STATES];
+  }
+  const idx = db.deliveryStates.findIndex(s => s.id === stateId || s.code === stateId);
+  if (idx === -1) return null;
+  db.deliveryStates[idx] = {
+    ...db.deliveryStates[idx],
+    available: !db.deliveryStates[idx].available,
+  };
+  saveDb(db, {
+    entity: 'delivery_state',
+    action: 'update',
+    targetId: stateId,
+    targetName: db.deliveryStates[idx].name,
+    details: `Toggled delivery availability to ${db.deliveryStates[idx].available ? 'Available' : 'Unavailable'}`,
+  });
+  return db.deliveryStates[idx];
+}
+
+export function updateStateDelivery(
+  stateId: string,
+  updates: Partial<IndiaDeliveryState>
+): IndiaDeliveryState | null {
+  const db = getDb();
+  if (!Array.isArray(db.deliveryStates) || db.deliveryStates.length === 0) {
+    db.deliveryStates = [...DEFAULT_INDIA_STATES];
+  }
+  const idx = db.deliveryStates.findIndex(s => s.id === stateId || s.code === stateId);
+  if (idx === -1) return null;
+  db.deliveryStates[idx] = {
+    ...db.deliveryStates[idx],
+    ...updates,
+  };
+  saveDb(db, {
+    entity: 'delivery_state',
+    action: 'update',
+    targetId: stateId,
+    targetName: db.deliveryStates[idx].name,
+    details: `Updated delivery details for ${db.deliveryStates[idx].name}`,
+  });
+  return db.deliveryStates[idx];
+}
+
+export function getDeliveryStories(publishedOnly: boolean = false): DeliveryStory[] {
+  const db = getDb();
+  const list = Array.isArray(db.deliveryStories) ? db.deliveryStories : DEFAULT_DELIVERY_STORIES;
+  if (publishedOnly) {
+    return list.filter(s => s.published !== false);
+  }
+  return list;
+}
+
+function normalizeStoryFields(story: any): any {
+  const city = story.cityName || story.city || '';
+  const customerName = story.customerName || (story.customerFirstName ? `${story.customerFirstName} ${story.customerInitial || ''}`.trim() : '');
+  const parts = customerName.split(' ');
+  const customerFirstName = story.customerFirstName || parts[0] || 'Customer';
+  const customerInitial = story.customerInitial || (parts.length > 1 ? parts.slice(1).join(' ') : '');
+  const orderTitle = story.orderDescription || story.orderTitle || 'Handcrafted Sagwan Door';
+  const rawDoor = story.doorPhotoUrl !== undefined ? story.doorPhotoUrl : (story.doorThumbnail !== undefined ? story.doorThumbnail : '');
+  const doorThumbnail = typeof rawDoor === 'string' ? (rawDoor === '[object Object]' ? '' : rawDoor.trim()) : (rawDoor?.url || '');
+  const rawDelivery = story.deliveryPhotoUrl !== undefined ? story.deliveryPhotoUrl : (story.deliveryPhoto !== undefined ? story.deliveryPhoto : '');
+  const deliveryPhoto = typeof rawDelivery === 'string' ? (rawDelivery === '[object Object]' ? '' : rawDelivery.trim()) : (rawDelivery?.url || '');
+  const reviewText = story.customerReview || story.reviewText || '';
+  const isVerified = story.isVerifiedCustomer !== undefined ? !!story.isVerifiedCustomer : (story.isVerified !== undefined ? !!story.isVerified : false);
+  const isSample = story.isSample !== undefined ? !!story.isSample : !isVerified;
+
+  return {
+    ...story,
+    city,
+    cityName: city,
+    customerName,
+    customerFirstName,
+    customerInitial,
+    orderTitle,
+    orderDescription: orderTitle,
+    doorThumbnail,
+    doorPhotoUrl: doorThumbnail,
+    deliveryPhoto,
+    deliveryPhotoUrl: deliveryPhoto,
+    reviewText,
+    customerReview: reviewText,
+    isVerified,
+    isVerifiedCustomer: isVerified,
+    isSample,
+  };
+}
+
+export function createDeliveryStory(
+  story: Omit<DeliveryStory, 'id' | 'createdAt'>
+): DeliveryStory {
+  const db = getDb();
+  if (!Array.isArray(db.deliveryStories)) {
+    db.deliveryStories = [...DEFAULT_DELIVERY_STORIES];
+  }
+  const normalized = normalizeStoryFields(story);
+  const newStory: DeliveryStory = {
+    ...normalized,
+    id: `story-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    createdAt: new Date().toISOString(),
+    published: story.published !== undefined ? story.published : true,
+  };
+  db.deliveryStories.unshift(newStory);
+  saveDb(db, {
+    entity: 'delivery_story',
+    action: 'create',
+    targetId: newStory.id,
+    targetName: `${newStory.customerFirstName} ${newStory.customerInitial} (${newStory.city})`,
+    details: `Created delivery story for ${newStory.stateName}`,
+  });
+  return newStory;
+}
+
+export function updateDeliveryStory(
+  id: string,
+  updates: Partial<DeliveryStory>
+): DeliveryStory | null {
+  const db = getDb();
+  if (!Array.isArray(db.deliveryStories)) return null;
+  const idx = db.deliveryStories.findIndex(s => s.id === id);
+  if (idx === -1) return null;
+  const current = db.deliveryStories[idx];
+  const merged: any = {
+    ...current,
+    ...updates,
+  };
+  if (updates.doorPhotoUrl !== undefined) {
+    merged.doorThumbnail = updates.doorPhotoUrl;
+  }
+  if (updates.deliveryPhotoUrl !== undefined) {
+    merged.deliveryPhoto = updates.deliveryPhotoUrl;
+  }
+  const normalizedUpdates = normalizeStoryFields(merged);
+  db.deliveryStories[idx] = {
+    ...normalizedUpdates,
+    id,
+    updatedAt: new Date().toISOString(),
+  };
+  saveDb(db, {
+    entity: 'delivery_story',
+    action: 'update',
+    targetId: id,
+    targetName: db.deliveryStories[idx].orderTitle,
+    details: `Updated delivery story ${id}`,
+  });
+  return db.deliveryStories[idx];
+}
+
+export function deleteDeliveryStory(id: string): boolean {
+  const db = getDb();
+  if (!Array.isArray(db.deliveryStories)) return false;
+  const initialLen = db.deliveryStories.length;
+  db.deliveryStories = db.deliveryStories.filter(s => s.id !== id);
+  if (db.deliveryStories.length !== initialLen) {
+    saveDb(db, {
+      entity: 'delivery_story',
+      action: 'delete',
+      targetId: id,
+      details: `Deleted delivery story ${id}`,
+    });
+    return true;
+  }
+  return false;
 }
 

@@ -262,17 +262,17 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
     <div className="space-y-6">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-stone-800 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-[#E5E5E5] gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+            <span className="p-2 rounded-xl bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30">
               <TreePine className="w-5 h-5" />
             </span>
-            <h2 className="text-xl sm:text-2xl font-bold text-stone-100 font-serif">
+            <h2 className="text-xl sm:text-2xl font-bold text-[#1A1A1A] font-serif">
               AI Wood Detector – Lakdi Ki Pehchan Management
             </h2>
           </div>
-          <p className="text-xs sm:text-sm text-stone-400 mt-1">
+          <p className="text-xs sm:text-sm text-[#666666] mt-1">
             Timber identification accuracy, verified reference dataset, live benchmark evaluation, and monitoring.
           </p>
         </div>
@@ -281,7 +281,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
           <button
             onClick={loadData}
             disabled={loading}
-            className="px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold flex items-center gap-1.5 border border-stone-700 transition-colors"
+            className="px-3 py-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold flex items-center gap-1.5 border border-[#E5E5E5] transition-colors"
           >
             <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
@@ -290,7 +290,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
           <button
             onClick={handleRunHealthCheck}
             disabled={testingApi}
-            className="px-3.5 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5 border border-amber-500/40 transition-colors"
+            className="px-3.5 py-2 rounded-xl bg-[#FFF7E3] hover:bg-amber-600/30 text-[#C89211] text-xs font-semibold flex items-center gap-1.5 border border-[#C89211]/40 transition-colors"
           >
             {testingApi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
             <span>Quick Ping</span>
@@ -299,7 +299,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
           <button
             onClick={handleRunBenchmark}
             disabled={runningBenchmark}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95 disabled:opacity-50"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95 disabled:opacity-50"
           >
             {runningBenchmark ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Microscope className="w-3.5 h-3.5" />}
             <span>Run Accuracy Benchmark</span>
@@ -328,7 +328,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
           <button
             type="button"
             onClick={() => setTestResult(null)}
-            className="text-stone-400 hover:text-stone-200"
+            className="text-[#666666] hover:text-[#1A1A1A]"
           >
             <X className="w-4 h-4" />
           </button>
@@ -337,47 +337,47 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
 
       {/* TIMBER ACCURACY BENCHMARK EVALUATION RESULTS CARD */}
       {benchmarkResult && (
-        <div className="bg-stone-900 border border-amber-500/40 rounded-2xl p-6 space-y-4 shadow-xl animate-fade-in">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-stone-800 gap-2">
+        <div className="bg-white border border-[#C89211]/40 rounded-2xl p-6 space-y-4 shadow-xl animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#E5E5E5] gap-2">
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 rounded-full">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#C89211] bg-[#FFF7E3] border border-[#C89211]/30 px-2.5 py-0.5 rounded-full">
                 Isolated Timber Accuracy Benchmark Results
               </span>
-              <h3 className="text-lg font-bold text-stone-100 font-serif mt-1">
+              <h3 className="text-lg font-bold text-[#1A1A1A] font-serif mt-1">
                 Measured Botanical Accuracy: {benchmarkResult.accuracyRate}%
               </h3>
             </div>
-            <span className="text-xs text-stone-400">
+            <span className="text-xs text-[#666666]">
               Evaluated at: {new Date(benchmarkResult.evaluatedAt).toLocaleTimeString()}
             </span>
           </div>
 
           {/* Metric Stats Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-            <div className="p-3 rounded-xl bg-stone-950 border border-stone-800">
-              <span className="text-[10px] text-stone-400 uppercase font-semibold block">Total Tests</span>
-              <span className="text-xl font-bold font-mono text-stone-100">{benchmarkResult.totalTests}</span>
+            <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
+              <span className="text-[10px] text-[#666666] uppercase font-semibold block">Total Tests</span>
+              <span className="text-xl font-bold font-mono text-[#1A1A1A]">{benchmarkResult.totalTests}</span>
             </div>
-            <div className="p-3 rounded-xl bg-stone-950 border border-emerald-800/40">
+            <div className="p-3 rounded-xl bg-[#F8F8F6] border border-emerald-800/40">
               <span className="text-[10px] text-emerald-400 uppercase font-semibold block">Correct Predictions</span>
               <span className="text-xl font-bold font-mono text-emerald-400">{benchmarkResult.correctIdentifications}</span>
             </div>
-            <div className="p-3 rounded-xl bg-stone-950 border border-stone-800">
-              <span className="text-[10px] text-stone-400 uppercase font-semibold block">Sagwan vs Sal Confusion</span>
+            <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
+              <span className="text-[10px] text-[#666666] uppercase font-semibold block">Sagwan vs Sal Confusion</span>
               <span className={`text-xl font-bold font-mono ${benchmarkResult.sagwanSalConfusionCount === 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {benchmarkResult.sagwanSalConfusionCount} (Must be 0)
               </span>
             </div>
-            <div className="p-3 rounded-xl bg-stone-950 border border-stone-800">
-              <span className="text-[10px] text-stone-400 uppercase font-semibold block">Honest Refusal Rate</span>
-              <span className="text-xl font-bold font-mono text-amber-400">{benchmarkResult.honestRefusalCount}</span>
+            <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
+              <span className="text-[10px] text-[#666666] uppercase font-semibold block">Honest Refusal Rate</span>
+              <span className="text-xl font-bold font-mono text-[#C89211]">{benchmarkResult.honestRefusalCount}</span>
             </div>
           </div>
 
           {/* Specimen Breakdown Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-stone-950 text-stone-400 uppercase tracking-wider font-semibold border-b border-stone-800">
+              <thead className="bg-[#F8F8F6] text-[#666666] uppercase tracking-wider font-semibold border-b border-[#E5E5E5]">
                 <tr>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2">Specimen</th>
@@ -387,9 +387,9 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                   <th className="px-3 py-2">Notes</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-800/80 font-mono">
+              <tbody className="divide-y divide-[#E5E5E5]/80 font-mono">
                 {benchmarkResult.details.map(d => (
-                  <tr key={d.sampleId} className="hover:bg-stone-800/30">
+                  <tr key={d.sampleId} className="hover:bg-[#F8F8F6]/30">
                     <td className="px-3 py-2">
                       {d.passed ? (
                         <span className="text-emerald-400 font-bold flex items-center gap-1">
@@ -401,11 +401,11 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-stone-200">{d.sampleId}</td>
-                    <td className="px-3 py-2 font-semibold text-amber-300">{d.expectedSpecies}</td>
-                    <td className="px-3 py-2 text-stone-100">{d.predictedSpecies}</td>
-                    <td className="px-3 py-2 text-stone-300">{d.confidence}</td>
-                    <td className="px-3 py-2 text-stone-400 text-[11px] truncate max-w-xs">{d.notes}</td>
+                    <td className="px-3 py-2 text-[#1A1A1A]">{d.sampleId}</td>
+                    <td className="px-3 py-2 font-semibold text-[#C89211]">{d.expectedSpecies}</td>
+                    <td className="px-3 py-2 text-[#1A1A1A]">{d.predictedSpecies}</td>
+                    <td className="px-3 py-2 text-[#1A1A1A]">{d.confidence}</td>
+                    <td className="px-3 py-2 text-[#666666] text-[11px] truncate max-w-xs">{d.notes}</td>
                   </tr>
                 ))}
               </tbody>
@@ -417,81 +417,81 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
       {/* METRICS ROW */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Scans */}
-        <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
+        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
           <div>
-            <span className="text-[11px] text-stone-400 font-semibold uppercase tracking-wider block">
+            <span className="text-[11px] text-[#666666] font-semibold uppercase tracking-wider block">
               Total Customer Scans
             </span>
-            <span className="text-2xl sm:text-3xl font-extrabold text-stone-100 font-mono mt-1 block">
+            <span className="text-2xl sm:text-3xl font-extrabold text-[#1A1A1A] font-mono mt-1 block">
               {stats?.totalScans ?? 0}
             </span>
-            <span className="text-[11px] text-stone-500 mt-1 block">Lifetime analyses</span>
+            <span className="text-[11px] text-[#666666] mt-1 block">Lifetime analyses</span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center">
             <Sparkles className="w-5 h-5" />
           </div>
         </div>
 
         {/* Today's Scans */}
-        <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
+        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
           <div>
-            <span className="text-[11px] text-stone-400 font-semibold uppercase tracking-wider block">
+            <span className="text-[11px] text-[#666666] font-semibold uppercase tracking-wider block">
               Today's Scans
             </span>
-            <span className="text-2xl sm:text-3xl font-extrabold text-amber-400 font-mono mt-1 block">
+            <span className="text-2xl sm:text-3xl font-extrabold text-[#C89211] font-mono mt-1 block">
               {stats?.todayScans ?? 0}
             </span>
-            <span className="text-[11px] text-stone-500 mt-1 block">
+            <span className="text-[11px] text-[#666666] mt-1 block">
               Quota: {maxDailyScans}/day
             </span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center">
             <Clock className="w-5 h-5" />
           </div>
         </div>
 
         {/* Successful Identifications */}
-        <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
+        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
           <div>
-            <span className="text-[11px] text-stone-400 font-semibold uppercase tracking-wider block">
+            <span className="text-[11px] text-[#666666] font-semibold uppercase tracking-wider block">
               Successful Scans
             </span>
             <span className="text-2xl sm:text-3xl font-extrabold text-emerald-400 font-mono mt-1 block">
               {stats?.successfulScans ?? 0}
             </span>
-            <span className="text-[11px] text-stone-500 mt-1 block">Verified outputs</span>
+            <span className="text-[11px] text-[#666666] mt-1 block">Verified outputs</span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-stone-800 text-stone-300 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-[#F8F8F6] text-[#1A1A1A] flex items-center justify-center">
             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
           </div>
         </div>
 
         {/* Verified Reference Count */}
-        <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
+        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-sm">
           <div>
-            <span className="text-[11px] text-stone-400 font-semibold uppercase tracking-wider block">
+            <span className="text-[11px] text-[#666666] font-semibold uppercase tracking-wider block">
               Verified References
             </span>
-            <span className="text-2xl sm:text-3xl font-extrabold text-amber-300 font-mono mt-1 block">
+            <span className="text-2xl sm:text-3xl font-extrabold text-[#C89211] font-mono mt-1 block">
               {references.filter(r => r.isVerified).length} / {references.length}
             </span>
-            <span className="text-[11px] text-stone-500 mt-1 block">Grounded samples</span>
+            <span className="text-[11px] text-[#666666] mt-1 block">Grounded samples</span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center">
             <Award className="w-5 h-5" />
           </div>
         </div>
       </div>
 
       {/* VERIFIED WOOD REFERENCE LIBRARY MANAGEMENT */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 sm:p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-stone-800 gap-3">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#E5E5E5] gap-3">
           <div>
-            <h3 className="text-base font-bold text-stone-100 flex items-center gap-2">
-              <BookmarkCheck className="w-4 h-4 text-amber-400" />
+            <h3 className="text-base font-bold text-[#1A1A1A] flex items-center gap-2">
+              <BookmarkCheck className="w-4 h-4 text-[#C89211]" />
               <span>Verified Wood Reference Library (Pramanit Lakdi Sangrah)</span>
             </h3>
-            <p className="text-xs text-stone-400 mt-0.5">
+            <p className="text-xs text-[#666666] mt-0.5">
               Authorized administrator can add verified reference photos with wood type, confirmed label, source and anatomical notes.
             </p>
           </div>
@@ -499,7 +499,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
-            className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5 shadow transition-all active:scale-95 self-start sm:self-auto"
+            className="px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 shadow transition-all active:scale-95 self-start sm:self-auto"
           >
             <Plus className="w-4 h-4" />
             <span>Add Reference Sample</span>
@@ -508,7 +508,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
 
         {/* Filter bar */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
-          <span className="text-stone-400 font-semibold flex-shrink-0">Filter Species:</span>
+          <span className="text-[#666666] font-semibold flex-shrink-0">Filter Species:</span>
           {['all', 'Sagwan', 'Sal', 'Sheesham', 'Jungle Wood', 'Plywood', 'Veneer'].map(sp => (
             <button
               key={sp}
@@ -516,8 +516,8 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
               onClick={() => setSelectedFilterSpecies(sp)}
               className={`px-2.5 py-1 rounded-lg transition-colors flex-shrink-0 ${
                 selectedFilterSpecies === sp
-                  ? 'bg-amber-500 text-stone-950 font-bold'
-                  : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+                  ? 'bg-[#C89211] text-white font-bold'
+                  : 'bg-[#F8F8F6] text-[#1A1A1A] hover:bg-stone-100'
               }`}
             >
               {sp === 'all' ? 'All Samples' : sp}
@@ -531,10 +531,10 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
             {filteredReferences.map(ref => (
               <div
                 key={ref.id}
-                className="bg-stone-950 border border-stone-800 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-amber-500/40 transition-all"
+                className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-[#C89211]/40 transition-all"
               >
                 <div>
-                  <div className="relative aspect-video bg-stone-900 overflow-hidden">
+                  <div className="relative aspect-video bg-white overflow-hidden">
                     <img
                       src={ref.imageUrl}
                       alt={ref.verifiedLabel}
@@ -543,8 +543,8 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                     <span
                       className={`absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
                         ref.isVerified
-                          ? 'bg-emerald-500/90 text-stone-950 shadow'
-                          : 'bg-stone-800 text-stone-300'
+                          ? 'bg-emerald-500/90 text-white shadow'
+                          : 'bg-[#F8F8F6] text-[#1A1A1A]'
                       }`}
                     >
                       {ref.isVerified ? 'Verified Specimen' : 'Pending Verification'}
@@ -553,34 +553,34 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
 
                   <div className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-2">
-                      <h4 className="font-bold text-sm text-stone-100 leading-snug">
+                      <h4 className="font-bold text-sm text-[#1A1A1A] leading-snug">
                         {ref.verifiedLabel}
                       </h4>
                     </div>
 
-                    <span className="inline-block px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-semibold">
+                    <span className="inline-block px-2 py-0.5 rounded bg-[#FFF7E3] border border-[#C89211]/30 text-[#C89211] text-xs font-semibold">
                       {ref.woodType}
                     </span>
 
-                    <p className="text-xs text-stone-400">
+                    <p className="text-xs text-[#666666]">
                       <strong>Source:</strong> {ref.source}
                     </p>
 
                     {ref.notes && (
-                      <p className="text-xs text-stone-300 italic line-clamp-2">
+                      <p className="text-xs text-[#1A1A1A] italic line-clamp-2">
                         "{ref.notes}"
                       </p>
                     )}
                   </div>
                 </div>
 
-                <div className="p-3 bg-stone-900/60 border-t border-stone-800 flex items-center justify-between gap-2 text-xs">
+                <div className="p-3 bg-white border-t border-[#E5E5E5] flex items-center justify-between gap-2 text-xs">
                   <button
                     type="button"
                     onClick={() => handleToggleVerify(ref.id)}
                     className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-colors ${
                       ref.isVerified
-                        ? 'bg-stone-800 hover:bg-stone-700 text-stone-300'
+                        ? 'bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A]'
                         : 'bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40'
                     }`}
                   >
@@ -591,7 +591,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                   <button
                     type="button"
                     onClick={() => handleDeleteRef(ref.id)}
-                    className="p-1.5 rounded-lg text-stone-400 hover:text-rose-400 transition-colors"
+                    className="p-1.5 rounded-lg text-[#666666] hover:text-rose-400 transition-colors"
                     title="Delete sample"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -601,9 +601,9 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
             ))}
           </div>
         ) : (
-          <div className="py-8 text-center text-stone-400 text-xs border border-dashed border-stone-800 rounded-2xl">
-            <p className="font-semibold text-stone-300">Koi verified reference sample nahi mila.</p>
-            <p className="text-stone-500 mt-1 max-w-md mx-auto">
+          <div className="py-8 text-center text-[#666666] text-xs border border-dashed border-[#E5E5E5] rounded-2xl">
+            <p className="font-semibold text-[#1A1A1A]">Koi verified reference sample nahi mila.</p>
+            <p className="text-[#666666] mt-1 max-w-md mx-auto">
               Workshop ke authentic Sagwan, Saal aur Sheesham lakdiyon ke samples upload karke "Verified" mark karein taaki AI comparison aur behtar ho sake.
             </p>
           </div>
@@ -613,16 +613,16 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
       {/* ADD REFERENCE SAMPLE MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-stone-900 border border-amber-500/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-4 shadow-2xl animate-fade-in">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-800">
-              <h3 className="font-serif text-lg sm:text-xl font-bold text-stone-100 flex items-center gap-2">
-                <Plus className="w-5 h-5 text-amber-400" />
+          <div className="bg-white border border-[#C89211]/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-4 shadow-2xl animate-fade-in">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5E5E5]">
+              <h3 className="font-serif text-lg sm:text-xl font-bold text-[#1A1A1A] flex items-center gap-2">
+                <Plus className="w-5 h-5 text-[#C89211]" />
                 <span>Add Verified Reference Sample</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
-                className="text-stone-400 hover:text-stone-200"
+                className="text-[#666666] hover:text-[#1A1A1A]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -630,11 +630,11 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
 
             <form onSubmit={handleAddReference} className="space-y-4 text-xs sm:text-sm">
               <div>
-                <label className="block font-semibold text-stone-300 mb-1">Wood Species Category</label>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">Wood Species Category</label>
                 <select
                   value={refSpecies}
                   onChange={e => setRefSpecies(e.target.value as WoodSpeciesCategory)}
-                  className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-700 text-stone-100 focus:outline-none focus:border-amber-500"
+                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] focus:outline-none focus:border-[#C89211]"
                 >
                   {SUPPORTED_SPECIES.map(sp => (
                     <option key={sp} value={sp}>
@@ -645,48 +645,48 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-stone-300 mb-1">Verified Sample Label</label>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">Verified Sample Label</label>
                 <input
                   type="text"
                   placeholder="e.g. CP Teak Grade A Quarter-Sawn Heartwood"
                   value={refLabel}
                   onChange={e => setRefLabel(e.target.value)}
                   required
-                  className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-700 text-stone-100 focus:outline-none focus:border-amber-500"
+                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] focus:outline-none focus:border-[#C89211]"
                 />
               </div>
 
               <div>
-                <label className="block font-semibold text-stone-300 mb-1">Sample Photo URL or Path</label>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">Sample Photo URL or Path</label>
                 <input
                   type="text"
                   placeholder="/uploads/... or https://..."
                   value={refImageUrl}
                   onChange={e => setRefImageUrl(e.target.value)}
                   required
-                  className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-700 text-stone-100 focus:outline-none focus:border-amber-500"
+                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] focus:outline-none focus:border-[#C89211]"
                 />
               </div>
 
               <div>
-                <label className="block font-semibold text-stone-300 mb-1">Source / Timber Origin</label>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">Source / Timber Origin</label>
                 <input
                   type="text"
                   placeholder="e.g. Jai Hanuman Door Sawmill Certified Batch #104"
                   value={refSource}
                   onChange={e => setRefSource(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-700 text-stone-100 focus:outline-none focus:border-amber-500"
+                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] focus:outline-none focus:border-[#C89211]"
                 />
               </div>
 
               <div>
-                <label className="block font-semibold text-stone-300 mb-1">Anatomical Notes &amp; Pores</label>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">Anatomical Notes &amp; Pores</label>
                 <textarea
                   rows={2}
                   placeholder="e.g. Earlywood pores clearly ring-porous, unpolished radial grain with dark longitudinal veins."
                   value={refNotes}
                   onChange={e => setRefNotes(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-700 text-stone-100 focus:outline-none focus:border-amber-500"
+                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] focus:outline-none focus:border-[#C89211]"
                 />
               </div>
 
@@ -696,25 +696,25 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                   type="checkbox"
                   checked={refVerified}
                   onChange={e => setRefVerified(e.target.checked)}
-                  className="w-4 h-4 rounded text-amber-500 focus:ring-amber-500 border-stone-700 bg-stone-950"
+                  className="w-4 h-4 rounded text-[#C89211] focus:ring-[#C89211] border-[#E5E5E5] bg-[#F8F8F6]"
                 />
-                <label htmlFor="mark-verified" className="text-xs text-stone-300 cursor-pointer font-semibold">
+                <label htmlFor="mark-verified" className="text-xs text-[#1A1A1A] cursor-pointer font-semibold">
                   Mark immediately as "Verified by Administrator"
                 </label>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-stone-800">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#E5E5E5]">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold"
+                  className="px-4 py-2 rounded-xl bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingRef}
-                  className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center gap-1.5 shadow"
+                  className="px-5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 shadow"
                 >
                   {savingRef && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <span>Save Reference</span>
@@ -726,14 +726,14 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
       )}
 
       {/* SETTINGS FORM */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 sm:p-6 space-y-5">
-        <div className="flex items-center justify-between pb-3 border-b border-stone-800">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-5 sm:p-6 space-y-5">
+        <div className="flex items-center justify-between pb-3 border-b border-[#E5E5E5]">
           <div>
-            <h3 className="text-base font-bold text-stone-100 flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-amber-400" />
+            <h3 className="text-base font-bold text-[#1A1A1A] flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-[#C89211]" />
               <span>Feature Configuration &amp; Controls</span>
             </h3>
-            <p className="text-xs text-stone-400 mt-0.5">
+            <p className="text-xs text-[#666666] mt-0.5">
               Enable or disable AI Wood Detector, or customize public notices.
             </p>
           </div>
@@ -742,12 +742,12 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
         <form onSubmit={handleSaveSettings} className="space-y-4">
           
           {/* Enable / Disable Switch */}
-          <div className="flex items-center justify-between p-4 rounded-xl bg-stone-950/60 border border-stone-800">
+          <div className="flex items-center justify-between p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
             <div>
-              <label className="text-xs sm:text-sm font-bold text-stone-200 block cursor-pointer">
+              <label className="text-xs sm:text-sm font-bold text-[#1A1A1A] block cursor-pointer">
                 AI Wood Detector Enable / Disable
               </label>
-              <p className="text-xs text-stone-400 mt-0.5">
+              <p className="text-xs text-[#666666] mt-0.5">
                 Band karne par website visitors ko feature temporarily disabled dikhega.
               </p>
             </div>
@@ -758,14 +758,14 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                 onChange={e => setEnabled(e.target.checked)}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-stone-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+              <div className="w-11 h-6 bg-stone-100 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
             </label>
           </div>
 
           {/* Max daily scans quota guide */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-stone-300 mb-1">
+              <label className="block text-xs font-semibold text-[#1A1A1A] mb-1">
                 Daily Max Scan Capacity
               </label>
               <input
@@ -774,13 +774,13 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                 max="1000"
                 value={maxDailyScans}
                 onChange={e => setMaxDailyScans(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-700 text-stone-100 text-xs sm:text-sm focus:outline-none focus:border-amber-500"
+                className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm focus:outline-none focus:border-[#C89211]"
               />
-              <span className="text-[11px] text-stone-500 mt-1 block">Default: 150 scans/day</span>
+              <span className="text-[11px] text-[#666666] mt-1 block">Default: 150 scans/day</span>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-stone-300 mb-1">
+              <label className="block text-xs font-semibold text-[#1A1A1A] mb-1">
                 Custom Notice (Optional)
               </label>
               <input
@@ -788,9 +788,9 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                 placeholder="e.g. Workshop festive season - Instant quotes available"
                 value={customNotice}
                 onChange={e => setCustomNotice(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-stone-700 text-stone-100 text-xs sm:text-sm focus:outline-none focus:border-amber-500"
+                className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs sm:text-sm focus:outline-none focus:border-[#C89211]"
               />
-              <span className="text-[11px] text-stone-500 mt-1 block">Will appear at top of detector page if set</span>
+              <span className="text-[11px] text-[#666666] mt-1 block">Will appear at top of detector page if set</span>
             </div>
           </div>
 
@@ -814,7 +814,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs sm:text-sm flex items-center gap-2 shadow-md transition-all active:scale-95"
+              className="px-5 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-md transition-all active:scale-95"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               <span>Save AI Settings</span>
@@ -825,18 +825,18 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
       </div>
 
       {/* RECENT ACTIVITY & MONITORING LOG TABLE */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 sm:p-6 space-y-4">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-5 sm:p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-base font-bold text-stone-100 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-amber-400" />
+            <h3 className="text-base font-bold text-[#1A1A1A] flex items-center gap-2">
+              <Activity className="w-4 h-4 text-[#C89211]" />
               <span>Recent Scan Activity &amp; Error Monitoring</span>
             </h3>
-            <p className="text-xs text-stone-400 mt-0.5">
+            <p className="text-xs text-[#666666] mt-0.5">
               Privacy-Protected: Only technical metadata &amp; detected species names are recorded. No customer images saved.
             </p>
           </div>
-          <span className="text-xs font-mono text-stone-400">
+          <span className="text-xs font-mono text-[#666666]">
             {stats?.recentLogs?.length ?? 0} records
           </span>
         </div>
@@ -844,7 +844,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
         {stats?.recentLogs && stats.recentLogs.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-stone-950 text-stone-400 uppercase tracking-wider font-semibold border-b border-stone-800">
+              <thead className="bg-[#F8F8F6] text-[#666666] uppercase tracking-wider font-semibold border-b border-[#E5E5E5]">
                 <tr>
                   <th className="px-3 py-2.5">Time</th>
                   <th className="px-3 py-2.5">Detected Wood</th>
@@ -853,10 +853,10 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                   <th className="px-3 py-2.5">Latency</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-800/80">
+              <tbody className="divide-y divide-[#E5E5E5]/80">
                 {stats.recentLogs.slice(0, 20).map(log => (
-                  <tr key={log.id} className="hover:bg-stone-800/30 transition-colors">
-                    <td className="px-3 py-2.5 text-stone-300 font-mono">
+                  <tr key={log.id} className="hover:bg-[#F8F8F6]/30 transition-colors">
+                    <td className="px-3 py-2.5 text-[#1A1A1A] font-mono">
                       {new Date(log.timestamp).toLocaleString('en-IN', {
                         month: 'short',
                         day: 'numeric',
@@ -864,7 +864,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                         minute: '2-digit',
                       })}
                     </td>
-                    <td className="px-3 py-2.5 font-semibold text-stone-100">
+                    <td className="px-3 py-2.5 font-semibold text-[#1A1A1A]">
                       {log.likelyWoodType || (log.errorMessage ? 'Scan Error' : 'Unknown')}
                     </td>
                     <td className="px-3 py-2.5">
@@ -874,14 +874,14 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                             log.confidenceLevel === 'High'
                               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                               : log.confidenceLevel === 'Moderate'
-                              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                              : 'bg-stone-800 text-stone-400'
+                              ? 'bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/40'
+                              : 'bg-[#F8F8F6] text-[#666666]'
                           }`}
                         >
                           {log.confidenceLevel}
                         </span>
                       ) : (
-                        <span className="text-stone-500">—</span>
+                        <span className="text-[#666666]">—</span>
                       )}
                     </td>
                     <td className="px-3 py-2.5">
@@ -900,7 +900,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-stone-400 font-mono">
+                    <td className="px-3 py-2.5 text-[#666666] font-mono">
                       {log.responseTimeMs ? `${log.responseTimeMs}ms` : '—'}
                     </td>
                   </tr>
@@ -909,7 +909,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
             </table>
           </div>
         ) : (
-          <div className="py-8 text-center text-stone-500 text-xs">
+          <div className="py-8 text-center text-[#666666] text-xs">
             Abhi tak koi scan record nahi mila. Customer dwara photo upload karne par yahan live details dikhengi.
           </div>
         )}

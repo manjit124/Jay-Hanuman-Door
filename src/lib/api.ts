@@ -26,7 +26,26 @@ import {
   AIWoodDetectorSettings,
   WoodReferenceSample,
   WoodAccuracyBenchmarkResult,
+  TrackingOrder,
+  PublicTrackingView,
+  TrackingStageId,
+  StageStatus,
+  TrackingMediaItem,
+  TrackingDeliveryInfo,
+  IndiaDeliveryState,
+  DeliveryStory,
+  ChaukhatWoodType,
+  ChaukhatSectionSize,
+  ChaukhatDimensionPreset,
+  ChaukhatDesignCard,
+  ChaukhatProduct,
+  ChaukhatCalculationResult,
+  CombinedQuotation,
 } from '../types.ts';
+import {
+  DEFAULT_INDIA_STATES,
+  DEFAULT_DELIVERY_STORIES,
+} from '../data/indiaDeliveryData.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
 const GUEST_FAVORITES_KEY = 'shivshahi_guest_favorites';
@@ -39,6 +58,7 @@ export const DEFAULT_MATERIALS: DoorMaterial[] = [
     id: 'mat-1',
     name: 'Sagwan',
     ratePerSqFt: 800,
+    image: 'https://images.unsplash.com/photo-1546484396-fb3fc6f95f98?auto=format&fit=crop&w=600&q=80',
     description: 'Premium grade Central Province (CP) Teak Wood with natural oil & high moisture resistance',
     active: true,
   },
@@ -46,6 +66,7 @@ export const DEFAULT_MATERIALS: DoorMaterial[] = [
     id: 'mat-2',
     name: 'Sal Wood',
     ratePerSqFt: 650,
+    image: 'https://images.unsplash.com/photo-1549497538-303791108f95?auto=format&fit=crop&w=600&q=80',
     description: 'Heavy, durable Indian hardwood renowned for extreme load-bearing strength',
     active: true,
   },
@@ -53,6 +74,7 @@ export const DEFAULT_MATERIALS: DoorMaterial[] = [
     id: 'mat-3',
     name: 'Pine',
     ratePerSqFt: 450,
+    image: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=600&q=80',
     description: 'Treated pine timber with light grain texture, kiln-dried for dimensional stability',
     active: true,
   },
@@ -60,6 +82,7 @@ export const DEFAULT_MATERIALS: DoorMaterial[] = [
     id: 'mat-4',
     name: 'Plywood',
     ratePerSqFt: 350,
+    image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=600&q=80',
     description: 'Boiling Waterproof (BWP) marine grade core with hardwood internal framing',
     active: true,
   },
@@ -67,6 +90,7 @@ export const DEFAULT_MATERIALS: DoorMaterial[] = [
     id: 'mat-5',
     name: 'Teak Veneer Flush Door',
     ratePerSqFt: 550,
+    image: 'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=600&q=80',
     description: 'Solid core flush door with 4mm natural Burma teak wood veneer on both sides',
     active: true,
   },
@@ -77,6 +101,7 @@ export const DEFAULT_FINISHES: PolishFinish[] = [
     id: 'fin-1',
     name: 'Normal Polish',
     ratePerSqFt: 110,
+    image: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=600&q=80',
     description: 'Standard hand-rubbed spirit French polish for natural wood luster',
     active: true,
   },
@@ -84,6 +109,7 @@ export const DEFAULT_FINISHES: PolishFinish[] = [
     id: 'fin-2',
     name: 'Teak Polish',
     ratePerSqFt: 150,
+    image: 'https://images.unsplash.com/photo-1546484396-fb3fc6f95f98?auto=format&fit=crop&w=600&q=80',
     description: 'Deep teak oil stain with double protective sealant coat',
     active: true,
   },
@@ -91,6 +117,7 @@ export const DEFAULT_FINISHES: PolishFinish[] = [
     id: 'fin-3',
     name: 'PU Polish (Polyurethane)',
     ratePerSqFt: 250,
+    image: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=600&q=80',
     description: 'Ultra-durable polyurethane Italian finish with anti-scratch UV shield',
     active: true,
   },
@@ -98,6 +125,7 @@ export const DEFAULT_FINISHES: PolishFinish[] = [
     id: 'fin-4',
     name: 'Melamine Polish',
     ratePerSqFt: 180,
+    image: 'https://images.unsplash.com/photo-1534349762230-e0cadf78f5da?auto=format&fit=crop&w=600&q=80',
     description: 'Heat & water resistant non-yellowing clear protective coat',
     active: true,
   },
@@ -105,6 +133,7 @@ export const DEFAULT_FINISHES: PolishFinish[] = [
     id: 'fin-5',
     name: 'Unpolished / Raw',
     ratePerSqFt: 0,
+    image: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=600&q=80',
     description: 'Natural seasoned raw timber ready for on-site painter finishing',
     active: true,
   },
@@ -120,55 +149,74 @@ export const DEFAULT_FRAMES: ChaukhatFrame[] = [
   },
   {
     id: 'frm-1',
-    name: 'Sagwan Chaukhat (5" × 2.5")',
-    price: 6500,
-    description: 'Heavy solid Sagwan wood frame with rebate for main entrance',
+    name: 'Normal Frame',
+    price: 3500,
+    image: 'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=1200&q=80',
+    description: 'Standard 4×2.5 inch section plain timber Chaukhat with clean rebate',
     active: true,
   },
   {
     id: 'frm-2',
-    name: 'Sal Wood Chaukhat (5" × 2.5")',
-    price: 4500,
-    description: 'Super strong heavy-density Sal timber frame',
+    name: 'Designer Frame',
+    price: 11025,
+    image: 'https://images.unsplash.com/photo-1534349762230-e0cadf78f5da?auto=format&fit=crop&w=1200&q=80',
+    description: '5×3 inch section with stepped moldings, beading, and corner grooving',
     active: true,
   },
   {
     id: 'frm-3',
-    name: 'Normal Frame (4" × 2.5")',
-    price: 3500,
-    description: 'Standard seasoned timber frame for bedroom & interior doors',
+    name: 'Hand Carving Frame',
+    price: 11637,
+    image: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=1200&q=80',
+    description: 'Heavy 5×3.5 inch pure Sagwan Chaukhat with intricate hand-carved floral border',
     active: true,
   },
 ];
 
 export const DEFAULT_HARDWARE: HardwareItem[] = [
   {
-    id: 'hwd-0',
-    name: 'None (Bina Hardware)',
-    price: 0,
-    description: 'No hardware fittings included',
-    active: true,
-  },
-  {
     id: 'hwd-1',
-    name: 'Single Aldrop (Stainless Steel)',
+    name: 'Aldrop Single',
     price: 700,
-    description: 'Heavy duty SS 304 12-inch aldrop with mortise lock socket',
+    image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1200&q=80',
+    description: 'Stainless steel 10-inch single aldrop bolt set with tower bolt and latch',
     active: true,
+    defaultQty: 1,
   },
   {
     id: 'hwd-2',
-    name: 'Complete Hardware Kit',
-    price: 1800,
-    description: 'SS Aldrop, 2 Tower Bolts, 2 Pull Handles, 3 SS Bearing Hinges & Stopper',
+    name: 'Heavy Aldrop',
+    price: 1300,
+    image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=1200&q=80',
+    description: 'Heavy-gauge forged brass / SS 12-inch security aldrop kit with heavy duty staples',
     active: true,
+    defaultQty: 1,
   },
   {
     id: 'hwd-3',
-    name: 'Premium Antique Brass Kit',
-    price: 3200,
-    description: 'Royal antique brass finish designer aldrop, lion knocker, latch & heavy brass hinges',
+    name: 'Antique Heavy',
+    price: 1700,
+    image: 'https://images.unsplash.com/photo-1509644851169-2acc08aa25b5?auto=format&fit=crop&w=1200&q=80',
+    description: 'Antique brass finished royal heavy aldrop with lion crest handles & decorative rosette plates',
     active: true,
+    defaultQty: 1,
+  },
+  {
+    id: 'hwd-4',
+    name: 'Premium Mortise Handle Lock Set',
+    price: 2400,
+    image: 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?auto=format&fit=crop&w=1200&q=80',
+    description: 'High-security computer key double throw brass mortise lock with designer handles',
+    active: true,
+    defaultQty: 1,
+  },
+  {
+    id: 'hwd-0',
+    name: 'No Hardware Included',
+    price: 0,
+    description: 'Client supplies or fits own hardware',
+    active: true,
+    defaultQty: 0,
   },
 ];
 
@@ -572,6 +620,63 @@ export async function uploadImage(file: File): Promise<{ url: string }> {
   return res.json();
 }
 
+export async function uploadVideo(file: File): Promise<{ url: string; filename?: string; size?: number }> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = getAdminToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await apiFetch('/api/upload-video', {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Video upload failed' }));
+    throw new Error(err.error || 'Product video upload failed');
+  }
+  return res.json();
+}
+
+export async function upload3DModel(file: File): Promise<{
+  url: string;
+  filename: string;
+  originalName: string;
+  size: number;
+  is3DModel: boolean;
+}> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = getAdminToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await apiFetch('/api/admin/upload-model', {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error(err.error || '3D Model / Texture upload failed');
+  }
+  return res.json();
+}
+
+export async function updateDoor3DConfig(
+  doorId: string,
+  model3d: import('../types.ts').DoorModel3DConfig
+): Promise<Door> {
+  return updateDoor(doorId, { model3d });
+}
+
 // ---------------- Admin Endpoints ----------------
 
 export async function adminLogin(emailOrPassword: string, password?: string): Promise<boolean> {
@@ -652,12 +757,102 @@ export async function fetchAdminAllData(): Promise<{
   quotes: Quotation[];
   settings: BusinessSettings;
   teamMembers?: TeamMember[];
+  deliveryStates?: IndiaDeliveryState[];
+  deliveryStories?: DeliveryStory[];
 }> {
   const res = await apiFetch('/api/admin/all-data', {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Unauthorized or failed to fetch admin data');
   return res.json();
+}
+
+// ---------------- ALL INDIA DELIVERY API METHODS ----------------
+
+/**
+ * Public: Fetch active delivery states and published delivery stories.
+ * Falls back to local default datasets if offline or backend is initializing.
+ */
+export async function fetchPublicDeliveryData(): Promise<{
+  states: IndiaDeliveryState[];
+  stories: DeliveryStory[];
+}> {
+  try {
+    const res = await apiFetch('/api/delivery/states');
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        states: Array.isArray(data.states) && data.states.length > 0 ? data.states : DEFAULT_INDIA_STATES,
+        stories: Array.isArray(data.stories) ? data.stories : DEFAULT_DELIVERY_STORIES,
+      };
+    }
+  } catch (err) {
+    console.warn('Could not fetch delivery states from server, using local fallback:', err);
+  }
+  return {
+    states: DEFAULT_INDIA_STATES,
+    stories: DEFAULT_DELIVERY_STORIES,
+  };
+}
+
+export async function adminToggleStateDelivery(stateId: string): Promise<IndiaDeliveryState> {
+  const res = await apiFetch('/api/admin/delivery/state/toggle', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ stateId }),
+  });
+  if (!res.ok) throw new Error('Failed to toggle state delivery status');
+  const data = await res.json();
+  return data.state;
+}
+
+export async function adminUpdateStateDelivery(
+  stateId: string,
+  updates: Partial<IndiaDeliveryState>
+): Promise<IndiaDeliveryState> {
+  const res = await apiFetch(`/api/admin/delivery/state/${stateId}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error('Failed to update state delivery details');
+  const data = await res.json();
+  return data.state;
+}
+
+export async function adminCreateDeliveryStory(
+  story: Omit<DeliveryStory, 'id' | 'createdAt'>
+): Promise<DeliveryStory> {
+  const res = await apiFetch('/api/admin/delivery/stories', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(story),
+  });
+  if (!res.ok) throw new Error('Failed to create delivery story');
+  const data = await res.json();
+  return data.story;
+}
+
+export async function adminUpdateDeliveryStory(
+  id: string,
+  updates: Partial<DeliveryStory>
+): Promise<DeliveryStory> {
+  const res = await apiFetch(`/api/admin/delivery/stories/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error('Failed to update delivery story');
+  const data = await res.json();
+  return data.story;
+}
+
+export async function adminDeleteDeliveryStory(id: string): Promise<void> {
+  const res = await apiFetch(`/api/admin/delivery/stories/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to delete delivery story');
 }
 
 // Door CRUD
@@ -833,6 +1028,49 @@ export async function deleteBanner(id: string): Promise<void> {
   });
   if (!res.ok) throw new Error('Failed to delete banner');
 }
+
+export async function createMainBanner(data: Partial<HomeBanner>): Promise<HomeBanner> {
+  const res = await apiFetch('/api/admin/banners/main', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ ...data, bannerType: 'main' }),
+  });
+  if (!res.ok) throw new Error('Failed to create main banner');
+  return res.json();
+}
+
+export async function createPromotionBanner(data: Partial<HomeBanner>): Promise<HomeBanner> {
+  const res = await apiFetch('/api/admin/banners/promotion', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ ...data, bannerType: 'promotion' }),
+  });
+  if (!res.ok) throw new Error('Failed to create promotion banner');
+  return res.json();
+}
+
+export async function updateSlotBanner(slotId: 'slot_1' | 'slot_2' | string, data: Partial<HomeBanner>): Promise<HomeBanner> {
+  const res = await apiFetch(`/api/admin/banners/slot/${slotId}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update slot banner');
+  return res.json();
+}
+
+export async function fetchMainBanners(): Promise<HomeBanner[]> {
+  const res = await apiFetch('/api/banners/main');
+  if (!res.ok) throw new Error('Failed to fetch main banners');
+  return res.json();
+}
+
+export async function fetchPromotionBanners(): Promise<HomeBanner[]> {
+  const res = await apiFetch('/api/banners/promotion');
+  if (!res.ok) throw new Error('Failed to fetch promotion banners');
+  return res.json();
+}
+
 
 // Article CRUD
 export async function createArticle(data: Partial<Article>): Promise<Article> {
@@ -1724,6 +1962,395 @@ export async function runWoodBenchmarkAPI(): Promise<WoodAccuracyBenchmarkResult
   const json = await res.json();
   return json.benchmark;
 }
+
+// ============================================================================
+// Order Tracking & Manufacturing Progress Client APIs
+// ============================================================================
+
+/**
+ * Public: Fetch customer order tracking view by Tracking ID
+ * No authentication required
+ */
+export async function fetchPublicTracking(trackingId: string): Promise<PublicTrackingView> {
+  const cleanId = encodeURIComponent((trackingId || '').trim());
+  const res = await apiFetch(`/api/tracking/${cleanId}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to find tracking details. Please check your Tracking ID.');
+  }
+  const json = await res.json();
+  return json.tracking;
+}
+
+/**
+ * Admin: List and filter all tracking orders
+ */
+export async function fetchAdminTrackingOrders(filters?: {
+  search?: string;
+  status?: string;
+  stage?: string;
+}): Promise<TrackingOrder[]> {
+  const params = new URLSearchParams();
+  if (filters?.search) params.set('search', filters.search);
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.stage) params.set('stage', filters.stage);
+
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const res = await apiFetch(`/api/admin/tracking-orders${qs}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch tracking orders');
+  }
+  const json = await res.json();
+  return json.orders || [];
+}
+
+/**
+ * Admin: Get single full tracking order by internal id or trackingId
+ */
+export async function fetchAdminTrackingOrder(id: string): Promise<TrackingOrder> {
+  const res = await apiFetch(`/api/admin/tracking-orders/${encodeURIComponent(id)}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch tracking order details');
+  }
+  const json = await res.json();
+  return json.order;
+}
+
+/**
+ * Admin: Create a new trackable order
+ */
+export async function createAdminTrackingOrder(data: Partial<TrackingOrder>): Promise<TrackingOrder> {
+  const res = await apiFetch('/api/admin/tracking-orders', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to create tracking order');
+  }
+  const json = await res.json();
+  return json.order;
+}
+
+/**
+ * Admin: Update general tracking order details
+ */
+export async function updateAdminTrackingOrder(
+  id: string,
+  data: Partial<TrackingOrder>
+): Promise<TrackingOrder> {
+  const res = await apiFetch(`/api/admin/tracking-orders/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update tracking order');
+  }
+  const json = await res.json();
+  return json.order;
+}
+
+/**
+ * Admin: Update status, notes, or advance stage
+ */
+export async function updateAdminTrackingStage(
+  orderId: string,
+  stageData: {
+    stageId: TrackingStageId;
+    status: StageStatus;
+    customerNote?: string;
+    adminNote?: string;
+    notApplicableReason?: string;
+    moveNext?: boolean;
+  }
+): Promise<TrackingOrder> {
+  const res = await apiFetch(`/api/admin/tracking-orders/${encodeURIComponent(orderId)}/stage`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(stageData),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update stage progress');
+  }
+  const json = await res.json();
+  return json.order;
+}
+
+/**
+ * Admin: Upload stage photo or video
+ */
+export async function uploadAdminTrackingMedia(
+  orderId: string,
+  file: File,
+  meta: {
+    stageId: TrackingStageId;
+    caption?: string;
+    isCustomerVisible?: boolean;
+  }
+): Promise<{ media: TrackingMediaItem; order: TrackingOrder }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('stageId', meta.stageId);
+  if (meta.caption) formData.append('caption', meta.caption);
+  if (meta.isCustomerVisible !== undefined) {
+    formData.append('isCustomerVisible', String(meta.isCustomerVisible));
+  }
+
+  const token = getAdminToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await apiFetch(`/api/admin/tracking-orders/${encodeURIComponent(orderId)}/media`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to upload stage media');
+  }
+  const json = await res.json();
+  return { media: json.media, order: json.order };
+}
+
+/**
+ * Admin: Delete stage media
+ */
+export async function deleteAdminTrackingMedia(orderId: string, mediaId: string): Promise<TrackingOrder> {
+  const res = await apiFetch(
+    `/api/admin/tracking-orders/${encodeURIComponent(orderId)}/media/${encodeURIComponent(mediaId)}`,
+    {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete media');
+  }
+  const json = await res.json();
+  return json.order;
+}
+
+/**
+ * Admin: Update delivery partner and dispatch info
+ */
+export async function updateAdminTrackingDelivery(
+  orderId: string,
+  deliveryData: Partial<TrackingDeliveryInfo>
+): Promise<TrackingOrder> {
+  const res = await apiFetch(`/api/admin/tracking-orders/${encodeURIComponent(orderId)}/delivery`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(deliveryData),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update delivery information');
+  }
+  const json = await res.json();
+  return json.order;
+}
+
+/**
+ * Admin: Mark order as Delivered
+ */
+export async function deliverAdminTrackingOrder(orderId: string, deliveryNotes?: string): Promise<TrackingOrder> {
+  const res = await apiFetch(`/api/admin/tracking-orders/${encodeURIComponent(orderId)}/deliver`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ deliveryNotes }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to mark order as delivered');
+  }
+  const json = await res.json();
+  return json.order;
+}
+
+/**
+ * Admin: Cancel an order with required reason
+ */
+export async function cancelAdminTrackingOrder(orderId: string, reason: string): Promise<TrackingOrder> {
+  const res = await apiFetch(`/api/admin/tracking-orders/${encodeURIComponent(orderId)}/cancel`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to cancel order');
+  }
+  const json = await res.json();
+  return json.order;
+}
+
+/**
+ * Admin: Delete an order permanently
+ */
+export async function deleteAdminTrackingOrder(orderId: string): Promise<void> {
+  const res = await apiFetch(`/api/admin/tracking-orders/${encodeURIComponent(orderId)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete order');
+  }
+}
+
+// ==========================================
+// CHAUKHAT & FRAME MANAGEMENT API
+// ==========================================
+
+export interface ChaukhatConfigResponse {
+  woodTypes: ChaukhatWoodType[];
+  sectionSizes: ChaukhatSectionSize[];
+  dimensionPresets: ChaukhatDimensionPreset[];
+  designs: ChaukhatDesignCard[];
+  products: ChaukhatProduct[];
+}
+
+export async function fetchChaukhatConfig(): Promise<ChaukhatConfigResponse> {
+  try {
+    const res = await apiFetch('/api/chaukhat/config');
+    if (!res.ok) throw new Error('Failed to fetch Chaukhat configuration');
+    return await res.json();
+  } catch (err) {
+    console.warn('Using client defaults for Chaukhat configuration', err);
+    const defaults = await import('../data/chaukhatDefaults.ts');
+    return {
+      woodTypes: defaults.DEFAULT_CHAUKHAT_WOOD_TYPES,
+      sectionSizes: defaults.DEFAULT_CHAUKHAT_SECTION_SIZES,
+      dimensionPresets: defaults.DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+      designs: defaults.DEFAULT_CHAUKHAT_DESIGNS,
+      products: [defaults.DEFAULT_CHAUKHAT_PRODUCT],
+    };
+  }
+}
+
+export async function calculateChaukhatApi(data: {
+  woodTypeId: string;
+  sectionSizeId: string;
+  customWidthInch?: number;
+  customDepthInch?: number;
+  heightFt: number;
+  widthFt: number;
+  designId: 'plain' | 'diamond' | 'hand_carved';
+  productId?: string;
+}): Promise<ChaukhatCalculationResult> {
+  const res = await apiFetch('/api/chaukhat/calculate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to calculate Chaukhat price');
+  }
+  return await res.json();
+}
+
+export async function fetchAdminChaukhatAll(): Promise<{
+  products: ChaukhatProduct[];
+  sectionSizes: ChaukhatSectionSize[];
+  dimensionPresets: ChaukhatDimensionPreset[];
+  woodTypes: ChaukhatWoodType[];
+}> {
+  const res = await apiFetch('/api/admin/chaukhat/all', {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch admin chaukhat data');
+  }
+  return await res.json();
+}
+
+export async function saveAdminChaukhatProduct(product: Partial<ChaukhatProduct>): Promise<ChaukhatProduct> {
+  const method = product.id ? 'PUT' : 'POST';
+  const url = product.id
+    ? `/api/admin/chaukhat/products/${encodeURIComponent(product.id)}`
+    : '/api/admin/chaukhat/products';
+
+  const res = await apiFetch(url, {
+    method,
+    headers: authHeaders(),
+    body: JSON.stringify(product),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to save Chaukhat product');
+  }
+  const json = await res.json();
+  return json.product;
+}
+
+export async function deleteAdminChaukhatProduct(id: string): Promise<void> {
+  const res = await apiFetch(`/api/admin/chaukhat/products/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete Chaukhat product');
+  }
+}
+
+export async function saveAdminChaukhatSectionSize(section: Partial<ChaukhatSectionSize>): Promise<ChaukhatSectionSize> {
+  const method = section.id ? 'PUT' : 'POST';
+  const url = section.id
+    ? `/api/admin/chaukhat/section-sizes/${encodeURIComponent(section.id)}`
+    : '/api/admin/chaukhat/section-sizes';
+
+  const res = await apiFetch(url, {
+    method,
+    headers: authHeaders(),
+    body: JSON.stringify(section),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to save Section Size');
+  }
+  const json = await res.json();
+  return json.sectionSize;
+}
+
+export async function deleteAdminChaukhatSectionSize(id: string): Promise<void> {
+  const res = await apiFetch(`/api/admin/chaukhat/section-sizes/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete Section Size');
+  }
+}
+
+export async function reorderAdminChaukhatProducts(ids: string[]): Promise<void> {
+  const res = await apiFetch('/api/admin/chaukhat/reorder', {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to reorder Chaukhat products');
+  }
+}
+
 
 
 

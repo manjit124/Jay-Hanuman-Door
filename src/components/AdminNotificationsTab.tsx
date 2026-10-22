@@ -254,13 +254,13 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
     <div id="admin-notifications-section" className="space-y-8 animate-in fade-in duration-200">
       
       {/* 1. Header & Quick Refresh */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#E5E5E5]">
         <div>
-          <h2 className="text-xl font-bold text-stone-100 flex items-center gap-2">
-            <Bell className="w-5 h-5 text-amber-500" />
+          <h2 className="text-xl font-bold text-[#1A1A1A] flex items-center gap-2">
+            <Bell className="w-5 h-5 text-[#C89211]" />
             <span>Push Notifications</span>
           </h2>
-          <p className="text-stone-400 text-xs mt-1">
+          <p className="text-[#666666] text-xs mt-1">
             Send customer broadcast alerts, new door design announcements, and festival offers directly to mobile phones and browsers.
           </p>
         </div>
@@ -268,7 +268,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
         <button
           onClick={loadData}
           disabled={isLoading}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-stone-700 bg-stone-800 hover:bg-stone-750 text-stone-300 text-xs font-semibold transition-colors disabled:opacity-50 self-start sm:self-auto"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[#E5E5E5] bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold transition-colors disabled:opacity-50 self-start sm:self-auto"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           <span>Refresh Data</span>
@@ -287,7 +287,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
               {stats.isFcmConfigured ? (
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
               ) : (
-                <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-[#C89211] flex-shrink-0 mt-0.5" />
               )}
               <div className="space-y-1">
                 <span className="font-bold text-sm block">
@@ -301,7 +301,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                     : 'To send live push notifications over the Firebase network, add the credentials below to your environment variables.'}
                 </p>
                 {!stats.isFcmConfigured && (
-                  <div className="mt-2 pt-2 border-t border-amber-800/40 font-mono text-[10px] text-amber-300/90 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                  <div className="mt-2 pt-2 border-t border-amber-800/40 font-mono text-[10px] text-[#C89211]/90 grid grid-cols-1 sm:grid-cols-2 gap-1">
                     <div>• FIREBASE_PROJECT_ID</div>
                     <div>• FIREBASE_CLIENT_EMAIL</div>
                     <div>• FIREBASE_PRIVATE_KEY</div>
@@ -311,7 +311,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
               </div>
             </div>
 
-            <span className="text-[10px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wider bg-stone-900/60 border border-current flex-shrink-0">
+            <span className="text-[10px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wider bg-white border border-current flex-shrink-0">
               {stats.isFcmConfigured ? 'Active' : 'Setup Required'}
             </span>
           </div>
@@ -321,30 +321,30 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
       {/* 3. Notification Statistics Grid */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="p-4 rounded-2xl bg-stone-850 border border-stone-800">
-            <span className="text-xs text-stone-400 font-medium block">Total Subscribers</span>
-            <div className="text-2xl font-bold text-stone-100 mt-1">{stats.totalSubscribers}</div>
-            <span className="text-[10px] text-stone-500 mt-0.5 block">Registered devices</span>
+          <div className="p-4 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5]">
+            <span className="text-xs text-[#666666] font-medium block">Total Subscribers</span>
+            <div className="text-2xl font-bold text-[#1A1A1A] mt-1">{stats.totalSubscribers}</div>
+            <span className="text-[10px] text-[#666666] mt-0.5 block">Registered devices</span>
           </div>
 
-          <div className="p-4 rounded-2xl bg-stone-850 border border-stone-800">
-            <span className="text-xs text-stone-400 font-medium block">Active Subscribers</span>
+          <div className="p-4 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5]">
+            <span className="text-xs text-[#666666] font-medium block">Active Subscribers</span>
             <div className="text-2xl font-bold text-emerald-400 mt-1">{stats.activeSubscribers}</div>
-            <span className="text-[10px] text-stone-500 mt-0.5 block">Permission granted</span>
+            <span className="text-[10px] text-[#666666] mt-0.5 block">Permission granted</span>
           </div>
 
-          <div className="p-4 rounded-2xl bg-stone-850 border border-stone-800">
-            <span className="text-xs text-stone-400 font-medium block">Campaigns Sent</span>
-            <div className="text-2xl font-bold text-amber-400 mt-1">{stats.campaignsCount}</div>
-            <span className="text-[10px] text-stone-500 mt-0.5 block">All time broadcasts</span>
+          <div className="p-4 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5]">
+            <span className="text-xs text-[#666666] font-medium block">Campaigns Sent</span>
+            <div className="text-2xl font-bold text-[#C89211] mt-1">{stats.campaignsCount}</div>
+            <span className="text-[10px] text-[#666666] mt-0.5 block">All time broadcasts</span>
           </div>
 
-          <div className="p-4 rounded-2xl bg-stone-850 border border-stone-800">
-            <span className="text-xs text-stone-400 font-medium block">Offers Audience</span>
+          <div className="p-4 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5]">
+            <span className="text-xs text-[#666666] font-medium block">Offers Audience</span>
             <div className="text-2xl font-bold text-blue-400 mt-1">
               {stats.categorySubscribers?.offers ?? 0}
             </div>
-            <span className="text-[10px] text-stone-500 mt-0.5 block">Subscribed to deals</span>
+            <span className="text-[10px] text-[#666666] mt-0.5 block">Subscribed to deals</span>
           </div>
         </div>
       )}
@@ -353,14 +353,14 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Left Column: Notification Composer (7 cols) */}
-        <div className="lg:col-span-7 bg-stone-850 border border-stone-800 rounded-3xl p-6 shadow-xl space-y-6">
-          <div className="flex items-center justify-between pb-3 border-b border-stone-800">
-            <h3 className="text-base font-bold text-stone-100 flex items-center gap-2">
-              <Send className="w-4 h-4 text-amber-500" />
+        <div className="lg:col-span-7 bg-[#F7F7F7] border border-[#E5E5E5] rounded-3xl p-6 shadow-xl space-y-6">
+          <div className="flex items-center justify-between pb-3 border-b border-[#E5E5E5]">
+            <h3 className="text-base font-bold text-[#1A1A1A] flex items-center gap-2">
+              <Send className="w-4 h-4 text-[#C89211]" />
               <span>Compose Push Notification</span>
             </h3>
-            <span className="text-[11px] text-stone-400">
-              Targeting: <strong className="text-amber-400">{getAudienceCount()} devices</strong>
+            <span className="text-[11px] text-[#666666]">
+              Targeting: <strong className="text-[#C89211]">{getAudienceCount()} devices</strong>
             </span>
           </div>
 
@@ -368,8 +368,8 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
             
             {/* Title */}
             <div>
-              <label className="block text-xs font-semibold text-stone-300 mb-1">
-                Notification Title <span className="text-amber-500">*</span>
+              <label className="block text-xs font-semibold text-[#1A1A1A] mb-1">
+                Notification Title <span className="text-[#C89211]">*</span>
               </label>
               <input
                 type="text"
@@ -378,9 +378,9 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                 placeholder="e.g. New Royal Sagwan Carved Doors Added"
                 maxLength={65}
                 required
-                className="w-full px-3.5 py-2.5 rounded-xl bg-stone-900 border border-stone-750 text-stone-100 text-sm focus:outline-none focus:border-amber-500 transition-colors"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-sm focus:outline-none focus:border-[#C89211] transition-colors"
               />
-              <div className="flex justify-between items-center text-[10px] text-stone-500 mt-1">
+              <div className="flex justify-between items-center text-[10px] text-[#666666] mt-1">
                 <span>Keep under 50 characters for clean mobile lockscreen display</span>
                 <span>{title.length}/65</span>
               </div>
@@ -388,8 +388,8 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
 
             {/* Message Body */}
             <div>
-              <label className="block text-xs font-semibold text-stone-300 mb-1">
-                Message Body <span className="text-amber-500">*</span>
+              <label className="block text-xs font-semibold text-[#1A1A1A] mb-1">
+                Message Body <span className="text-[#C89211]">*</span>
               </label>
               <textarea
                 value={message}
@@ -398,9 +398,9 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                 rows={3}
                 maxLength={180}
                 required
-                className="w-full px-3.5 py-2.5 rounded-xl bg-stone-900 border border-stone-750 text-stone-100 text-sm focus:outline-none focus:border-amber-500 transition-colors resize-none"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-sm focus:outline-none focus:border-[#C89211] transition-colors resize-none"
               />
-              <div className="flex justify-between items-center text-[10px] text-stone-500 mt-1">
+              <div className="flex justify-between items-center text-[10px] text-[#666666] mt-1">
                 <span>Deliver clear value or call-to-action</span>
                 <span>{message.length}/180</span>
               </div>
@@ -409,13 +409,13 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
             {/* Category & Target Audience row */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-stone-300 mb-1">
+                <label className="block text-xs font-semibold text-[#1A1A1A] mb-1">
                   Category
                 </label>
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value as NotificationCategory)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-stone-900 border border-stone-750 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
                 >
                   <option value="new_designs">✨ New Door Designs</option>
                   <option value="offers">🏷️ Offers & Deals</option>
@@ -426,13 +426,13 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-300 mb-1">
+                <label className="block text-xs font-semibold text-[#1A1A1A] mb-1">
                   Target Audience
                 </label>
                 <select
                   value={targetAudience}
                   onChange={(e) => setTargetAudience(e.target.value as NotificationTargetAudience)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-stone-900 border border-stone-750 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
                 >
                   <option value="all">All Active Subscribers ({stats?.activeSubscribers ?? 0})</option>
                   <option value="new_designs">Subscribed to New Designs ({stats?.categorySubscribers?.new_designs ?? 0})</option>
@@ -445,8 +445,8 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
             </div>
 
             {/* Deep Link Action */}
-            <div className="space-y-2 pt-2 border-t border-stone-800">
-              <label className="block text-xs font-semibold text-stone-300">
+            <div className="space-y-2 pt-2 border-t border-[#E5E5E5]">
+              <label className="block text-xs font-semibold text-[#1A1A1A]">
                 Action / Tap Destination (Deep Link)
               </label>
 
@@ -456,8 +456,8 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                   onClick={() => setActionType('catalog')}
                   className={`p-2 rounded-xl border text-left transition-all ${
                     actionType === 'catalog'
-                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
-                      : 'bg-stone-900 border-stone-750 text-stone-300 hover:bg-stone-800'
+                      ? 'bg-[#FFF7E3] border-amber-500/50 text-[#C89211] font-bold'
+                      : 'bg-white border-[#E5E5E5] text-[#1A1A1A] hover:bg-[#F8F8F6]'
                   }`}
                 >
                   🚪 Open Catalog
@@ -468,8 +468,8 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                   onClick={() => setActionType('door')}
                   className={`p-2 rounded-xl border text-left transition-all ${
                     actionType === 'door'
-                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
-                      : 'bg-stone-900 border-stone-750 text-stone-300 hover:bg-stone-800'
+                      ? 'bg-[#FFF7E3] border-amber-500/50 text-[#C89211] font-bold'
+                      : 'bg-white border-[#E5E5E5] text-[#1A1A1A] hover:bg-[#F8F8F6]'
                   }`}
                 >
                   🎯 Specific Door
@@ -480,8 +480,8 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                   onClick={() => setActionType('calculator')}
                   className={`p-2 rounded-xl border text-left transition-all ${
                     actionType === 'calculator'
-                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
-                      : 'bg-stone-900 border-stone-750 text-stone-300 hover:bg-stone-800'
+                      ? 'bg-[#FFF7E3] border-amber-500/50 text-[#C89211] font-bold'
+                      : 'bg-white border-[#E5E5E5] text-[#1A1A1A] hover:bg-[#F8F8F6]'
                   }`}
                 >
                   🧮 Price Calculator
@@ -492,8 +492,8 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                   onClick={() => setActionType('articles')}
                   className={`p-2 rounded-xl border text-left transition-all ${
                     actionType === 'articles'
-                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
-                      : 'bg-stone-900 border-stone-750 text-stone-300 hover:bg-stone-800'
+                      ? 'bg-[#FFF7E3] border-amber-500/50 text-[#C89211] font-bold'
+                      : 'bg-white border-[#E5E5E5] text-[#1A1A1A] hover:bg-[#F8F8F6]'
                   }`}
                 >
                   📖 Door Articles
@@ -504,8 +504,8 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                   onClick={() => setActionType('custom')}
                   className={`p-2 rounded-xl border text-left transition-all ${
                     actionType === 'custom'
-                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
-                      : 'bg-stone-900 border-stone-750 text-stone-300 hover:bg-stone-800'
+                      ? 'bg-[#FFF7E3] border-amber-500/50 text-[#C89211] font-bold'
+                      : 'bg-white border-[#E5E5E5] text-[#1A1A1A] hover:bg-[#F8F8F6]'
                   }`}
                 >
                   🔗 Custom Link
@@ -515,11 +515,11 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
               {/* Specific Door selector */}
               {actionType === 'door' && (
                 <div className="pt-2">
-                  <label className="block text-[11px] text-stone-400 mb-1">Select Catalog Door:</label>
+                  <label className="block text-[11px] text-[#666666] mb-1">Select Catalog Door:</label>
                   <select
                     value={selectedDoorId}
                     onChange={(e) => setSelectedDoorId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-750 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
                   >
                     <option value="">-- Choose a door from catalog --</option>
                     {doors.map((d) => (
@@ -534,26 +534,26 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
               {/* Custom Link input */}
               {actionType === 'custom' && (
                 <div className="pt-2">
-                  <label className="block text-[11px] text-stone-400 mb-1">Relative path or URL:</label>
+                  <label className="block text-[11px] text-[#666666] mb-1">Relative path or URL:</label>
                   <input
                     type="text"
                     value={customLink}
                     onChange={(e) => setCustomLink(e.target.value)}
                     placeholder="/catalog?category=sagwan"
-                    className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-750 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
                   />
                 </div>
               )}
             </div>
 
             {/* Notification Image */}
-            <div className="space-y-2 pt-2 border-t border-stone-800">
-              <label className="block text-xs font-semibold text-stone-300">
+            <div className="space-y-2 pt-2 border-t border-[#E5E5E5]">
+              <label className="block text-xs font-semibold text-[#1A1A1A]">
                 Optional Banner Image
               </label>
 
               <div className="flex flex-wrap items-center gap-3">
-                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-stone-700 bg-stone-900 hover:bg-stone-800 text-stone-300 text-xs font-medium cursor-pointer transition-colors">
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-[#E5E5E5] bg-white hover:bg-[#F8F8F6] text-[#1A1A1A] text-xs font-medium cursor-pointer transition-colors">
                   <Upload className="w-3.5 h-3.5" />
                   <span>{isUploadingImage ? 'Uploading...' : 'Upload Image'}</span>
                   <input
@@ -578,22 +578,22 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
 
               {/* Quick Door Thumbnail Selector */}
               <div className="pt-1">
-                <span className="text-[11px] text-stone-400 block mb-1">Or pick from existing door designs:</span>
+                <span className="text-[11px] text-[#666666] block mb-1">Or pick from existing door designs:</span>
                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
                   {doors.slice(0, 8).map((d) => (
                     <button
                       key={d.id}
                       type="button"
                       onClick={() => handleSelectDoorImage(d)}
-                      className="flex-shrink-0 relative rounded-xl overflow-hidden border border-stone-750 hover:border-amber-500 group transition-all"
+                      className="flex-shrink-0 relative rounded-xl overflow-hidden border border-[#E5E5E5] hover:border-amber-500 group transition-all"
                     >
                       <img
                         src={d.image || d.images?.[0] || '/assets/app-icon.svg'}
                         alt={d.name}
                         className="w-14 h-14 object-cover"
                       />
-                      <div className="absolute inset-0 bg-stone-950/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                        <span className="text-[9px] text-amber-300 font-bold px-1 text-center line-clamp-1">
+                      <div className="absolute inset-0 bg-[#F8F8F6] opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                        <span className="text-[9px] text-[#C89211] font-bold px-1 text-center line-clamp-1">
                           Use
                         </span>
                       </div>
@@ -604,56 +604,56 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
             </div>
 
             {/* Delivery Timing: Send Now vs Schedule */}
-            <div className="space-y-3 pt-3 border-t border-stone-800">
-              <label className="block text-xs font-semibold text-stone-300">
+            <div className="space-y-3 pt-3 border-t border-[#E5E5E5]">
+              <label className="block text-xs font-semibold text-[#1A1A1A]">
                 Delivery Schedule (Asia/Kolkata IST)
               </label>
 
               <div className="flex items-center gap-4 text-xs">
-                <label className="flex items-center gap-2 cursor-pointer text-stone-200">
+                <label className="flex items-center gap-2 cursor-pointer text-[#1A1A1A]">
                   <input
                     type="radio"
                     name="deliveryMode"
                     value="now"
                     checked={deliveryMode === 'now'}
                     onChange={() => setDeliveryMode('now')}
-                    className="text-amber-500 focus:ring-amber-500"
+                    className="text-[#C89211] focus:ring-[#C89211]"
                   />
                   <span>Send Immediately</span>
                 </label>
 
-                <label className="flex items-center gap-2 cursor-pointer text-stone-200">
+                <label className="flex items-center gap-2 cursor-pointer text-[#1A1A1A]">
                   <input
                     type="radio"
                     name="deliveryMode"
                     value="schedule"
                     checked={deliveryMode === 'schedule'}
                     onChange={() => setDeliveryMode('schedule')}
-                    className="text-amber-500 focus:ring-amber-500"
+                    className="text-[#C89211] focus:ring-[#C89211]"
                   />
                   <span>Schedule for Later (IST)</span>
                 </label>
               </div>
 
               {deliveryMode === 'schedule' && (
-                <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-stone-900 border border-stone-750 animate-in fade-in duration-150">
+                <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-white border border-[#E5E5E5] animate-in fade-in duration-150">
                   <div>
-                    <label className="block text-[11px] text-stone-400 mb-1">Date:</label>
+                    <label className="block text-[11px] text-[#666666] mb-1">Date:</label>
                     <input
                       type="date"
                       value={scheduleDate}
                       min={new Date().toISOString().split('T')[0]}
                       onChange={(e) => setScheduleDate(e.target.value)}
-                      className="w-full px-2.5 py-1.5 rounded-lg bg-stone-850 border border-stone-700 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-[#F7F7F7] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] text-stone-400 mb-1">Time (IST):</label>
+                    <label className="block text-[11px] text-[#666666] mb-1">Time (IST):</label>
                     <input
                       type="time"
                       value={scheduleTime}
                       onChange={(e) => setScheduleTime(e.target.value)}
-                      className="w-full px-2.5 py-1.5 rounded-lg bg-stone-850 border border-stone-700 text-stone-100 text-xs focus:outline-none focus:border-amber-500"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-[#F7F7F7] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:outline-none focus:border-[#C89211]"
                     />
                   </div>
                 </div>
@@ -664,7 +664,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
             <div className="pt-4">
               <button
                 type="submit"
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold text-sm shadow-lg shadow-amber-950/50 flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold text-sm shadow-lg shadow-amber-950/50 flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
               >
                 {deliveryMode === 'schedule' ? (
                   <>
@@ -685,46 +685,46 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
 
         {/* Right Column: Live Mobile Notification Preview (5 cols) */}
         <div className="lg:col-span-5 space-y-4">
-          <div className="bg-stone-850 border border-stone-800 rounded-3xl p-5 shadow-xl">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-800 mb-4">
-              <span className="text-xs font-bold text-stone-300 flex items-center gap-1.5">
-                <Eye className="w-3.5 h-3.5 text-amber-500" />
+          <div className="bg-[#F7F7F7] border border-[#E5E5E5] rounded-3xl p-5 shadow-xl">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5E5E5] mb-4">
+              <span className="text-xs font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5 text-[#C89211]" />
                 <span>Live Device Preview</span>
               </span>
-              <span className="text-[10px] text-stone-500 uppercase tracking-wider font-mono">Mobile / PWA</span>
+              <span className="text-[10px] text-[#666666] uppercase tracking-wider font-mono">Mobile / PWA</span>
             </div>
 
             {/* Mock Android / Web Push Lockscreen Card */}
-            <div className="bg-stone-950 rounded-2xl p-4 border border-stone-800 shadow-inner space-y-3">
+            <div className="bg-[#F8F8F6] rounded-2xl p-4 border border-[#E5E5E5] shadow-inner space-y-3">
               
               {/* Header inside mock notification */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-md bg-amber-600 flex items-center justify-center text-stone-950 font-bold text-[10px]">
+                  <div className="w-5 h-5 rounded-md bg-amber-600 flex items-center justify-center text-white font-bold text-[10px]">
                     🚪
                   </div>
-                  <span className="text-xs font-semibold text-stone-200">Jai Hanuman Door</span>
-                  <span className="text-[10px] text-stone-500">• now</span>
+                  <span className="text-xs font-semibold text-[#1A1A1A]">Jai Hanuman Door</span>
+                  <span className="text-[10px] text-[#666666]">• now</span>
                 </div>
 
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-stone-800 text-stone-400">
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#F8F8F6] text-[#666666]">
                   {category === 'new_designs' ? 'New Designs' : category === 'offers' ? 'Offers' : category}
                 </span>
               </div>
 
               {/* Title & Body */}
               <div className="space-y-1">
-                <h4 className="text-sm font-bold text-stone-100">
+                <h4 className="text-sm font-bold text-[#1A1A1A]">
                   {title || 'New Teak Door Designs Arrived'}
                 </h4>
-                <p className="text-xs text-stone-300 leading-relaxed">
+                <p className="text-xs text-[#1A1A1A] leading-relaxed">
                   {message || 'Explore our latest 2026 Sagar & Sagwan carved wood collection with instant pricing.'}
                 </p>
               </div>
 
               {/* Optional Image Banner Preview */}
               {imageUrl && (
-                <div className="rounded-xl overflow-hidden border border-stone-800 mt-2">
+                <div className="rounded-xl overflow-hidden border border-[#E5E5E5] mt-2">
                   <img
                     src={imageUrl}
                     alt="Notification Banner Preview"
@@ -735,30 +735,30 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
 
               {/* Action Buttons inside mock notification */}
               <div className="flex items-center gap-2 pt-2 border-t border-stone-850 text-[11px]">
-                <span className="text-amber-400 font-semibold px-2 py-1 rounded bg-stone-900 border border-stone-800 flex items-center gap-1">
+                <span className="text-[#C89211] font-semibold px-2 py-1 rounded bg-white border border-[#E5E5E5] flex items-center gap-1">
                   <span>View Details</span>
                   <ChevronRight className="w-3 h-3" />
                 </span>
-                <span className="text-stone-400 px-2 py-1">Dismiss</span>
+                <span className="text-[#666666] px-2 py-1">Dismiss</span>
               </div>
 
             </div>
 
             {/* Deep link info pill */}
-            <div className="mt-3 text-[11px] text-stone-400 flex items-center justify-between p-2 rounded-xl bg-stone-900 border border-stone-800">
+            <div className="mt-3 text-[11px] text-[#666666] flex items-center justify-between p-2 rounded-xl bg-white border border-[#E5E5E5]">
               <span>Target link:</span>
-              <span className="font-mono text-amber-400 truncate max-w-[180px]">{getDeepLink()}</span>
+              <span className="font-mono text-[#C89211] truncate max-w-[180px]">{getDeepLink()}</span>
             </div>
 
           </div>
 
           {/* Quick Guidance Box */}
-          <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 text-xs text-stone-400 space-y-2">
-            <div className="flex items-center gap-2 text-stone-200 font-semibold">
-              <Info className="w-4 h-4 text-amber-500" />
+          <div className="p-4 rounded-2xl bg-white border border-[#E5E5E5] text-xs text-[#666666] space-y-2">
+            <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
+              <Info className="w-4 h-4 text-[#C89211]" />
               <span>Production Best Practices</span>
             </div>
-            <ul className="list-disc pl-4 space-y-1 text-[11px] leading-relaxed text-stone-400">
+            <ul className="list-disc pl-4 space-y-1 text-[11px] leading-relaxed text-[#666666]">
               <li>Keep titles punchy and avoid excessive punctuation.</li>
               <li>Customers who opted out of specific categories won't receive irrelevant notifications.</li>
               <li>Invalid tokens or uninstalled devices are pruned automatically upon delivery.</li>
@@ -770,23 +770,23 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
       </div>
 
       {/* 5. Notification Campaign History Table */}
-      <div className="bg-stone-850 border border-stone-800 rounded-3xl p-6 shadow-xl space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-stone-800">
-          <h3 className="text-base font-bold text-stone-100 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-amber-500" />
+      <div className="bg-[#F7F7F7] border border-[#E5E5E5] rounded-3xl p-6 shadow-xl space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-[#E5E5E5]">
+          <h3 className="text-base font-bold text-[#1A1A1A] flex items-center gap-2">
+            <Clock className="w-4 h-4 text-[#C89211]" />
             <span>Campaign Delivery History ({campaigns.length})</span>
           </h3>
-          <span className="text-xs text-stone-400">Recent broadcasts & scheduled dispatches</span>
+          <span className="text-xs text-[#666666]">Recent broadcasts & scheduled dispatches</span>
         </div>
 
         {campaigns.length === 0 ? (
-          <div className="py-12 text-center text-stone-400 text-xs">
+          <div className="py-12 text-center text-[#666666] text-xs">
             No notifications sent yet. Use the composer above to broadcast your first announcement.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-stone-300">
-              <thead className="bg-stone-900 text-stone-400 text-[11px] uppercase tracking-wider">
+            <table className="w-full text-left text-xs text-[#1A1A1A]">
+              <thead className="bg-white text-[#666666] text-[11px] uppercase tracking-wider">
                 <tr>
                   <th className="p-3 rounded-l-xl">Notification</th>
                   <th className="p-3">Category</th>
@@ -797,29 +797,29 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                   <th className="p-3 rounded-r-xl text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-800">
+              <tbody className="divide-y divide-[#E5E5E5]">
                 {campaigns.map((camp) => (
-                  <tr key={camp.id} className="hover:bg-stone-800/40 transition-colors">
+                  <tr key={camp.id} className="hover:bg-[#F8F8F6] transition-colors">
                     
                     {/* Title & Message */}
                     <td className="p-3 max-w-xs">
-                      <div className="font-bold text-stone-100 line-clamp-1">{camp.title}</div>
-                      <div className="text-stone-400 text-[11px] line-clamp-1 mt-0.5">{camp.message}</div>
+                      <div className="font-bold text-[#1A1A1A] line-clamp-1">{camp.title}</div>
+                      <div className="text-[#666666] text-[11px] line-clamp-1 mt-0.5">{camp.message}</div>
                       {camp.deepLink && (
-                        <div className="text-[10px] text-amber-400 font-mono mt-0.5">{camp.deepLink}</div>
+                        <div className="text-[10px] text-[#C89211] font-mono mt-0.5">{camp.deepLink}</div>
                       )}
                     </td>
 
                     {/* Category */}
                     <td className="p-3 whitespace-nowrap">
-                      <span className="px-2 py-0.5 rounded-full bg-stone-800 border border-stone-700 text-[10px] font-medium text-stone-300">
+                      <span className="px-2 py-0.5 rounded-full bg-[#F8F8F6] border border-[#E5E5E5] text-[10px] font-medium text-[#1A1A1A]">
                         {camp.category}
                       </span>
                     </td>
 
                     {/* Audience */}
                     <td className="p-3 whitespace-nowrap">
-                      <span className="text-[11px] text-stone-300">
+                      <span className="text-[11px] text-[#1A1A1A]">
                         {camp.targetAudience === 'all' ? 'All Subscribers' : camp.targetAudience}
                       </span>
                     </td>
@@ -832,7 +832,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                         </span>
                       )}
                       {camp.status === 'scheduled' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold text-[10px]">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#FFF7E3] border border-[#C89211]/30 text-[#C89211] font-bold text-[10px]">
                           <Calendar className="w-3 h-3" /> Scheduled
                         </span>
                       )}
@@ -842,7 +842,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                         </span>
                       )}
                       {camp.status === 'draft' && (
-                        <span className="px-2 py-0.5 rounded-full bg-stone-700 text-stone-300 text-[10px]">
+                        <span className="px-2 py-0.5 rounded-full bg-stone-100 text-[#1A1A1A] text-[10px]">
                           Draft
                         </span>
                       )}
@@ -850,18 +850,18 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
 
                     {/* Recipients & Stats */}
                     <td className="p-3 whitespace-nowrap">
-                      <div className="font-semibold text-stone-200">
+                      <div className="font-semibold text-[#1A1A1A]">
                         {camp.recipientCount ?? 0} devices
                       </div>
                       {camp.status === 'sent' && (
-                        <div className="text-[10px] text-stone-400">
+                        <div className="text-[10px] text-[#666666]">
                           {camp.successCount ?? 0} delivered
                         </div>
                       )}
                     </td>
 
                     {/* Sent / Scheduled Date */}
-                    <td className="p-3 whitespace-nowrap text-[11px] text-stone-400">
+                    <td className="p-3 whitespace-nowrap text-[11px] text-[#666666]">
                       {camp.sentAt
                         ? new Date(camp.sentAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
                         : camp.scheduledAt
@@ -874,14 +874,14 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                       {camp.status === 'scheduled' && (
                         <button
                           onClick={() => handleCancelScheduled(camp.id)}
-                          className="px-2 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-[10px] font-bold border border-amber-500/30 transition-colors"
+                          className="px-2 py-1 rounded bg-[#FFF7E3] hover:bg-[#FFF7E3] text-[#C89211] text-[10px] font-bold border border-[#C89211]/30 transition-colors"
                         >
                           Cancel
                         </button>
                       )}
                       <button
                         onClick={() => handleDeleteCampaign(camp.id)}
-                        className="p-1 rounded text-stone-500 hover:text-red-400 hover:bg-stone-800 transition-colors"
+                        className="p-1 rounded text-[#666666] hover:text-red-400 hover:bg-[#F8F8F6] transition-colors"
                         title="Delete record"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -898,18 +898,18 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
 
       {/* 6. Pre-Send Confirmation Modal */}
       {isConfirmModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-stone-900 border border-stone-800 text-stone-100 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#F8F8F6] backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white border border-[#E5E5E5] text-[#1A1A1A] rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
             
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center flex-shrink-0">
                 <Bell className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-stone-100">
+                <h3 className="text-base font-bold text-[#1A1A1A]">
                   {deliveryMode === 'schedule' ? 'Confirm Scheduled Notification' : 'Send Push Notification?'}
                 </h3>
-                <p className="text-xs text-stone-300 mt-1">
+                <p className="text-xs text-[#1A1A1A] mt-1">
                   {deliveryMode === 'schedule'
                     ? `Schedule this notification for ${new Date(`${scheduleDate}T${scheduleTime}:00`).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (Asia/Kolkata)?`
                     : `Send this notification to ${getAudienceCount()} subscriber${getAudienceCount() === 1 ? '' : 's'}?`}
@@ -918,10 +918,10 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
             </div>
 
             {/* Notification Snapshot */}
-            <div className="p-3.5 rounded-2xl bg-stone-850 border border-stone-750 text-xs space-y-1.5">
-              <div className="font-bold text-stone-200">{title}</div>
-              <div className="text-stone-400 text-[11px] leading-relaxed">{message}</div>
-              <div className="pt-1 flex items-center gap-2 text-[10px] text-amber-400 font-medium">
+            <div className="p-3.5 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5] text-xs space-y-1.5">
+              <div className="font-bold text-[#1A1A1A]">{title}</div>
+              <div className="text-[#666666] text-[11px] leading-relaxed">{message}</div>
+              <div className="pt-1 flex items-center gap-2 text-[10px] text-[#C89211] font-medium">
                 <span>Destination: {getDeepLink()}</span>
               </div>
             </div>
@@ -951,7 +951,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                 type="button"
                 onClick={() => setIsConfirmModalOpen(false)}
                 disabled={isSending}
-                className="px-4 py-2 rounded-xl border border-stone-700 bg-stone-800 hover:bg-stone-750 text-stone-300 text-xs font-semibold transition-colors"
+                className="px-4 py-2 rounded-xl border border-[#E5E5E5] bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold transition-colors"
               >
                 Cancel
               </button>
@@ -960,7 +960,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                 type="button"
                 onClick={handleExecuteSend}
                 disabled={isSending}
-                className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs shadow-lg shadow-amber-950/40 transition-all flex items-center gap-2 disabled:opacity-50"
+                className="px-5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs shadow-lg shadow-amber-950/40 transition-all flex items-center gap-2 disabled:opacity-50"
               >
                 {isSending ? (
                   <>

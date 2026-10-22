@@ -72,7 +72,7 @@ export const ForegroundNotificationBanner: React.FC<ForegroundNotificationBanner
       id="foreground-notification-banner"
       className="fixed top-4 right-4 left-4 sm:left-auto sm:w-96 z-50 animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto"
     >
-      <div className="bg-stone-900/95 backdrop-blur-md text-stone-100 rounded-2xl p-4 border border-amber-500/40 shadow-2xl shadow-stone-950/80">
+      <div className="bg-white/95 backdrop-blur-md text-[#1A1A1A] rounded-2xl p-4 border border-[#E5E5E5] shadow-xl">
         
         {/* Header row */}
         <div className="flex items-center justify-between gap-2 mb-2.5">
@@ -81,13 +81,13 @@ export const ForegroundNotificationBanner: React.FC<ForegroundNotificationBanner
               <IconComp className="w-3 h-3" />
               {meta.label}
             </span>
-            <span className="text-[10px] text-stone-400">Just now</span>
+            <span className="text-[10px] text-[#666666]">Just now</span>
           </div>
 
           <button
             onClick={() => setIsVisible(false)}
             aria-label="Dismiss notification"
-            className="text-stone-400 hover:text-stone-100 p-1 rounded-lg hover:bg-stone-800 transition-colors"
+            className="text-[#666666] hover:text-[#1A1A1A] p-1 rounded-lg hover:bg-[#F8F8F6] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -99,30 +99,30 @@ export const ForegroundNotificationBanner: React.FC<ForegroundNotificationBanner
             <img
               src={currentNotification.image}
               alt=""
-              className="w-14 h-14 object-cover rounded-xl border border-stone-700 bg-stone-800 flex-shrink-0"
+              className="w-14 h-14 object-cover rounded-xl border border-[#E5E5E5] bg-stone-100 flex-shrink-0"
             />
           ) : (
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-600 to-amber-800 flex items-center justify-center flex-shrink-0 text-stone-950 shadow-md">
-              <Bell className="w-5 h-5 text-amber-100" />
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#C89211] to-amber-600 flex items-center justify-center flex-shrink-0 text-white shadow-sm">
+              <Bell className="w-5 h-5 text-white" />
             </div>
           )}
 
           <div className="flex-1 min-w-0">
-            <h4 className="text-sm font-bold text-stone-100 line-clamp-1 leading-snug">
+            <h4 className="text-sm font-bold text-[#1A1A1A] line-clamp-1 leading-snug">
               {currentNotification.title}
             </h4>
-            <p className="text-xs text-stone-300 line-clamp-2 mt-0.5 leading-relaxed">
+            <p className="text-xs text-[#666666] line-clamp-2 mt-0.5 leading-relaxed">
               {currentNotification.message}
             </p>
           </div>
         </div>
 
         {/* Action Button */}
-        <div className="mt-3 pt-2.5 border-t border-stone-800/80 flex items-center justify-between">
-          <span className="text-[10px] text-stone-400 font-medium">Jai Hanuman Door</span>
+        <div className="mt-3 pt-2.5 border-t border-[#E5E5E5] flex items-center justify-between">
+          <span className="text-[10px] text-[#666666] font-medium">Jai Hanuman Door</span>
           <button
             onClick={handleActionClick}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs shadow-md transition-all active:scale-95"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#C89211] hover:bg-amber-600 text-white font-bold text-xs shadow-sm transition-all active:scale-95"
           >
             <span>View Details</span>
             <ArrowRight className="w-3.5 h-3.5" />
