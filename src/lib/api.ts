@@ -47,12 +47,19 @@ import {
   DEFAULT_DELIVERY_STORIES,
 } from '../data/indiaDeliveryData.ts';
 import {
+  DEFAULT_DOORS,
+  DEFAULT_CATEGORIES,
+  DEFAULT_BANNERS,
+  DEFAULT_ARTICLES,
+} from '../data/defaultCatalogData.ts';
+import {
   verifyAdminCredentialsViaFirestore,
   fetchDirectFirestoreData,
 } from './firestoreClient.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
 const CUSTOM_API_URL_KEY = 'jai_custom_api_base_url';
+const CACHED_PROD_URL_KEY = 'jai_cached_production_api_base_url';
 const GUEST_FAVORITES_KEY = 'shivshahi_guest_favorites';
 const GUEST_CALCULATIONS_KEY = 'shivshahi_guest_calculations';
 const CATALOG_CACHE_KEY = 'shivshahi_cached_catalog_v2';
@@ -266,7 +273,7 @@ export function getCustomApiBaseUrl(): string {
 export function setCustomApiBaseUrl(url: string): void {
   if (typeof window !== 'undefined') {
     try {
-      const clean = url.trim().replace(/\/$/, '');
+      const clean = (url || '').trim().replace(/\/$/, '');
       if (clean) {
         localStorage.setItem(CUSTOM_API_URL_KEY, clean);
       } else {
@@ -277,12 +284,42 @@ export function setCustomApiBaseUrl(url: string): void {
 }
 
 /**
+ * Retrieves dynamically synced production API server URL from localStorage.
+ * Automatically populated when app loads master data from Firestore settings.
+ */
+export function getCachedProductionApiUrl(): string {
+  if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem(CACHED_PROD_URL_KEY);
+      if (cached && cached.trim()) {
+        return cached.trim().replace(/\/$/, '');
+      }
+    } catch {}
+  }
+  return '';
+}
+
+/**
+ * Persists dynamically discovered production API server URL from Firestore settings.
+ */
+export function setCachedProductionApiUrl(url: string): void {
+  if (typeof window !== 'undefined') {
+    try {
+      const clean = (url || '').trim().replace(/\/$/, '');
+      if (clean) {
+        localStorage.setItem(CACHED_PROD_URL_KEY, clean);
+      }
+    } catch {}
+  }
+}
+
+/**
  * Returns the resolved API base URL.
  * Priority:
  * 1. User/Admin configured custom API base URL in localStorage
  * 2. Build-time environment variable VITE_API_BASE_URL or VITE_APP_URL
- * 3. Capacitor Android native environment URL
- * 4. Empty string (relative path for same-origin web browser)
+ * 3. Dynamically synced production API URL from cloud Firestore settings
+ * 4. Empty string (same-origin web browser)
  */
 export function getApiBaseUrl(): string {
   const custom = getCustomApiBaseUrl();
@@ -293,17 +330,9 @@ export function getApiBaseUrl(): string {
     return envUrl.trim().replace(/\/$/, '');
   }
 
-  // If running inside Capacitor native Android environment, route API calls to the deployed Cloud Run backend
-  if (typeof window !== 'undefined') {
-    const isCapacitorNative = Boolean(
-      (window as any).Capacitor?.isNativePlatform?.() ||
-      window.location.protocol === 'capacitor:' ||
-      (window.location.hostname === 'localhost' && Boolean((window as any).Capacitor))
-    );
-    if (isCapacitorNative) {
-      return 'https://ais-dev-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app';
-    }
-  }
+  const cachedProd = getCachedProductionApiUrl();
+  if (cachedProd) return cachedProd;
+
   return '';
 }
 
@@ -317,6 +346,27 @@ export function resolveApiUrl(path: string): string {
   const base = getApiBaseUrl();
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   return `${base}${cleanPath}`;
+}
+
+/**
+ * Resolves a product or banner image URL with base server URL or fallback.
+ */
+export function resolveImageUrl(path: string | undefined | null, fallback?: string): string {
+  const defaultFallback = fallback || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80';
+  if (!path || !path.trim()) return defaultFallback;
+  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:')) {
+    return path;
+  }
+  const base = getApiBaseUrl();
+  if (base) {
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return `${base}${cleanPath}`;
+  }
+  // If no base URL is available and path is a local upload relative path (e.g. /uploads/...), return high-res fallback
+  if (path.startsWith('/uploads/') || path.startsWith('/api/uploads/')) {
+    return defaultFallback;
+  }
+  return path;
 }
 
 /**
@@ -487,32 +537,74 @@ export async function fetchCatalog(): Promise<{
   teamMembers?: TeamMember[];
   settings: BusinessSettings;
 }> {
+  // 1. Try server HTTP API endpoint
   try {
-    const res = await fetchWithRetry('/api/catalog', {}, 3, 350);
-    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch catalog`);
-    const data = await res.json();
-    try {
-      localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(data));
-    } catch {
-      // ignore storage errors
-    }
-    return data;
-  } catch (err: any) {
-    console.warn('Network request for catalog failed, checking client cache...', err.message || err);
-    try {
-      const cached = localStorage.getItem(CATALOG_CACHE_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
-          console.info('Restored catalog data from client cache.');
-          return parsed;
-        }
+    const res = await fetchWithRetry('/api/catalog', {}, 2, 300);
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      const data = await res.json();
+      if (data && Array.isArray(data.doors) && data.doors.length > 0) {
+        try {
+          localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(data));
+          if (data.settings?.productionApiUrl) {
+            setCachedProductionApiUrl(data.settings.productionApiUrl);
+          }
+        } catch {}
+        return data;
       }
-    } catch {
-      // ignore
     }
-    throw err;
+  } catch (err: any) {
+    console.warn('Network request for catalog failed, trying client cache and direct Firestore cloud store...', err.message || err);
   }
+
+  // 2. Check local client cache
+  try {
+    const cached = localStorage.getItem(CATALOG_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
+        console.info('Restored catalog data from client cache.');
+        return parsed;
+      }
+    }
+  } catch {}
+
+  // 3. Resilient Fallback: Authoritative direct Firestore database fetch
+  // Essential for installed Android APKs where server is initializing or unreachable
+  try {
+    const fsData = await fetchDirectFirestoreData();
+    if (fsData && Array.isArray(fsData.doors) && fsData.doors.length > 0) {
+      const catalogData = {
+        doors: fsData.doors,
+        categories: Array.isArray(fsData.categories) && fsData.categories.length > 0 ? fsData.categories : DEFAULT_CATEGORIES,
+        banners: Array.isArray(fsData.banners) && fsData.banners.length > 0 ? fsData.banners : DEFAULT_BANNERS,
+        articles: Array.isArray(fsData.articles) && fsData.articles.length > 0 ? fsData.articles : DEFAULT_ARTICLES,
+        teamMembers: fsData.teamMembers || [],
+        settings: fsData.settings || DEFAULT_SETTINGS,
+      };
+      try {
+        localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(catalogData));
+        if (fsData.settings?.productionApiUrl) {
+          setCachedProductionApiUrl(fsData.settings.productionApiUrl);
+        }
+      } catch {}
+      console.info('Restored catalog data directly from Firestore cloud store.');
+      return catalogData;
+    }
+  } catch (fsErr: any) {
+    console.warn('Direct Firestore catalog fallback error:', fsErr.message);
+  }
+
+  // 4. Guaranteed offline fallback dataset (Ensures zero blank screens)
+  console.info('Using built-in master catalog fallback.');
+  return {
+    doors: DEFAULT_DOORS,
+    categories: DEFAULT_CATEGORIES,
+    banners: DEFAULT_BANNERS,
+    articles: DEFAULT_ARTICLES,
+    teamMembers: [],
+    settings: DEFAULT_SETTINGS,
+  };
 }
 
 export async function fetchCalculatorData(): Promise<{
@@ -522,46 +614,67 @@ export async function fetchCalculatorData(): Promise<{
   hardware: HardwareItem[];
   settings: BusinessSettings;
 }> {
+  // 1. Try server HTTP API endpoint
   try {
-    const res = await fetchWithRetry('/api/calculator-data', {}, 3, 350);
-    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch calculator data`);
-    const data = await res.json();
-    const result = {
-      materials: Array.isArray(data.materials) && data.materials.length > 0 ? data.materials : DEFAULT_MATERIALS,
-      finishes: Array.isArray(data.finishes) && data.finishes.length > 0 ? data.finishes : DEFAULT_FINISHES,
-      frames: Array.isArray(data.frames) && data.frames.length > 0 ? data.frames : DEFAULT_FRAMES,
-      hardware: Array.isArray(data.hardware) && data.hardware.length > 0 ? data.hardware : DEFAULT_HARDWARE,
-      settings: data.settings || DEFAULT_SETTINGS,
-    };
-    try {
-      localStorage.setItem(CALCULATOR_CACHE_KEY, JSON.stringify(result));
-    } catch {
-      // ignore storage errors
+    const res = await fetchWithRetry('/api/calculator-data', {}, 2, 300);
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      const data = await res.json();
+      const result = {
+        materials: Array.isArray(data.materials) && data.materials.length > 0 ? data.materials : DEFAULT_MATERIALS,
+        finishes: Array.isArray(data.finishes) && data.finishes.length > 0 ? data.finishes : DEFAULT_FINISHES,
+        frames: Array.isArray(data.frames) && data.frames.length > 0 ? data.frames : DEFAULT_FRAMES,
+        hardware: Array.isArray(data.hardware) && data.hardware.length > 0 ? data.hardware : DEFAULT_HARDWARE,
+        settings: data.settings || DEFAULT_SETTINGS,
+      };
+      try {
+        localStorage.setItem(CALCULATOR_CACHE_KEY, JSON.stringify(result));
+      } catch {}
+      return result;
     }
-    return result;
   } catch (err: any) {
-    console.warn('Network request for calculator data failed, checking client cache...', err.message || err);
-    try {
-      const cached = localStorage.getItem(CALCULATOR_CACHE_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && Array.isArray(parsed.materials) && parsed.materials.length > 0) {
-          console.info('Restored calculator data from client cache.');
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    // Return built-in master dataset so calculator works instantly offline/cold-start
-    return {
-      materials: DEFAULT_MATERIALS,
-      finishes: DEFAULT_FINISHES,
-      frames: DEFAULT_FRAMES,
-      hardware: DEFAULT_HARDWARE,
-      settings: DEFAULT_SETTINGS,
-    };
+    console.warn('Network request for calculator data failed, checking cache and Firestore...', err.message || err);
   }
+
+  // 2. Check local client cache
+  try {
+    const cached = localStorage.getItem(CALCULATOR_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.materials) && parsed.materials.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
+
+  // 3. Resilient Fallback: Authoritative direct Firestore database fetch
+  try {
+    const fsData = await fetchDirectFirestoreData();
+    if (fsData) {
+      const result = {
+        materials: Array.isArray(fsData.materials) && fsData.materials.length > 0 ? fsData.materials : DEFAULT_MATERIALS,
+        finishes: Array.isArray(fsData.finishes) && fsData.finishes.length > 0 ? fsData.finishes : DEFAULT_FINISHES,
+        frames: Array.isArray(fsData.frames) && fsData.frames.length > 0 ? fsData.frames : DEFAULT_FRAMES,
+        hardware: Array.isArray(fsData.hardware) && fsData.hardware.length > 0 ? fsData.hardware : DEFAULT_HARDWARE,
+        settings: fsData.settings || DEFAULT_SETTINGS,
+      };
+      try {
+        localStorage.setItem(CALCULATOR_CACHE_KEY, JSON.stringify(result));
+      } catch {}
+      return result;
+    }
+  } catch (fsErr: any) {
+    console.warn('Direct Firestore calculator data error:', fsErr.message);
+  }
+
+  // 4. Guaranteed offline fallback master rates
+  return {
+    materials: DEFAULT_MATERIALS,
+    finishes: DEFAULT_FINISHES,
+    frames: DEFAULT_FRAMES,
+    hardware: DEFAULT_HARDWARE,
+    settings: DEFAULT_SETTINGS,
+  };
 }
 
 export async function calculatePrice(input: CalculationInput): Promise<CalculationResult> {
@@ -1900,10 +2013,17 @@ export async function detectWoodFromImage(
         continue;
       }
 
+      // Check for non-JSON or HTML redirect responses (e.g. Cloud Run preview cookie proxy or 302)
+      const contentType = response.headers.get('content-type') || '';
+      if (response.status === 302 || response.redirected || (contentType.includes('text/html') && !response.ok)) {
+        throw new Error(
+          'Production API URL configuration required. Dev proxy is cookie-protected. Kripya Settings se apna Production Cloud Run URL check karein ya WhatsApp par sampark karein.'
+        );
+      }
+
       if (!response.ok) {
         let errMessage = 'Lakdi pehchanne mein samasya aayi. Kripya punah prayas karein.';
         try {
-          const contentType = response.headers.get('content-type') || '';
           if (contentType.includes('application/json')) {
             const errJson = await response.json();
             errMessage = errJson.error || errJson.message || errMessage;
@@ -1916,6 +2036,10 @@ export async function detectWoodFromImage(
           // ignore parsing error
         }
         throw new Error(errMessage);
+      }
+
+      if (!contentType.includes('application/json')) {
+        throw new Error('Server returned non-JSON response. Kripya production API URL check karein.');
       }
 
       const json = await response.json();
@@ -1942,7 +2066,7 @@ export async function detectWoodFromImage(
   const originalMessage = lastError?.message || '';
   if (originalMessage.toLowerCase().includes('failed to fetch') || originalMessage.toLowerCase().includes('networkerror')) {
     throw new Error(
-      'Server se connect nahi ho saka (Network / Server Unreachable). Kripya apna internet connection check karein aur Retry dabayein.'
+      'Server se connect nahi ho saka (Network / Server Unreachable). Kripya apna internet connection check karein, ya Settings se Production Server URL set karein.'
     );
   }
 

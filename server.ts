@@ -84,11 +84,13 @@ import { initTrackingRoutes } from './server/trackingService.ts';
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-// Production & Development CORS Configuration
+// Production & Development CORS Configuration (including Capacitor Android Native)
 const ALLOWED_ORIGIN_PATTERNS = [
   /^https?:\/\/(www\.)?jaihanumandoor\.com$/,
   /^https?:\/\/localhost(:\d+)?$/,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+  /^capacitor:\/\/localhost$/,
+  /^https?:\/\/com\.doorstudio\.ai$/,
   /^https:\/\/.*\.run\.app$/,
   /^https:\/\/.*\.googleusercontent\.com$/,
   /^https:\/\/.*\.web\.app$/,
@@ -103,6 +105,13 @@ app.use((req, res, next) => {
 
   if (!origin || origin === 'null') {
     // Same-origin, direct browser navigation, server-to-server, curl, mobile app, or sandboxed iframe
+    isAllowed = true;
+  } else if (
+    origin.startsWith('capacitor://') ||
+    origin.includes('com.doorstudio.ai') ||
+    origin.includes('localhost')
+  ) {
+    // Capacitor Android native WebView request
     isAllowed = true;
   } else {
     isAllowed =

@@ -25,7 +25,13 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { AIWoodAnalysisResult, BusinessSettings } from '../types.ts';
-import { detectWoodFromImage, fetchWoodSpeciesGuide } from '../lib/api.ts';
+import {
+  detectWoodFromImage,
+  fetchWoodSpeciesGuide,
+  getApiBaseUrl,
+  getCustomApiBaseUrl,
+  setCustomApiBaseUrl,
+} from '../lib/api.ts';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 
 interface AIWoodDetectorProps {
@@ -64,6 +70,8 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
   const [showComparisonGuide, setShowComparisonGuide] = useState<boolean>(false);
   const [selectedGuideSpecies, setSelectedGuideSpecies] = useState<string>('Sagwan (Teak)');
   const [guideProfiles, setGuideProfiles] = useState<Record<string, any>>({});
+  const [showServerConfig, setShowServerConfig] = useState<boolean>(false);
+  const [serverInputUrl, setServerInputUrl] = useState<string>(() => getCustomApiBaseUrl() || '');
 
   // Hidden file input refs for each slot
   const fullDoorInputRef = useRef<HTMLInputElement>(null);
@@ -675,6 +683,14 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                     <RefreshCw className={`w-3.5 h-3.5 ${analyzing ? 'animate-spin' : ''}`} />
                     <span>Dobara Try Karein (Retry)</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowServerConfig(!showServerConfig)}
+                    className="px-3.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs flex items-center gap-1.5 transition-colors border border-stone-700"
+                  >
+                    <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{showServerConfig ? 'Server Settings Chhipayein' : 'Server Connection Settings'}</span>
+                  </button>
                   <a
                     href={whatsappUrl}
                     target="_blank"
@@ -685,6 +701,50 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                     <span>WhatsApp Expert Se Madad Lein</span>
                   </a>
                 </div>
+
+                {/* Inline Server Connection Settings Drawer */}
+                {showServerConfig && (
+                  <div className="mt-3 p-3.5 rounded-xl bg-stone-900 border border-stone-700 text-stone-200 space-y-2.5 animate-fade-in text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-amber-300">Production Server URL Setup:</span>
+                      <span className="text-[10px] text-stone-400">Capacitor Android &amp; Cloud Run</span>
+                    </div>
+                    <p className="text-[11px] text-stone-300 leading-relaxed">
+                      Active Server URL: <code className="text-amber-200 bg-stone-950 px-1.5 py-0.5 rounded font-mono">{getApiBaseUrl() || '(Direct Local / Direct Cloud Firestore)'}</code>
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        placeholder="https://your-production-app.run.app"
+                        value={serverInputUrl}
+                        onChange={e => setServerInputUrl(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 rounded-lg bg-stone-950 border border-stone-700 text-stone-100 text-xs font-mono placeholder:text-stone-600 focus:outline-none focus:border-amber-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomApiBaseUrl(serverInputUrl);
+                          setError(null);
+                          setShowServerConfig(false);
+                          handleStartAnalysis();
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs transition-colors shrink-0 cursor-pointer"
+                      >
+                        Save &amp; Retry
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomApiBaseUrl('');
+                          setServerInputUrl('');
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs transition-colors shrink-0"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

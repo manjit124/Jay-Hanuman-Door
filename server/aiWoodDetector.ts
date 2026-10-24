@@ -284,8 +284,8 @@ INSTRUCTIONS FOR MULTI-IMAGE ANALYSIS:
 5. If the evidence is insufficient, blurry, or completely masked by opaque paint or heavy plastic laminate, do NOT guess. Set likely_wood_type to "Wood species could not be reliably identified from these photos." and confidence to "Low".
 6. Provide your full multi-feature assessment in the exact JSON format specified.`;
 
-  // Candidate models with fallback in case of high load
-  const models = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+  // Candidate models with fallback in case of high load (strictly valid Gemini models)
+  const models = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
   let lastError: any = null;
 
   for (const model of models) {

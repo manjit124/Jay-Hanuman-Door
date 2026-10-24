@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ShieldCheck, Download, Lock } from 'lucide-react';
 import { ContentProtectionSettings } from '../types.ts';
 import { DEFAULT_CONTENT_PROTECTION } from '../lib/contentProtection.ts';
-import { getAdminToken } from '../lib/api.ts';
+import { getAdminToken, resolveImageUrl } from '../lib/api.ts';
 
 interface ProtectedImageProps {
   src: string;
@@ -41,12 +41,12 @@ export const ProtectedImage: React.FC<ProtectedImageProps> = ({
   objectFit,
   imgStyle,
 }) => {
-  const [imgSrc, setImgSrc] = useState(src || fallbackSrc);
+  const [imgSrc, setImgSrc] = useState(() => resolveImageUrl(src, fallbackSrc));
   const [hasError, setHasError] = useState(false);
   const [adminDownloading, setAdminDownloading] = useState(false);
 
   React.useEffect(() => {
-    setImgSrc(src || fallbackSrc);
+    setImgSrc(resolveImageUrl(src, fallbackSrc));
     setHasError(false);
   }, [src, fallbackSrc]);
 
