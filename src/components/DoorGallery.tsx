@@ -4,6 +4,8 @@ import { Door, Category, BusinessSettings, HomeBanner } from '../types.ts';
 import { ProtectedImage } from './ProtectedImage.tsx';
 import { CataloguePromotionalBanner } from './CataloguePromotionalBanner.tsx';
 import { ContentProtectionWarning } from './ContentProtectionWarning.tsx';
+import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
+import { AdMobCatalogNativeCard } from './admob/AdMobCatalogNativeCard.tsx';
 
 interface DoorGalleryProps {
   doors: Door[];
@@ -119,6 +121,9 @@ export const DoorGallery: React.FC<DoorGalleryProps> = ({
       return 0;
     });
   }, [doors, searchQuery, selectedCategory, selectedMaterial, showOnlyFeatured, showOnlyPopular, showOnlyFavorites, favoriteDoorIds, sortBy]);
+
+  // AdMob Native Ads Spacing (Part 3 requirement)
+  const nativeAdFrequency = settings?.adSettings?.catalogNativeAdFrequency || 6;
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-8 pb-4 sm:pb-6">
@@ -467,6 +472,15 @@ export const DoorGallery: React.FC<DoorGalleryProps> = ({
 
               </div>
 
+              {/* Policy-Compliant AdMob Native Ad Card in Catalog Grid (Part 3 requirement) */}
+              {(idx + 1) % nativeAdFrequency === 0 && (
+                <AdMobCatalogNativeCard
+                  key={`admob-native-card-${idx}`}
+                  index={Math.floor((idx + 1) / nativeAdFrequency) - 1}
+                  settings={settings}
+                />
+              )}
+
               {/* Promotional Banner inserted after every 6 products (after 3 rows on mobile, only between chunks) */}
               {(idx + 1) % 6 === 0 && idx < filteredDoors.length - 1 && (
                 <div className="col-span-full my-1.5 sm:my-2">
@@ -509,6 +523,11 @@ export const DoorGallery: React.FC<DoorGalleryProps> = ({
           </button>
         </div>
       )}
+
+      {/* AdMob Adaptive Banner Placement (Catalog Screen) */}
+      <div className="mt-4 mb-2">
+        <AdMobBannerSlot placement="catalog" settings={settings} />
+      </div>
 
       {/* Design & Content Protection Warning Notice (Before Footer) */}
       <div className="mt-6 sm:mt-10 pt-4 border-t border-[#E5E5E5]">

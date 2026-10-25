@@ -55,6 +55,12 @@ import {
 import {
   verifyAdminCredentialsViaFirestore,
   fetchDirectFirestoreData,
+  saveDoorDirectFirestore,
+  updateDoorDirectFirestore,
+  deleteDoorDirectFirestore,
+  updateSettingsDirectFirestore,
+  saveMaterialDirectFirestore,
+  updateMaterialDirectFirestore,
 } from './firestoreClient.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
@@ -314,12 +320,25 @@ export function setCachedProductionApiUrl(url: string): void {
 }
 
 /**
+ * Detects whether the app is running in native Capacitor (Android WebView)
+ * or local WebView schema where relative API routes will otherwise hit bundled index.html.
+ */
+export function isCapacitorOrNative(): boolean {
+  if (typeof window === 'undefined') return false;
+  const isCap = !!(window as any).Capacitor?.isNativePlatform?.() || !!(window as any).Capacitor;
+  const isLocalhostScheme = window.location.protocol === 'capacitor:' ||
+    (window.location.hostname === 'localhost' && (!window.location.port || window.location.port === '' || window.location.port === '80' || window.location.port === '443'));
+  return isCap || isLocalhostScheme;
+}
+
+/**
  * Returns the resolved API base URL.
  * Priority:
  * 1. User/Admin configured custom API base URL in localStorage
  * 2. Build-time environment variable VITE_API_BASE_URL or VITE_APP_URL
  * 3. Dynamically synced production API URL from cloud Firestore settings
- * 4. Empty string (same-origin web browser)
+ * 4. Capacitor native Android fallback to official production domain
+ * 5. Empty string (same-origin web browser)
  */
 export function getApiBaseUrl(): string {
   const custom = getCustomApiBaseUrl();
@@ -333,7 +352,108 @@ export function getApiBaseUrl(): string {
   const cachedProd = getCachedProductionApiUrl();
   if (cachedProd) return cachedProd;
 
+  if (isCapacitorOrNative()) {
+    return 'https://jaihanumandoor.com';
+  }
+
   return '';
+}
+
+export interface SafeJsonResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  isHtml?: boolean;
+  status: number;
+}
+
+/**
+ * Safely parses an HTTP response, strictly validating Content-Type and HTTP status
+ * BEFORE attempting JSON deserialization. Prevents "Unexpected token '<'" exceptions
+ * when the server or a reverse proxy returns HTML error pages or SPA fallback documents.
+ */
+export async function parseSafeJsonResponse<T = any>(
+  res: Response,
+  actionName = 'Operation'
+): Promise<SafeJsonResponse<T>> {
+  const status = res.status;
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.toLowerCase().includes('application/json');
+
+  if (!isJson) {
+    let previewText = '';
+    try {
+      previewText = await res.text();
+    } catch {}
+
+    const isHtml = previewText.trim().startsWith('<') || contentType.toLowerCase().includes('text/html');
+    const cleanError = isHtml
+      ? `Server returned an HTML document (${status}) instead of valid JSON for ${actionName}. The backend route may be missing, waking up, or intercepted by SPA routing.`
+      : `Server returned non-JSON response (${contentType || 'unknown'}, status ${status}) for ${actionName}.`;
+
+    return {
+      success: false,
+      error: cleanError,
+      isHtml,
+      status,
+    };
+  }
+
+  try {
+    const data = await res.json();
+    if (!res.ok) {
+      const errorMsg = data?.error || data?.message || `${actionName} failed with HTTP status ${status}`;
+      return {
+        success: false,
+        error: errorMsg,
+        data,
+        status,
+      };
+    }
+
+    return {
+      success: true,
+      data: data as T,
+      status,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: `Failed to parse JSON response for ${actionName}: ${err.message || 'Malformed JSON'}`,
+      status,
+    };
+  }
+}
+
+function updateLocalCatalogDoor(savedDoor: Door): void {
+  try {
+    const cached = localStorage.getItem(CATALOG_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.doors)) {
+        const idx = parsed.doors.findIndex((d: Door) => d.id === savedDoor.id);
+        if (idx !== -1) {
+          parsed.doors[idx] = savedDoor;
+        } else {
+          parsed.doors.unshift(savedDoor);
+        }
+        localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(parsed));
+      }
+    }
+  } catch {}
+}
+
+function removeLocalCatalogDoor(doorId: string): void {
+  try {
+    const cached = localStorage.getItem(CATALOG_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.doors)) {
+        parsed.doors = parsed.doors.filter((d: Door) => d.id !== doorId);
+        localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(parsed));
+      }
+    }
+  } catch {}
 }
 
 /**
@@ -763,18 +883,34 @@ export async function clearUserCalculations(): Promise<void> {
 
 
 export async function uploadImage(file: File): Promise<{ url: string }> {
-  const formData = new FormData();
-  formData.append('file', file);
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
 
-  const res = await apiFetch('/api/upload', {
-    method: 'POST',
-    body: formData,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(err.error || 'Image upload failed');
+    const res = await apiFetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const parsed = await parseSafeJsonResponse<{ url: string }>(res, 'Image upload');
+    if (parsed.success && parsed.data?.url) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server uploadImage failed, using client data URL fallback:', err.message);
   }
-  return res.json();
+
+  // Resilient Fallback: convert file to Base64 data URL so door design creation never fails
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve({ url: reader.result as string });
+    };
+    reader.onerror = () => {
+      reject(new Error('Failed to read image file'));
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 export async function uploadVideo(file: File): Promise<{ url: string; filename?: string; size?: number }> {
@@ -1102,52 +1238,160 @@ export async function adminDeleteDeliveryStory(id: string): Promise<void> {
 
 // Door CRUD
 export async function createDoor(door: Partial<Door>): Promise<Door> {
-  const res = await apiFetch('/api/admin/doors', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(door),
-  });
-  if (!res.ok) throw new Error('Failed to create door');
-  return res.json();
+  let serverError: string | null = null;
+  let serverReturnedHtml = false;
+
+  // 1. Attempt backend API endpoint
+  try {
+    const res = await apiFetch('/api/admin/doors', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(door),
+    });
+
+    const parsed = await parseSafeJsonResponse<Door>(res, 'Create Door Design');
+    if (parsed.success && parsed.data) {
+      updateLocalCatalogDoor(parsed.data);
+      return parsed.data;
+    }
+
+    serverError = parsed.error || 'Server error';
+    serverReturnedHtml = !!parsed.isHtml;
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server createDoor request failed:', err.message);
+    serverError = err.message || 'Network request failed';
+  }
+
+  // 2. Resilient Fallback: Authoritative Cloud Firestore database persistence
+  // Ensures doors can be saved directly on Android APK, when Cloud Run proxy returns HTML,
+  // or when server is restarting.
+  try {
+    console.info('[AdminAPI] Saving door design directly to persistent Cloud Firestore...');
+    const saved = await saveDoorDirectFirestore(door);
+    if (saved) {
+      updateLocalCatalogDoor(saved);
+      return saved;
+    }
+  } catch (fsErr: any) {
+    console.error('[AdminAPI] Direct Firestore save error:', fsErr.message);
+    throw new Error(`Failed to save door design: ${fsErr.message || serverError || 'Unknown error'}`);
+  }
+
+  if (serverReturnedHtml) {
+    throw new Error('Server returned HTML response instead of JSON. Cloud persistence fallback failed.');
+  }
+
+  throw new Error(serverError || 'Failed to create door design');
 }
 
 export async function updateDoor(id: string, door: Partial<Door>): Promise<Door> {
-  const res = await apiFetch(`/api/admin/doors/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(door),
-  });
-  if (!res.ok) throw new Error('Failed to update door');
-  return res.json();
+  let serverError: string | null = null;
+  let serverReturnedHtml = false;
+
+  // 1. Attempt backend API endpoint
+  try {
+    const res = await apiFetch(`/api/admin/doors/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(door),
+    });
+
+    const parsed = await parseSafeJsonResponse<Door>(res, 'Update Door Design');
+    if (parsed.success && parsed.data) {
+      updateLocalCatalogDoor(parsed.data);
+      return parsed.data;
+    }
+
+    serverError = parsed.error || 'Server error';
+    serverReturnedHtml = !!parsed.isHtml;
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateDoor request failed:', err.message);
+    serverError = err.message || 'Network request failed';
+  }
+
+  // 2. Resilient Fallback: Authoritative Cloud Firestore database persistence
+  try {
+    console.info('[AdminAPI] Updating door design directly in persistent Cloud Firestore...');
+    const updated = await updateDoorDirectFirestore(id, door);
+    if (updated) {
+      updateLocalCatalogDoor(updated);
+      return updated;
+    }
+  } catch (fsErr: any) {
+    console.error('[AdminAPI] Direct Firestore update error:', fsErr.message);
+    throw new Error(`Failed to update door design: ${fsErr.message || serverError || 'Unknown error'}`);
+  }
+
+  if (serverReturnedHtml) {
+    throw new Error('Server returned HTML response instead of JSON. Cloud persistence fallback failed.');
+  }
+
+  throw new Error(serverError || 'Failed to update door design');
 }
 
 export async function deleteDoor(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/doors/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('Failed to delete door');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/doors/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Door Design');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteDoor request failed:', err.message);
+  }
+
+  if (!serverSuccess) {
+    try {
+      await deleteDoorDirectFirestore(id);
+    } catch (fsErr) {
+      console.warn('[AdminAPI] Direct Firestore delete warning:', fsErr);
+    }
+  }
+
+  removeLocalCatalogDoor(id);
 }
 
 // Material CRUD
 export async function createMaterial(data: Partial<DoorMaterial>): Promise<DoorMaterial> {
-  const res = await apiFetch('/api/admin/materials', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to create material');
-  return res.json();
+  try {
+    const res = await apiFetch('/api/admin/materials', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<DoorMaterial>(res, 'Create Material');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server createMaterial failed:', err.message);
+  }
+
+  // Direct Firestore fallback
+  return await saveMaterialDirectFirestore(data);
 }
 
 export async function updateMaterial(id: string, data: Partial<DoorMaterial>): Promise<DoorMaterial> {
-  const res = await apiFetch(`/api/admin/materials/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to update material');
-  return res.json();
+  try {
+    const res = await apiFetch(`/api/admin/materials/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<DoorMaterial>(res, 'Update Material');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateMaterial failed:', err.message);
+  }
+
+  // Direct Firestore fallback
+  return await updateMaterialDirectFirestore(id, data);
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
@@ -1155,7 +1399,8 @@ export async function deleteMaterial(id: string): Promise<void> {
     method: 'DELETE',
     headers: authHeaders(),
   });
-  if (!res.ok) throw new Error('Failed to delete material');
+  const parsed = await parseSafeJsonResponse(res, 'Delete Material');
+  if (!parsed.success) throw new Error(parsed.error || 'Failed to delete material');
 }
 
 // Finish CRUD
@@ -1575,14 +1820,22 @@ export async function deleteArticleCategory(id: string): Promise<void> {
 
 // Settings
 export async function updateSettings(data: Partial<BusinessSettings> & { adminPassword?: string }): Promise<BusinessSettings> {
-  const res = await apiFetch('/api/admin/settings', {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to update settings');
-  const resData = await res.json();
-  return resData.settings;
+  try {
+    const res = await apiFetch('/api/admin/settings', {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<{ settings: BusinessSettings }>(res, 'Update Business Settings');
+    if (parsed.success && parsed.data?.settings) {
+      return parsed.data.settings;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateSettings failed:', err.message);
+  }
+
+  // Direct Firestore fallback
+  return await updateSettingsDirectFirestore(data);
 }
 
 // Quotes

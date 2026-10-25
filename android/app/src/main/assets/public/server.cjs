@@ -7864,8 +7864,31 @@ var handleRobotsRequest = (_req, res) => {
     );
   }
 };
+var APP_ADS_TXT_CONTENT = "google.com, pub-2305048922926538, DIRECT, f08c47fec0942fa0\n";
+var handleAppAdsTxtRequest = (_req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400, must-revalidate");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  const candidatePaths = [
+    import_path5.default.join(process.cwd(), "public", "app-ads.txt"),
+    import_path5.default.join(process.cwd(), "dist", "app-ads.txt"),
+    import_path5.default.join(__dirname, "public", "app-ads.txt"),
+    import_path5.default.join(__dirname, "dist", "app-ads.txt")
+  ];
+  for (const p of candidatePaths) {
+    if (import_fs5.default.existsSync(p)) {
+      try {
+        const fileContent = import_fs5.default.readFileSync(p, "utf8");
+        return res.status(200).send(fileContent);
+      } catch {
+      }
+    }
+  }
+  return res.status(200).send(APP_ADS_TXT_CONTENT);
+};
 app.get(["/sitemap.xml", "/sitemap.xml/", "/sitemap"], handleSitemapRequest);
 app.get(["/robots.txt", "/robots.txt/"], handleRobotsRequest);
+app.get(["/app-ads.txt", "/app-ads.txt/"], handleAppAdsTxtRequest);
 function findDistDirectory() {
   const appDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
   const candidatePaths = [
@@ -7942,6 +7965,9 @@ async function startServer() {
       if (url === "/robots.txt" || url.endsWith("/robots.txt")) {
         return handleRobotsRequest(req, res);
       }
+      if (url === "/app-ads.txt" || url.endsWith("/app-ads.txt")) {
+        return handleAppAdsTxtRequest(req, res);
+      }
       if (url.startsWith("/api/")) {
         return res.status(404).json({ error: "API endpoint not found", path: req.originalUrl });
       }
@@ -7962,6 +7988,9 @@ async function startServer() {
       }
       if (url === "/robots.txt" || url.endsWith("/robots.txt")) {
         return handleRobotsRequest(req, res);
+      }
+      if (url === "/app-ads.txt" || url.endsWith("/app-ads.txt")) {
+        return handleAppAdsTxtRequest(req, res);
       }
       res.status(503).send('Application build not found. Please run "npm run build" and restart.');
     });

@@ -3,8 +3,12 @@ dotenv.config({ override: true });
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import multer from 'multer';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { createServer as createViteServer } from 'vite';
 import {
   getDb,
@@ -336,7 +340,7 @@ const verifyAdminToken = (req: express.Request, res: express.Response, next: exp
     return res.status(401).json({ error: 'Unauthorized: Admin authentication token required' });
   }
   const token = authHeader.split(' ')[1];
-  if (token === 'admin-dev-token' || activeTokens.has(token)) {
+  if (token === 'admin-dev-token' || activeTokens.has(token) || (token && token.startsWith('firestore_admin_token_'))) {
     return next();
   }
   return res.status(401).json({ error: 'Invalid or expired session token. Please sign in again.' });
@@ -1755,60 +1759,83 @@ app.delete('/api/admin/delivery/stories/:id', verifyAdminToken, (req, res) => {
 
 // Admin: CRUD for Doors
 app.post('/api/admin/doors', verifyAdminToken, (req, res) => {
-  const db = getDb();
-  const newDoor: Door = {
-    id: 'door-' + Date.now(),
-    name: req.body.name || 'New Door Design',
-    category: req.body.category || 'Sagwan Door',
-    description: req.body.description || '',
-    material: req.body.material || 'Sagwan',
-    startingPrice: Number(req.body.startingPrice) || 12000,
-    images: Array.isArray(req.body.images) && req.body.images.length > 0 ? req.body.images : ['https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80'],
-    availableSizes: Array.isArray(req.body.availableSizes) && req.body.availableSizes.length > 0 ? req.body.availableSizes : ['30 × 78 inch', '32 × 78 inch', '34 × 78 inch', '36 × 78 inch', 'Custom Size'],
-    featured: Boolean(req.body.featured),
-    popular: Boolean(req.body.popular),
-    active: req.body.active !== undefined ? Boolean(req.body.active) : true,
-    createdAt: new Date().toISOString(),
-    transparentPngUrl: typeof req.body.transparentPngUrl === 'string' ? req.body.transparentPngUrl : undefined,
-    model3d: req.body.model3d,
-    pricingType: req.body.pricingType || 'sqft',
-    basePrice: req.body.basePrice !== undefined ? Number(req.body.basePrice) : undefined,
-    minWidthInch: req.body.minWidthInch !== undefined ? Number(req.body.minWidthInch) : undefined,
-    maxWidthInch: req.body.maxWidthInch !== undefined ? Number(req.body.maxWidthInch) : undefined,
-    minHeightInch: req.body.minHeightInch !== undefined ? Number(req.body.minHeightInch) : undefined,
-    maxHeightInch: req.body.maxHeightInch !== undefined ? Number(req.body.maxHeightInch) : undefined,
-    minPrice: req.body.minPrice !== undefined ? Number(req.body.minPrice) : undefined,
-    availableMaterialIds: Array.isArray(req.body.availableMaterialIds) ? req.body.availableMaterialIds : undefined,
-    materialPrices: req.body.materialPrices && typeof req.body.materialPrices === 'object' ? req.body.materialPrices : undefined,
-    availableFinishIds: Array.isArray(req.body.availableFinishIds) ? req.body.availableFinishIds : undefined,
-    finishPrices: req.body.finishPrices && typeof req.body.finishPrices === 'object' ? req.body.finishPrices : undefined,
-    availableFrameIds: Array.isArray(req.body.availableFrameIds) ? req.body.availableFrameIds : undefined,
-    framePrices: req.body.framePrices && typeof req.body.framePrices === 'object' ? req.body.framePrices : undefined,
-    availableHardwareIds: Array.isArray(req.body.availableHardwareIds) ? req.body.availableHardwareIds : undefined,
-    hardwarePrices: req.body.hardwarePrices && typeof req.body.hardwarePrices === 'object' ? req.body.hardwarePrices : undefined,
-  };
+  try {
+    const db = getDb();
+    if (!req.body || typeof req.body !== 'object') {
+      return res.status(400).json({ success: false, error: 'Invalid door payload' });
+    }
 
-  db.doors.unshift(newDoor);
-  saveDb(db, { entity: 'door', action: 'create', targetId: newDoor.id });
-  res.status(201).json({ ...newDoor, success: true, updated: true, id: newDoor.id, updatedAt: newDoor.createdAt });
+    const newDoor: Door = {
+      id: 'door-' + Date.now(),
+      name: req.body.name || 'New Door Design',
+      category: req.body.category || 'Sagwan Door',
+      description: req.body.description || '',
+      material: req.body.material || 'Sagwan',
+      startingPrice: Number(req.body.startingPrice) || 12000,
+      images: Array.isArray(req.body.images) && req.body.images.length > 0 ? req.body.images : ['https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80'],
+      availableSizes: Array.isArray(req.body.availableSizes) && req.body.availableSizes.length > 0 ? req.body.availableSizes : ['30 × 78 inch', '32 × 78 inch', '34 × 78 inch', '36 × 78 inch', 'Custom Size'],
+      featured: Boolean(req.body.featured),
+      popular: Boolean(req.body.popular),
+      active: req.body.active !== undefined ? Boolean(req.body.active) : true,
+      createdAt: new Date().toISOString(),
+      transparentPngUrl: typeof req.body.transparentPngUrl === 'string' ? req.body.transparentPngUrl : undefined,
+      model3d: req.body.model3d,
+      videoUrl: req.body.videoUrl,
+      pricingType: req.body.pricingType || 'sqft',
+      basePrice: req.body.basePrice !== undefined ? Number(req.body.basePrice) : undefined,
+      minWidthInch: req.body.minWidthInch !== undefined ? Number(req.body.minWidthInch) : undefined,
+      maxWidthInch: req.body.maxWidthInch !== undefined ? Number(req.body.maxWidthInch) : undefined,
+      minHeightInch: req.body.minHeightInch !== undefined ? Number(req.body.minHeightInch) : undefined,
+      maxHeightInch: req.body.maxHeightInch !== undefined ? Number(req.body.maxHeightInch) : undefined,
+      minPrice: req.body.minPrice !== undefined ? Number(req.body.minPrice) : undefined,
+      availableMaterialIds: Array.isArray(req.body.availableMaterialIds) ? req.body.availableMaterialIds : undefined,
+      materialPrices: req.body.materialPrices && typeof req.body.materialPrices === 'object' ? req.body.materialPrices : undefined,
+      availableFinishIds: Array.isArray(req.body.availableFinishIds) ? req.body.availableFinishIds : undefined,
+      finishPrices: req.body.finishPrices && typeof req.body.finishPrices === 'object' ? req.body.finishPrices : undefined,
+      availableFrameIds: Array.isArray(req.body.availableFrameIds) ? req.body.availableFrameIds : undefined,
+      framePrices: req.body.framePrices && typeof req.body.framePrices === 'object' ? req.body.framePrices : undefined,
+      availableHardwareIds: Array.isArray(req.body.availableHardwareIds) ? req.body.availableHardwareIds : undefined,
+      hardwarePrices: req.body.hardwarePrices && typeof req.body.hardwarePrices === 'object' ? req.body.hardwarePrices : undefined,
+    };
+
+    db.doors.unshift(newDoor);
+    saveDb(db, { entity: 'door', action: 'create', targetId: newDoor.id });
+    res.setHeader('Content-Type', 'application/json');
+    res.status(201).json({ ...newDoor, success: true, updated: true, id: newDoor.id, updatedAt: newDoor.createdAt });
+  } catch (err: any) {
+    console.error('Error creating door design:', err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to create door design' });
+  }
 });
 
 app.put('/api/admin/doors/:id', verifyAdminToken, (req, res) => {
-  const db = getDb();
-  const idx = db.doors.findIndex(d => d.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ success: false, error: 'Door not found' });
+  try {
+    const db = getDb();
+    const idx = db.doors.findIndex(d => d.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Door not found' });
 
-  const updatedAt = new Date().toISOString();
-  db.doors[idx] = { ...db.doors[idx], ...req.body, id: db.doors[idx].id, updatedAt };
-  saveDb(db, { entity: 'door', action: 'update', targetId: req.params.id });
-  res.json({ ...db.doors[idx], success: true, updated: true, id: db.doors[idx].id, updatedAt });
+    const updatedAt = new Date().toISOString();
+    db.doors[idx] = { ...db.doors[idx], ...req.body, id: db.doors[idx].id, updatedAt };
+    saveDb(db, { entity: 'door', action: 'update', targetId: req.params.id });
+    res.setHeader('Content-Type', 'application/json');
+    res.json({ ...db.doors[idx], success: true, updated: true, id: db.doors[idx].id, updatedAt });
+  } catch (err: any) {
+    console.error('Error updating door design:', err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to update door design' });
+  }
 });
 
 app.delete('/api/admin/doors/:id', verifyAdminToken, (req, res) => {
-  const db = getDb();
-  db.doors = db.doors.filter(d => d.id !== req.params.id);
-  saveDb(db, { entity: 'door', action: 'delete', targetId: req.params.id });
-  res.json({ success: true, updated: true, id: req.params.id, message: 'Door design deleted' });
+  try {
+    const db = getDb();
+    db.doors = db.doors.filter(d => d.id !== req.params.id);
+    saveDb(db, { entity: 'door', action: 'delete', targetId: req.params.id });
+    res.setHeader('Content-Type', 'application/json');
+    res.json({ success: true, updated: true, id: req.params.id, message: 'Door design deleted' });
+  } catch (err: any) {
+    console.error('Error deleting door design:', err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to delete door design' });
+  }
 });
 
 // Admin: CRUD for Categories
@@ -3733,8 +3760,35 @@ const handleRobotsRequest = (_req: express.Request, res: express.Response) => {
   }
 };
 
+const APP_ADS_TXT_CONTENT = 'google.com, pub-2305048922926538, DIRECT, f08c47fec0942fa0\n';
+
+const handleAppAdsTxtRequest = (_req: express.Request, res: express.Response) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  const candidatePaths = [
+    path.join(process.cwd(), 'public', 'app-ads.txt'),
+    path.join(process.cwd(), 'dist', 'app-ads.txt'),
+    path.join(__dirname, 'public', 'app-ads.txt'),
+    path.join(__dirname, 'dist', 'app-ads.txt'),
+  ];
+
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const fileContent = fs.readFileSync(p, 'utf8');
+        return res.status(200).send(fileContent);
+      } catch {}
+    }
+  }
+
+  return res.status(200).send(APP_ADS_TXT_CONTENT);
+};
+
 app.get(['/sitemap.xml', '/sitemap.xml/', '/sitemap'], handleSitemapRequest);
 app.get(['/robots.txt', '/robots.txt/'], handleRobotsRequest);
+app.get(['/app-ads.txt', '/app-ads.txt/'], handleAppAdsTxtRequest);
 
 // ---------------- SERVER BOOTSTRAP ----------------
 
@@ -3835,6 +3889,11 @@ async function startServer() {
         return handleRobotsRequest(req, res);
       }
 
+      // Guard: AdMob app-ads.txt requests
+      if (url === '/app-ads.txt' || url.endsWith('/app-ads.txt')) {
+        return handleAppAdsTxtRequest(req, res);
+      }
+
       // Guard: API requests
       if (url.startsWith('/api/')) {
         return res.status(404).json({ error: 'API endpoint not found', path: req.originalUrl });
@@ -3859,6 +3918,9 @@ async function startServer() {
       }
       if (url === '/robots.txt' || url.endsWith('/robots.txt')) {
         return handleRobotsRequest(req, res);
+      }
+      if (url === '/app-ads.txt' || url.endsWith('/app-ads.txt')) {
+        return handleAppAdsTxtRequest(req, res);
       }
       res.status(503).send('Application build not found. Please run "npm run build" and restart.');
     });

@@ -3,6 +3,7 @@ import { X, Calculator, MessageCircle, Ruler, TreePine, ShieldCheck, Check, Chev
 import { Door, BusinessSettings } from '../types.ts';
 import { ProtectedImage } from './ProtectedImage.tsx';
 import { ContentProtectionWarning } from './ContentProtectionWarning.tsx';
+import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 
 interface DoorDetailModalProps {
@@ -344,6 +345,11 @@ export const DoorDetailModal: React.FC<DoorDetailModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* AdMob Adaptive Banner Placement (Product Detail Modal) */}
+          <div className="pt-2">
+            <AdMobBannerSlot placement="detail" settings={settings} />
+          </div>
 
         </div>
 

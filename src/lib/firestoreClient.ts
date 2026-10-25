@@ -206,6 +206,22 @@ export async function verifyAdminCredentialsViaFirestore(
   }
 }
 
+import type {
+  Door,
+  DoorMaterial,
+  PolishFinish,
+  ChaukhatFrame,
+  HardwareItem,
+  HomeBanner,
+  BusinessSettings,
+} from '../types.ts';
+import {
+  DEFAULT_DOORS,
+  DEFAULT_CATEGORIES,
+  DEFAULT_BANNERS,
+  DEFAULT_ARTICLES,
+} from '../data/defaultCatalogData.ts';
+
 /**
  * Saves updated database directly to Firestore.
  */
@@ -225,4 +241,168 @@ export async function saveDirectFirestoreData(updatedData: any): Promise<boolean
     console.error('[FirestoreClient] Direct save error:', err.message);
     return false;
   }
+}
+
+/**
+ * Persists a new door design directly to the Firestore cloud database.
+ */
+export async function saveDoorDirectFirestore(door: Partial<Door>): Promise<Door> {
+  let dbData = await fetchDirectFirestoreData();
+  if (!dbData) {
+    dbData = {
+      doors: [...DEFAULT_DOORS],
+      categories: [...DEFAULT_CATEGORIES],
+      banners: [...DEFAULT_BANNERS],
+      articles: [...DEFAULT_ARTICLES],
+      version: 1,
+    };
+  }
+
+  if (!Array.isArray(dbData.doors)) {
+    dbData.doors = [];
+  }
+
+  const newDoor: Door = {
+    id: door.id || 'door-' + Date.now(),
+    name: door.name || 'New Door Design',
+    category: door.category || 'Sagwan Door',
+    description: door.description || '',
+    material: door.material || 'Sagwan',
+    startingPrice: Number(door.startingPrice) || 12000,
+    images: Array.isArray(door.images) && door.images.length > 0
+      ? door.images
+      : ['https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80'],
+    availableSizes: Array.isArray(door.availableSizes) && door.availableSizes.length > 0
+      ? door.availableSizes
+      : ['30 × 78 inch', '32 × 78 inch', '34 × 78 inch', '36 × 78 inch', 'Custom Size'],
+    featured: Boolean(door.featured),
+    popular: Boolean(door.popular),
+    active: door.active !== undefined ? Boolean(door.active) : true,
+    createdAt: new Date().toISOString(),
+    transparentPngUrl: door.transparentPngUrl,
+    model3d: door.model3d,
+    videoUrl: door.videoUrl,
+    pricingType: door.pricingType || 'sqft',
+    basePrice: door.basePrice !== undefined ? Number(door.basePrice) : undefined,
+    minWidthInch: door.minWidthInch !== undefined ? Number(door.minWidthInch) : undefined,
+    maxWidthInch: door.maxWidthInch !== undefined ? Number(door.maxWidthInch) : undefined,
+    minHeightInch: door.minHeightInch !== undefined ? Number(door.minHeightInch) : undefined,
+    maxHeightInch: door.maxHeightInch !== undefined ? Number(door.maxHeightInch) : undefined,
+    minPrice: door.minPrice !== undefined ? Number(door.minPrice) : undefined,
+    availableMaterialIds: door.availableMaterialIds,
+    materialPrices: door.materialPrices,
+    availableFinishIds: door.availableFinishIds,
+    finishPrices: door.finishPrices,
+    availableFrameIds: door.availableFrameIds,
+    framePrices: door.framePrices,
+    availableHardwareIds: door.availableHardwareIds,
+    hardwarePrices: door.hardwarePrices,
+  };
+
+  dbData.doors.unshift(newDoor);
+  const success = await saveDirectFirestoreData(dbData);
+  if (!success) {
+    throw new Error('Failed to persist door design to Cloud Firestore.');
+  }
+
+  // Also sync individual doc for granular tracing
+  const db = getClientFirestore();
+  if (db) {
+    try {
+      const doorDocRef = doc(db, 'doors', newDoor.id);
+      await setDoc(doorDocRef, { ...newDoor, updatedAt: new Date().toISOString() });
+    } catch {}
+  }
+
+  return newDoor;
+}
+
+/**
+ * Updates an existing door design directly in the Firestore cloud database.
+ */
+export async function updateDoorDirectFirestore(id: string, updates: Partial<Door>): Promise<Door> {
+  let dbData = await fetchDirectFirestoreData();
+  if (!dbData || !Array.isArray(dbData.doors)) {
+    throw new Error('Could not load existing doors from Cloud Firestore to update.');
+  }
+
+  const idx = dbData.doors.findIndex((d: Door) => d.id === id);
+  if (idx === -1) {
+    throw new Error(`Door with ID "${id}" was not found in Cloud Firestore.`);
+  }
+
+  const updatedAt = new Date().toISOString();
+  dbData.doors[idx] = {
+    ...dbData.doors[idx],
+    ...updates,
+    id,
+    updatedAt,
+  };
+
+  const success = await saveDirectFirestoreData(dbData);
+  if (!success) {
+    throw new Error('Failed to update door design in Cloud Firestore.');
+  }
+
+  const db = getClientFirestore();
+  if (db) {
+    try {
+      const doorDocRef = doc(db, 'doors', id);
+      await setDoc(doorDocRef, { ...dbData.doors[idx] });
+    } catch {}
+  }
+
+  return dbData.doors[idx];
+}
+
+/**
+ * Deletes a door design directly from the Firestore cloud database.
+ */
+export async function deleteDoorDirectFirestore(id: string): Promise<boolean> {
+  const dbData = await fetchDirectFirestoreData();
+  if (!dbData || !Array.isArray(dbData.doors)) return false;
+
+  dbData.doors = dbData.doors.filter((d: Door) => d.id !== id);
+  return await saveDirectFirestoreData(dbData);
+}
+
+/**
+ * Updates settings directly in Cloud Firestore.
+ */
+export async function updateSettingsDirectFirestore(settings: Partial<BusinessSettings>): Promise<BusinessSettings> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  dbData.settings = { ...(dbData.settings || {}), ...settings };
+  await saveDirectFirestoreData(dbData);
+  return dbData.settings;
+}
+
+/**
+ * Saves or updates material directly in Cloud Firestore.
+ */
+export async function saveMaterialDirectFirestore(material: Partial<DoorMaterial>): Promise<DoorMaterial> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.materials)) dbData.materials = [];
+  const newMat: DoorMaterial = {
+    id: material.id || 'mat-' + Date.now(),
+    name: material.name || 'New Material',
+    ratePerSqFt: Number(material.ratePerSqFt) || 500,
+    description: material.description || '',
+    active: material.active !== undefined ? Boolean(material.active) : true,
+    image: material.image,
+  };
+  dbData.materials.push(newMat);
+  await saveDirectFirestoreData(dbData);
+  return newMat;
+}
+
+export async function updateMaterialDirectFirestore(id: string, updates: Partial<DoorMaterial>): Promise<DoorMaterial> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.materials)) dbData.materials = [];
+  const idx = dbData.materials.findIndex((m: DoorMaterial) => m.id === id);
+  if (idx !== -1) {
+    dbData.materials[idx] = { ...dbData.materials[idx], ...updates, id };
+    await saveDirectFirestoreData(dbData);
+    return dbData.materials[idx];
+  }
+  throw new Error('Material not found in Cloud Firestore');
 }

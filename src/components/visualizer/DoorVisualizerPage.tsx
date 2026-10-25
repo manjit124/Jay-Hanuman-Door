@@ -44,6 +44,7 @@ import { LiveARCamera } from './LiveARCamera.tsx';
 import { DoorCustomizationStudio } from './DoorCustomizationStudio.tsx';
 import { DesignCaptureModal } from './DesignCaptureModal.tsx';
 import { getWhatsAppUrl } from '../../lib/contactUtils.ts';
+import { AdMobBannerSlot } from '../admob/AdMobBannerSlot.tsx';
 
 interface DoorVisualizerPageProps {
   doors: Door[];
@@ -998,6 +999,11 @@ Please share final pricing, delivery schedule, and site measurement assistance f
           </div>
         </div>
       </section>
+
+      {/* AdMob Adaptive Banner Placement (3D Studio Bottom) */}
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-4 mb-2">
+        <AdMobBannerSlot placement="visualizer" settings={settings} />
+      </div>
 
       {/* Floating "Back to 3D Viewer" Button for Mobile / Long Scrolling */}
       {showScrollUp && (

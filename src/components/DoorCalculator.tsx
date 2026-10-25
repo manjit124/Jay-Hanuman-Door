@@ -50,6 +50,8 @@ import {
   DEFAULT_HARDWARE,
 } from '../lib/api.ts';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
+import { adMobService } from '../lib/admob/admobService.ts';
+import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
 
 interface DoorCalculatorProps {
   doors?: Door[];
@@ -617,6 +619,33 @@ Please provide official factory dispatch schedule and installation assistance.`;
     } else {
       await navigator.clipboard.writeText(text);
       alert('Quotation summary copied to clipboard!');
+    }
+  };
+
+  // AdMob Quotation Interstitial Logic (Part 2 requirement)
+  const [isGeneratingQuote, setIsGeneratingQuote] = useState(false);
+
+  // Preload interstitial so it's ready when user taps "Get Official Quotation PDF"
+  useEffect(() => {
+    adMobService.preloadInterstitial(settings?.adSettings);
+  }, [settings?.adSettings]);
+
+  const handleGenerateQuotation = async () => {
+    if (isGeneratingQuote) return;
+    if (!isWidthValid || !isHeightValid || widthInch <= 0 || heightInch <= 0) {
+      alert('Please enter valid door dimensions (width & height) to generate quotation.');
+      return;
+    }
+    setIsGeneratingQuote(true);
+    try {
+      // Show preloaded interstitial with fail-safe timeout; quotation modal always opens
+      await adMobService.showQuotationInterstitial(() => {
+        onOpenQuotationModal(calculation, selectedDoor);
+      }, settings?.adSettings);
+    } catch {
+      onOpenQuotationModal(calculation, selectedDoor);
+    } finally {
+      setIsGeneratingQuote(false);
     }
   };
 
@@ -1846,11 +1875,12 @@ Please provide official factory dispatch schedule and installation assistance.`;
               <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => onOpenQuotationModal(calculation, selectedDoor)}
-                  className="w-full sm:flex-1 py-3.5 px-5 rounded-xl bg-gradient-to-r from-[#C89211] to-[#b07d08] hover:opacity-95 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer active:scale-98"
+                  onClick={handleGenerateQuotation}
+                  disabled={isGeneratingQuote}
+                  className="w-full sm:flex-1 py-3.5 px-5 rounded-xl bg-gradient-to-r from-[#C89211] to-[#b07d08] hover:opacity-95 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer active:scale-98 disabled:opacity-70"
                 >
                   <FileText className="w-5 h-5 text-white" />
-                  <span>Get Official Quotation PDF</span>
+                  <span>{isGeneratingQuote ? 'Preparing Official Quotation...' : 'Get Official Quotation PDF'}</span>
                 </button>
 
                 <button
@@ -1894,6 +1924,11 @@ Please provide official factory dispatch schedule and installation assistance.`;
                   Official Factory WhatsApp: <strong className="text-[#C89211]">+91 {settings.whatsappNumber || '78874 12884'}</strong>
                 </span>
               </div>
+            </div>
+
+            {/* AdMob Adaptive Banner Placement (Below Quotation Summary, never occluding inputs or actions) */}
+            <div className="pt-2">
+              <AdMobBannerSlot placement="calculator" settings={settings} />
             </div>
 
           </div>

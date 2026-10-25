@@ -36,6 +36,7 @@ import {
   setupPushNotifications,
 } from '../lib/notifications.ts';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
+import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
 
 export interface UserProfileModalProps {
   isOpen: boolean;
@@ -647,6 +648,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               )}
             </div>
           )}
+
+          {/* AdMob Adaptive Banner Placement (Saved / Favorites Modal) */}
+          <div className="pt-2">
+            <AdMobBannerSlot placement="saved" settings={settings} />
+          </div>
 
         </div>
 

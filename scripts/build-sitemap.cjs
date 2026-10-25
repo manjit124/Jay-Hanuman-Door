@@ -155,15 +155,21 @@ function generateHtaccess() {
     Header set Cache-Control "public, max-age=86400, must-revalidate"
     Header set X-Content-Type-Options "nosniff"
   </Files>
+  <Files "app-ads.txt">
+    Header set Content-Type "text/plain; charset=utf-8"
+    Header set Cache-Control "public, max-age=86400, must-revalidate"
+    Header set X-Content-Type-Options "nosniff"
+  </Files>
 </IfModule>
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
 
-  # NEVER rewrite sitemap.xml or robots.txt to index.html
+  # NEVER rewrite sitemap.xml, robots.txt, or app-ads.txt to index.html
   RewriteRule ^sitemap\\.xml$ - [L]
   RewriteRule ^robots\\.txt$ - [L]
+  RewriteRule ^app-ads\\.txt$ - [L]
 
   # Direct file or directory matches - serve directly
   RewriteCond %{REQUEST_FILENAME} -f [OR]
@@ -178,6 +184,8 @@ function generateHtaccess() {
 </IfModule>
 `;
 }
+
+const APP_ADS_TXT_CONTENT = 'google.com, pub-2305048922926538, DIRECT, f08c47fec0942fa0\n';
 
 function main() {
   const xml = generateSitemapXml();
@@ -203,11 +211,13 @@ function main() {
       const sitemapPath = path.join(dir, 'sitemap.xml');
       const robotsPath = path.join(dir, 'robots.txt');
       const htaccessPath = path.join(dir, '.htaccess');
+      const appAdsPath = path.join(dir, 'app-ads.txt');
 
       fs.writeFileSync(sitemapPath, xml, 'utf8');
       fs.writeFileSync(robotsPath, robots, 'utf8');
       fs.writeFileSync(htaccessPath, htaccess, 'utf8');
-      console.log(`✅ Generated SEO files in: ${dir}`);
+      fs.writeFileSync(appAdsPath, APP_ADS_TXT_CONTENT, 'utf8');
+      console.log(`✅ Generated SEO and AdMob app-ads.txt files in: ${dir}`);
     }
   }
 }

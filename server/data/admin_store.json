@@ -1441,9 +1441,33 @@
       "responseTimeMs": 23694
     }
   ],
-  "version": 131,
-  "lastModified": "2026-10-21T15:10:47.802Z",
+  "version": 134,
+  "lastModified": "2026-10-25T15:37:23.792Z",
   "auditLogs": [
+    {
+      "id": "audit-1792942643792-sfm5u",
+      "entity": "door",
+      "action": "delete",
+      "targetId": "door-1792942607512",
+      "timestamp": "2026-10-25T15:37:23.792Z",
+      "success": true
+    },
+    {
+      "id": "audit-1792942627857-jo983",
+      "entity": "door",
+      "action": "update",
+      "targetId": "door-1792942607512",
+      "timestamp": "2026-10-25T15:37:07.857Z",
+      "success": true
+    },
+    {
+      "id": "audit-1792942607513-s303k",
+      "entity": "door",
+      "action": "create",
+      "targetId": "door-1792942607512",
+      "timestamp": "2026-10-25T15:36:47.513Z",
+      "success": true
+    },
     {
       "id": "audit-1792595447802-y6mii",
       "entity": "banner",

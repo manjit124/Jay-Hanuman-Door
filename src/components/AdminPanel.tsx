@@ -67,6 +67,7 @@ import { AdminVisualizerTab } from './admin/AdminVisualizerTab.tsx';
 import { AdminBrandStoryTab } from './AdminBrandStoryTab.tsx';
 import { AdminDeliveryTab } from './admin/AdminDeliveryTab.tsx';
 import { AdminChaukhatTab } from './admin/AdminChaukhatTab.tsx';
+import { AdminAdMobTab } from './admin/AdminAdMobTab.tsx';
 import {
   Door,
   Category,
@@ -185,6 +186,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     | 'legal'
     | 'backup'
     | 'wood-detector'
+    | 'admob'
   >('dashboard');
 
   // Loaded DB data in Admin
@@ -249,6 +251,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isUploadingModel, setIsUploadingModel] = useState(false);
   const [isUploadingPng, setIsUploadingPng] = useState(false);
   const [isGeneratingPng, setIsGeneratingPng] = useState(false);
+  const [isSavingDoor, setIsSavingDoor] = useState(false);
 
   // Quick inline price & details editing states
   const [quickEditMaterialId, setQuickEditMaterialId] = useState<string | null>(null);
@@ -1126,6 +1129,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 >
                   <HardDrive className="w-4 h-4 text-emerald-600" />
                   Backup &amp; Persistence
+                </button>
+
+                <button
+                  id="admin-tab-admob"
+                  onClick={() => handleTabSelect('admob')}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'admob' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                  }`}
+                >
+                  <DollarSign className="w-4 h-4 text-emerald-600" />
+                  AdMob Monetization
                 </button>
               </div>
 
@@ -2105,11 +2119,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             Cancel
                           </button>
                           <button
+                            type="button"
+                            disabled={isSavingDoor}
                             onClick={async () => {
                               if (!editingDoor.name?.trim()) {
                                 alert('Please provide door name');
                                 return;
                               }
+                              setIsSavingDoor(true);
                               try {
                                 if (editingDoor.id) {
                                   await updateDoor(editingDoor.id, editingDoor);
@@ -2117,16 +2134,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   await createDoor(editingDoor);
                                 }
                                 setEditingDoor(null);
-                                loadData();
+                                await loadData();
                                 onDataUpdated();
                                 showToast('Door design saved successfully');
                               } catch (err: any) {
+                                console.error('Save door error:', err);
                                 alert(err.message || 'Save failed');
+                              } finally {
+                                setIsSavingDoor(false);
                               }
                             }}
-                            className="px-5 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs"
+                            className="px-5 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
                           >
-                            Save Door Design
+                            {isSavingDoor && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                            <span>{isSavingDoor ? 'Saving Design...' : 'Save Door Design'}</span>
                           </button>
                         </div>
                       </div>
@@ -5837,6 +5858,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onDataUpdated();
                     }}
                     showToast={showToast}
+                  />
+                )}
+
+                {/* Google AdMob Monetization Admin Tab */}
+                {activeTab === 'admob' && (
+                  <AdminAdMobTab
+                    settings={settings || undefined}
+                    onUpdateSettings={async (newSettings) => {
+                      await updateSettings(newSettings);
+                      await loadData();
+                      onDataUpdated();
+                      showToast('AdMob settings saved successfully');
+                    }}
                   />
                 )}
 

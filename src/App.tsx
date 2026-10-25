@@ -82,6 +82,8 @@ import {
   getGoogleMapsUrl,
 } from './lib/contactUtils.ts';
 import { initSpaAnalytics } from './lib/analytics.ts';
+import { adMobService } from './lib/admob/admobService.ts';
+import { AdMobBannerSlot } from './components/admob/AdMobBannerSlot.tsx';
 
 export const App: React.FC = () => {
   // Navigation View State: 'home' | 'gallery' | 'calculator' | 'visualizer' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer' | 'wood-detector' | 'tracking'
@@ -359,6 +361,11 @@ export const App: React.FC = () => {
     loadAppData();
     setFavoriteDoorIds(getGuestFavorites());
   }, []);
+
+  // Initialize Native Google AdMob SDK and preload interstitials
+  useEffect(() => {
+    adMobService.initialize(settings?.adSettings);
+  }, [settings?.adSettings]);
 
   useEffect(() => {
     // Configure native Android dark status bar only on native platforms
@@ -1073,6 +1080,11 @@ export const App: React.FC = () => {
               className="mt-2 mb-2"
             />
 
+            {/* AdMob Adaptive Banner Placement (Home Screen) */}
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-6 mb-2">
+              <AdMobBannerSlot placement="home" settings={settings} />
+            </div>
+
             {/* Design & Content Protection Warning Section */}
             <ContentProtectionWarning
               settings={settings}
@@ -1167,14 +1179,19 @@ export const App: React.FC = () => {
 
         {/* VIEW 4: ARTICLES & GUIDES (Section 17) */}
         {activeView === 'articles' && (
-          <ArticlesSection
-            articles={articles}
-            doors={doors}
-            settings={settings}
-            initialArticleId={selectedArticleIdForView}
-            onOpenCalculator={door => handleCalculateDoor(door)}
-            onOpenDoorDetail={door => handleOpenDoorDetail(door)}
-          />
+          <>
+            <ArticlesSection
+              articles={articles}
+              doors={doors}
+              settings={settings}
+              initialArticleId={selectedArticleIdForView}
+              onOpenCalculator={door => handleCalculateDoor(door)}
+              onOpenDoorDetail={door => handleOpenDoorDetail(door)}
+            />
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-4 mb-2">
+              <AdMobBannerSlot placement="guide" settings={settings} />
+            </div>
+          </>
         )}
 
         {/* VIEW 5: CONTACT US & ENQUIRIES */}
@@ -1240,18 +1257,23 @@ export const App: React.FC = () => {
 
         {/* VIEW 10: CUSTOMER ORDER TRACKING */}
         {activeView === 'tracking' && (
-          <CustomerOrderTracking
-            initialTrackingId={trackingInitialId}
-            onNavigateHome={() => {
-              navigateToView('home');
-            }}
-            onSelectDoor={(doorId) => {
-              const door = doors.find(d => d.id === doorId);
-              if (door) {
-                handleOpenDoorDetail(door);
-              }
-            }}
-          />
+          <>
+            <CustomerOrderTracking
+              initialTrackingId={trackingInitialId}
+              onNavigateHome={() => {
+                navigateToView('home');
+              }}
+              onSelectDoor={(doorId) => {
+                const door = doors.find(d => d.id === doorId);
+                if (door) {
+                  handleOpenDoorDetail(door);
+                }
+              }}
+            />
+            <div className="max-w-4xl mx-auto px-3 sm:px-6 mt-4 mb-2">
+              <AdMobBannerSlot placement="tracking" settings={settings} />
+            </div>
+          </>
         )}
       </main>
 

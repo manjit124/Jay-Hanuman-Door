@@ -608,6 +608,21 @@ export interface BusinessSettings {
   legalSettings?: LegalSettings;
   aiWoodDetector?: AIWoodDetectorSettings;
   storySettings?: CompanyStorySettings;
+  adSettings?: AdMobSettings;
+}
+
+export interface AdMobSettings {
+  enabled: boolean;
+  testMode: boolean;
+  appId?: string;
+  bannerAdUnitId?: string;
+  interstitialAdUnitId?: string;
+  nativeAdUnitId?: string;
+  enableBanners: boolean;
+  enableInterstitials: boolean;
+  enableCatalogNativeAds: boolean;
+  catalogNativeAdFrequency: number; // e.g. 6 or 8
+  interstitialMinIntervalSeconds: number; // e.g. 45 or 60
 }
 
 export interface AdminStats {

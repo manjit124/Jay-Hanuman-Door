@@ -19,15 +19,21 @@
     Header set Cache-Control "public, max-age=86400, must-revalidate"
     Header set X-Content-Type-Options "nosniff"
   </Files>
+  <Files "app-ads.txt">
+    Header set Content-Type "text/plain; charset=utf-8"
+    Header set Cache-Control "public, max-age=86400, must-revalidate"
+    Header set X-Content-Type-Options "nosniff"
+  </Files>
 </IfModule>
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
 
-  # NEVER rewrite sitemap.xml or robots.txt to index.html
+  # NEVER rewrite sitemap.xml, robots.txt, or app-ads.txt to index.html
   RewriteRule ^sitemap\.xml$ - [L]
   RewriteRule ^robots\.txt$ - [L]
+  RewriteRule ^app-ads\.txt$ - [L]
 
   # Direct file or directory matches - serve directly
   RewriteCond %{REQUEST_FILENAME} -f [OR]
