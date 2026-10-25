@@ -3,12 +3,10 @@ dotenv.config({ override: true });
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import multer from 'multer';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 import { createServer as createViteServer } from 'vite';
 import {
   getDb,
@@ -3770,8 +3768,8 @@ const handleAppAdsTxtRequest = (_req: express.Request, res: express.Response) =>
   const candidatePaths = [
     path.join(process.cwd(), 'public', 'app-ads.txt'),
     path.join(process.cwd(), 'dist', 'app-ads.txt'),
-    path.join(__dirname, 'public', 'app-ads.txt'),
-    path.join(__dirname, 'dist', 'app-ads.txt'),
+    path.join(currentDir, 'public', 'app-ads.txt'),
+    path.join(currentDir, 'dist', 'app-ads.txt'),
   ];
 
   for (const p of candidatePaths) {
