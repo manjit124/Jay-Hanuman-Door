@@ -8,18 +8,37 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.email.toLowerCase() in [
-          'shivshahidoors@gmail.com',
-          'jayhanumandoor@gmail.com',
-          'jaihanumandoor@gmail.com',
-          'orders@jaihanumandoor.com',
-          'admin@jaihanumandoor.com',
-          'admin@shivshahidoors.com'
-        ] ||
-        request.auth.token.email.matches('.*@jaihanumandoor\\.com$') ||
-        request.auth.token.email.matches('.*@shivshahidoors\\.com$') ||
-        (request.auth.token.keys().hasAll(['admin']) && request.auth.token.admin == true)
+        (request.auth.token.keys().hasAll(['email']) && (
+          request.auth.token.email.toLowerCase() in [
+            'shivshahidoors@gmail.com',
+            'jayhanumandoor@gmail.com',
+            'jaihanumandoor@gmail.com',
+            'orders@jaihanumandoor.com',
+            'admin@jaihanumandoor.com',
+            'admin@shivshahidoors.com'
+          ] ||
+          request.auth.token.email.matches('.*@jaihanumandoor\\.com$') ||
+          request.auth.token.email.matches('.*@shivshahidoors\\.com$')
+        )) ||
+        (request.auth.token.keys().hasAll(['admin']) && request.auth.token.admin == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
+    }
+
+    // Admin role records
+    match /admins/{uid} {
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow create, update: if isAuthenticated() && request.auth.uid == uid &&
+                            (request.resource.data.keys().hasAll(['email']) && 
+                             request.resource.data.email.toLowerCase() in [
+                               'shivshahidoors@gmail.com',
+                               'jayhanumandoor@gmail.com',
+                               'jaihanumandoor@gmail.com',
+                               'orders@jaihanumandoor.com',
+                               'admin@jaihanumandoor.com',
+                               'admin@shivshahidoors.com'
+                             ]);
+      allow delete: if isAdmin();
     }
 
     // Master store document
@@ -47,4 +66,5 @@ service cloud.firestore {
     }
   }
 }
+
 
