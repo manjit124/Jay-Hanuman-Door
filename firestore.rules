@@ -8,19 +8,32 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() &&
-             request.auth.token.keys().hasAll(['email']) &&
              (
-               request.auth.token.email.toLowerCase() in [
-                 'shivshahidoors@gmail.com',
-                 'jayhanumandoor@gmail.com',
-                 'jaihanumandoor@gmail.com',
-                 'orders@jaihanumandoor.com',
-                 'admin@jaihanumandoor.com',
-                 'admin@shivshahidoors.com'
-               ] ||
-               request.auth.token.email.matches('.*@jaihanumandoor\\.com$') ||
-               request.auth.token.email.matches('.*@shivshahidoors\\.com$') ||
-               (request.auth.token.keys().hasAll(['admin']) && request.auth.token.admin == true)
+               (
+                 'email' in request.auth.token &&
+                 request.auth.token.email != null &&
+                 (
+                   request.auth.token.email in [
+                     'shivshahidoors@gmail.com',
+                     'jayhanumandoor@gmail.com',
+                     'jaihanumandoor@gmail.com',
+                     'orders@jaihanumandoor.com',
+                     'admin@jaihanumandoor.com',
+                     'admin@shivshahidoors.com'
+                   ] ||
+                   request.auth.token.email.lower() in [
+                     'shivshahidoors@gmail.com',
+                     'jayhanumandoor@gmail.com',
+                     'jaihanumandoor@gmail.com',
+                     'orders@jaihanumandoor.com',
+                     'admin@jaihanumandoor.com',
+                     'admin@shivshahidoors.com'
+                   ] ||
+                   request.auth.token.email.lower().matches('.*@jaihanumandoor\\.com$') ||
+                   request.auth.token.email.lower().matches('.*@shivshahidoors\\.com$')
+                 )
+               ) ||
+               ('admin' in request.auth.token && request.auth.token.admin == true)
              );
     }
 
@@ -42,8 +55,32 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Finishes pricing collection
+    match /finishes/{finishId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Chaukhat frames collection
+    match /frames/{frameId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Hardware items collection
+    match /hardware/{hardwareId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Home banners collection
     match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Articles collection
+    match /articles/{articleId} {
       allow read: if true;
       allow write: if isAdmin();
     }
@@ -54,8 +91,18 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Media uploads collection
+    // Media uploads collections
     match /media_files/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /uploaded_media/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /uploaded_media_chunks/{document} {
       allow read: if true;
       allow write: if isAdmin();
     }

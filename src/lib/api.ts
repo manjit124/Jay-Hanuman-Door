@@ -79,6 +79,8 @@ import {
   deleteArticleDirectFirestore,
   cleanUndefined,
   isClientAdminAuthorized,
+  ensureFirebaseAuthSession,
+  adminLogoutViaFirebase,
 } from './firestoreClient.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
@@ -1085,6 +1087,7 @@ export async function adminLogin(
       const data = await res.json();
       if (res.ok && data.token) {
         setAdminToken(data.token);
+        await ensureFirebaseAuthSession(email, pass);
         return { success: true, source: 'server' };
       }
       if (res.status === 401 || res.status === 400) {
@@ -1155,6 +1158,7 @@ export async function adminLogout(): Promise<void> {
       // ignore network errors on logout
     }
   }
+  await adminLogoutViaFirebase();
   clearAdminToken();
 }
 
@@ -1167,12 +1171,20 @@ export async function checkAdminAuth(): Promise<boolean> {
     });
     if (res.ok) {
       const data = await res.json();
-      return Boolean(data.authenticated);
+      if (data.authenticated) {
+        ensureFirebaseAuthSession().catch(() => {});
+        return true;
+      }
+      return false;
     }
   } catch {
     // If server unreachable, check if local token is valid
   }
-  return Boolean(token && token.length > 10);
+  const isTokenValid = Boolean(token && token.length > 10);
+  if (isTokenValid) {
+    ensureFirebaseAuthSession().catch(() => {});
+  }
+  return isTokenValid;
 }
 
 export async function fetchAdminAllData(): Promise<{

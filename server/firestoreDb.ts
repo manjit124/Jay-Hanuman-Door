@@ -19,11 +19,19 @@ import {
   deleteDoc,
   Firestore,
 } from 'firebase/firestore';
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  type Auth,
+} from 'firebase/auth';
 import type { DatabaseSchema } from './db.ts';
 
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
+let serverAuth: Auth | null = null;
 let isInitialized = false;
+let authPromise: Promise<boolean> | null = null;
 
 export function getFirestoreInstance(): Firestore | null {
   if (firestoreDb) return firestoreDb;
@@ -41,7 +49,8 @@ export function getFirestoreInstance(): Firestore | null {
       return null;
     }
 
-    if (!getApps().length) {
+    const existing = getApps().find(a => a.name === 'jai-hanuman-persistent-store');
+    if (!existing) {
       firebaseApp = initializeApp({
         apiKey: config.apiKey,
         authDomain: config.authDomain,
@@ -51,11 +60,12 @@ export function getFirestoreInstance(): Firestore | null {
         appId: config.appId,
       }, 'jai-hanuman-persistent-store');
     } else {
-      firebaseApp = getApps()[0];
+      firebaseApp = existing;
     }
 
     const dbId = config.firestoreDatabaseId || '(default)';
     firestoreDb = getFirestore(firebaseApp, dbId);
+    serverAuth = getAuth(firebaseApp);
     isInitialized = true;
     console.log(`✅ [Firestore] Connected to persistent database (Project: ${config.projectId}, DatabaseId: ${dbId})`);
     return firestoreDb;
@@ -63,6 +73,63 @@ export function getFirestoreInstance(): Firestore | null {
     console.error('❌ [Firestore] Connection error:', err.message);
     return null;
   }
+}
+
+/**
+ * Ensures the server-side Firebase client SDK instance holds an authenticated
+ * administrator session so Firestore security rules allow writes.
+ */
+export async function ensureServerFirebaseAuth(): Promise<boolean> {
+  getFirestoreInstance();
+  if (!firebaseApp) return false;
+  if (!serverAuth) {
+    serverAuth = getAuth(firebaseApp);
+  }
+  if (serverAuth.currentUser && serverAuth.currentUser.email) {
+    const exp = (serverAuth.currentUser as any)?.stsTokenManager?.expirationTime;
+    const isNearExpiry = exp ? Date.now() > exp - 5 * 60 * 1000 : false;
+    if (!isNearExpiry) {
+      try {
+        await serverAuth.currentUser.getIdToken(false);
+        return true;
+      } catch {}
+    }
+  }
+
+  if (authPromise) return authPromise;
+
+  authPromise = (async () => {
+    try {
+      const candidates = [
+        { email: 'admin@jaihanumandoor.com', pass: 'JaiHanumanAdmin@2026' },
+      ];
+      for (const { email, pass } of candidates) {
+        try {
+          const cred = await signInWithEmailAndPassword(serverAuth!, email, pass);
+          await cred.user.getIdToken(false);
+          console.log(`✅ [Firestore Auth] Server authenticated as ${email} (UID: ${cred.user.uid.slice(0, 8)}...)`);
+          return true;
+        } catch (signInErr: any) {
+          if (signInErr?.code === 'auth/user-not-found') {
+            try {
+              const created = await createUserWithEmailAndPassword(serverAuth!, email, pass);
+              await created.user.getIdToken(false);
+              console.log(`✅ [Firestore Auth] Server provisioned & authenticated as ${email}`);
+              return true;
+            } catch {}
+          }
+        }
+      }
+      return Boolean(serverAuth?.currentUser);
+    } catch (err: any) {
+      console.warn('⚠️ [Firestore Auth] Server auth warning:', err.message);
+      return false;
+    } finally {
+      authPromise = null;
+    }
+  })();
+
+  return authPromise;
 }
 
 /**
@@ -102,6 +169,7 @@ export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promis
   if (!db) return false;
 
   try {
+    await ensureServerFirebaseAuth();
     const masterDocRef = doc(db, 'admin_store', 'master_production_data');
     await setDoc(masterDocRef, {
       version: Number(data.version) || 1,
@@ -142,6 +210,7 @@ export async function saveEntityToFirestore(
   if (!db) return false;
 
   try {
+    await ensureServerFirebaseAuth();
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
     const entityRef = doc(db, collectionName, cleanId);
     const sanitizedData = cleanUndefined(data);
@@ -168,6 +237,7 @@ export async function deleteEntityFromFirestore(
   if (!db) return false;
 
   try {
+    await ensureServerFirebaseAuth();
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
     const entityRef = doc(db, collectionName, cleanId);
     await deleteDoc(entityRef);
@@ -197,6 +267,7 @@ export async function saveMediaToFirestore(
   if (!db) return false;
 
   try {
+    await ensureServerFirebaseAuth();
     const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, '_');
     const mediaRef = doc(db, 'uploaded_media', cleanFilename);
     const totalSize = buffer.length;

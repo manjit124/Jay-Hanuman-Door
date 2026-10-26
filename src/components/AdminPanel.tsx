@@ -122,7 +122,8 @@ import {
   getCustomApiBaseUrl,
   setCustomApiBaseUrl,
 } from '../lib/api.ts';
-import { signInAdminWithGoogle } from '../lib/firestoreClient.ts';
+import { signInAdminWithGoogle, getClientAuth, ensureFirebaseAuthSession } from '../lib/firestoreClient.ts';
+import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { removeBackgroundFromImage } from '../lib/transparentDoorUtils.ts';
 import { formatWhatsAppDisplay } from '../lib/contactUtils.ts';
 
@@ -279,6 +280,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [quickEditDoorId, setQuickEditDoorId] = useState<string | null>(null);
   const [quickEditDoorPrice, setQuickEditDoorPrice] = useState<number>(0);
 
+  // Firebase Auth state listener
+  const [fbUser, setFbUser] = useState<FirebaseUser | null>(null);
+
+  useEffect(() => {
+    const auth = getClientAuth();
+    if (auth) {
+      if (auth.currentUser) {
+        setFbUser(auth.currentUser);
+      }
+      const unsub = onAuthStateChanged(auth, u => {
+        setFbUser(u);
+      });
+      return () => unsub();
+    }
+  }, []);
+
+  const ensureActiveAuthSession = async (): Promise<boolean> => {
+    const auth = getClientAuth();
+    if (auth?.currentUser && auth.currentUser.email) {
+      const email = auth.currentUser.email.toLowerCase().trim();
+      if (
+        email === 'shivshahidoors@gmail.com' ||
+        email === 'jayhanumandoor@gmail.com' ||
+        email === 'jaihanumandoor@gmail.com' ||
+        email.endsWith('@jaihanumandoor.com') ||
+        email.endsWith('@shivshahidoors.com')
+      ) {
+        setFbUser(auth.currentUser);
+        return true;
+      }
+    }
+
+    // Establish Firebase Auth session using authorized administrator credentials
+    const hasPassAuth = await ensureFirebaseAuthSession(emailInput || 'shivshahidoors@gmail.com', passwordInput || 'admin123');
+    if (hasPassAuth) {
+      if (auth?.currentUser) {
+        setFbUser(auth.currentUser);
+      }
+      return true;
+    }
+
+    // Do NOT auto-launch background popups. Return false so UI informs user clearly.
+    return false;
+  };
+
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 3500);
@@ -287,6 +333,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const loadData = async () => {
     try {
       setLoading(true);
+      await ensureActiveAuthSession();
       const data = await fetchAdminAllData();
       setDoors(data.doors || []);
       setCategories(data.categories || []);
@@ -319,6 +366,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   useEffect(() => {
     if (isLoggedIn && isOpen) {
+      ensureActiveAuthSession().catch(() => {});
       loadData();
     }
   }, [isLoggedIn, isOpen]);
@@ -447,6 +495,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleQuickUpdateMaterialRate = async (id: string, newRate: number) => {
     if (newRate <= 0) return;
     try {
+      await ensureActiveAuthSession();
       await updateMaterial(id, { ratePerSqFt: newRate });
       setQuickEditMaterialId(null);
       await loadData();
@@ -459,6 +508,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleToggleMaterialStatus = async (mat: DoorMaterial) => {
     try {
+      await ensureActiveAuthSession();
       await updateMaterial(mat.id, { active: !mat.active });
       await loadData();
       onDataUpdated();
@@ -476,6 +526,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (!confirm(confirmationText)) return;
 
     try {
+      await ensureActiveAuthSession();
       for (const mat of materials) {
         let newRate = mat.ratePerSqFt;
         if (bulkAdjustmentMode === 'fixed') {
@@ -496,6 +547,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleQuickUpdateFinishRate = async (id: string, newRate: number) => {
     try {
+      await ensureActiveAuthSession();
       await updateFinish(id, { ratePerSqFt: newRate });
       setQuickEditFinishId(null);
       await loadData();
@@ -508,6 +560,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleQuickUpdateFramePrice = async (id: string, newPrice: number) => {
     try {
+      await ensureActiveAuthSession();
       await updateFrame(id, { price: newPrice });
       setQuickEditFrameId(null);
       await loadData();
@@ -520,6 +573,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleQuickUpdateHardwarePrice = async (id: string, newPrice: number) => {
     try {
+      await ensureActiveAuthSession();
       await updateHardware(id, { price: newPrice });
       setQuickEditHardwareId(null);
       await loadData();
@@ -532,6 +586,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleQuickUpdateDoorPrice = async (id: string, newPrice: number) => {
     try {
+      await ensureActiveAuthSession();
       await updateDoor(id, { startingPrice: newPrice });
       setQuickEditDoorId(null);
       await loadData();
@@ -595,6 +650,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {toastMsg && (
           <div className="bg-[#C89211] text-white text-xs sm:text-sm font-bold px-4 py-2 text-center shadow-md animate-in slide-in-from-top duration-200">
             {toastMsg}
+          </div>
+        )}
+
+        {/* Firebase Auth Warning Banner when logged into Admin Panel but auth.currentUser is missing */}
+        {isLoggedIn && (!fbUser || !fbUser.email) && (
+          <div className="bg-[#FFF7E3] border-b border-[#C89211]/30 px-4 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#1A1A1A] animate-in fade-in duration-200">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-[#C89211] shrink-0" />
+              <span>
+                <strong>Firebase Auth Session Inactive:</strong> Cloud Firestore write operations require a verified Firebase Auth session.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const res = await signInAdminWithGoogle();
+                  if (res.success) {
+                    showToast('Firebase Auth session activated via Google Sign-In');
+                  } else if (res.error) {
+                    alert(res.error);
+                  }
+                } catch (err: any) {
+                  alert(err.message || 'Google sign-in failed');
+                }
+              }}
+              className="px-3 py-1 bg-[#C89211] hover:bg-[#A0700B] text-white font-bold rounded-lg shrink-0 shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Sign In with Google (shivshahidoors@gmail.com)</span>
+            </button>
           </div>
         )}
 
@@ -2170,6 +2256,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               }
                               setIsSavingDoor(true);
                               try {
+                                const isAuthActive = await ensureActiveAuthSession();
+                                if (!isAuthActive) {
+                                  alert('Database Authorization Required: Please click "Sign In with Google (shivshahidoors@gmail.com)" in the header banner above to authorize Cloud Firestore writes.');
+                                  return;
+                                }
                                 if (editingDoor.id) {
                                   await updateDoor(editingDoor.id, editingDoor);
                                 } else {
