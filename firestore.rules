@@ -1,9 +1,50 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default allow for applet operations
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email.toLowerCase() in [
+          'shivshahidoors@gmail.com',
+          'jayhanumandoor@gmail.com',
+          'jaihanumandoor@gmail.com',
+          'orders@jaihanumandoor.com',
+          'admin@jaihanumandoor.com',
+          'admin@shivshahidoors.com'
+        ] ||
+        request.auth.token.email.matches('.*@jaihanumandoor\\.com$') ||
+        request.auth.token.email.matches('.*@shivshahidoors\\.com$') ||
+        (request.auth.token.keys().hasAll(['admin']) && request.auth.token.admin == true)
+      );
+    }
+
+    // Master store document
+    match /admin_store/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Granular doors collection
+    match /doors/{doorId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Settings collection
+    match /settings/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Default fallback rule
     match /{document=**} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }
+
