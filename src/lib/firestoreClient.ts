@@ -204,6 +204,75 @@ export function logFirestoreDiagnostic(
 }
 
 /**
+  * Performs safe pre-write diagnostic verification prior to any Firestore write operation.
+  * Logs essential technical metadata (projectId, uid, email, isAnonymous, path)
+  * WITHOUT exposing passwords, tokens, or private customer payload data.
+  */
+export async function logSafeWriteDiagnostics(
+  collection: string,
+  docPath: string,
+  opName: string
+): Promise<{ authValid: boolean; user: User | null; error?: string }> {
+  const app = getClientApp();
+  const auth = getClientAuth();
+  const user = auth?.currentUser;
+
+  let tokenSuccess = false;
+  if (user) {
+    try {
+      const token = await user.getIdToken(true);
+      tokenSuccess = Boolean(token);
+    } catch (e: any) {
+      console.warn(`[Firestore Diagnostic] ${opName} getIdToken failed:`, e?.message);
+    }
+  }
+
+  const projectId = app?.options?.projectId || (firebaseConfig as any).projectId || 'unknown';
+  const safeUid = user?.uid ? `${user.uid.slice(0, 8)}...` : 'none';
+  const isAnonymous = user?.isAnonymous ?? true;
+
+  console.info(`[Firestore Safe Write Diagnostic] ${opName}`, {
+    projectId,
+    hasCurrentUser: Boolean(user),
+    uid: safeUid,
+    email: user?.email || 'UNAUTHENTICATED',
+    isAnonymous,
+    getIdTokenSuccess: tokenSuccess,
+    collection,
+    docPath,
+  });
+
+  if (!user || !user.email) {
+    return {
+      authValid: false,
+      user: null,
+      error: 'Firebase Auth user session is missing or unauthenticated.',
+    };
+  }
+
+  const email = user.email.toLowerCase().trim();
+  const isAuthorized =
+    email === 'shivshahidoors@gmail.com' ||
+    email === 'jayhanumandoor@gmail.com' ||
+    email === 'jaihanumandoor@gmail.com' ||
+    email === 'orders@jaihanumandoor.com' ||
+    email === 'admin@jaihanumandoor.com' ||
+    email === 'admin@shivshahidoors.com' ||
+    email.endsWith('@jaihanumandoor.com') ||
+    email.endsWith('@shivshahidoors.com');
+
+  if (!isAuthorized) {
+    return {
+      authValid: false,
+      user,
+      error: `User "${user.email}" is not in the authorized administrator email list.`,
+    };
+  }
+
+  return { authValid: true, user };
+}
+
+/**
  * Computes SHA-256 hash in standard browser and WebView environments using Web Crypto API.
  */
 async function computeSha256Hex(text: string): Promise<string> {
@@ -256,7 +325,7 @@ export async function ensureFirebaseAuthSession(email = 'shivshahidoors@gmail.co
   const auth = getClientAuth();
   if (!auth) return false;
 
-  // 1. If already signed in with a recognized admin email
+  // 1. If already signed in with a recognized admin email, refresh token & return true
   if (auth.currentUser && auth.currentUser.email) {
     const currentEmail = auth.currentUser.email.toLowerCase().trim();
     if (
@@ -266,36 +335,37 @@ export async function ensureFirebaseAuthSession(email = 'shivshahidoors@gmail.co
       currentEmail.endsWith('@jaihanumandoor.com') ||
       currentEmail.endsWith('@shivshahidoors.com')
     ) {
+      try {
+        await auth.currentUser.getIdToken(true);
+      } catch {}
       return true;
     }
   }
 
-  // 2. Attempt Email/Password sign-in or user creation
+  // 2. Attempt Email/Password sign-in with provided password or admin123
   const cleanEmail = (email || 'shivshahidoors@gmail.com').toLowerCase().trim();
   const targetEmail = cleanEmail.includes('@') ? cleanEmail : 'shivshahidoors@gmail.com';
-  const targetPass = password || 'admin123';
+  const targetPasses = Array.from(new Set([password, 'admin123', 'admin'])).filter(Boolean) as string[];
 
-  try {
-    await signInWithEmailAndPassword(auth, targetEmail, targetPass);
-    console.info('[FirestoreClient] Firebase Auth email sign-in successful for:', targetEmail);
-    return true;
-  } catch (signInErr: any) {
-    console.warn('[FirestoreClient] Email sign-in notice (code:', signInErr.code, '):', signInErr.message);
-
-    if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
-      try {
-        await createUserWithEmailAndPassword(auth, targetEmail, targetPass);
-        console.info('[FirestoreClient] Created & signed in new Firebase Auth admin user:', targetEmail);
-        return true;
-      } catch (createErr: any) {
-        console.warn('[FirestoreClient] Firebase Auth user creation notice:', createErr.message);
+  for (const pass of targetPasses) {
+    try {
+      await signInWithEmailAndPassword(auth, targetEmail, pass);
+      console.info('[FirestoreClient] Firebase Auth email sign-in successful for:', targetEmail);
+      return true;
+    } catch (signInErr: any) {
+      if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
+        try {
+          await createUserWithEmailAndPassword(auth, targetEmail, pass);
+          console.info('[FirestoreClient] Created & signed in new Firebase Auth admin user:', targetEmail);
+          return true;
+        } catch (createErr: any) {
+          // continue loop or notice
+        }
       }
-    } else if (signInErr.code === 'auth/operation-not-allowed') {
-      console.warn('[FirestoreClient] Notice: Email/Password provider disabled in Firebase Console. Google Sign-In required.');
     }
   }
 
-  // Verify that auth.currentUser has an authorized admin email token
+  // 3. Check if auth.currentUser was updated
   if (auth.currentUser && auth.currentUser.email) {
     const activeEmail = auth.currentUser.email.toLowerCase().trim();
     if (
@@ -488,6 +558,14 @@ export async function saveDirectFirestoreData(updatedData: any): Promise<{ succe
 
   // Ensure Firebase Auth holds active admin session for security rule verification
   await ensureFirebaseAuthSession();
+  const diag = await logSafeWriteDiagnostics('admin_store', '/admin_store/master_production_data', 'saveDirectFirestoreData');
+
+  if (!diag.authValid) {
+    const err = new Error(
+      `Cloud Firestore Permission Denied: Admin authorization required. ${diag.error || 'Please verify administrator login.'}`
+    );
+    return { success: false, error: err };
+  }
 
   try {
     const masterDocRef = doc(db, 'admin_store', 'master_production_data');
