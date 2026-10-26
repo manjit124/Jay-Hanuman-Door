@@ -23,7 +23,12 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Coins,
+  CreditCard,
+  Play,
+  Video,
 } from 'lucide-react';
+import { adMobService } from '../lib/admob/admobService.ts';
 import { AIWoodAnalysisResult, BusinessSettings } from '../types.ts';
 import {
   detectWoodFromImage,
@@ -33,6 +38,17 @@ import {
   setCustomApiBaseUrl,
 } from '../lib/api.ts';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
+import {
+  getUserCredits,
+  hasEnoughCreditsForScan,
+  deductCreditsForScan,
+  addPurchasedCredits,
+  subscribeCreditsChange,
+  CREDIT_PACKS,
+  SCAN_COST_CREDITS,
+  DEFAULT_FREE_CREDITS,
+  type CreditPack,
+} from '../lib/creditManager.ts';
 
 interface AIWoodDetectorProps {
   settings?: BusinessSettings;
@@ -63,7 +79,23 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
     endGrain: null,
   });
 
+  // Credit balance & monetization state (Phase 5)
+  const [credits, setCredits] = useState<number>(() => getUserCredits());
+  const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
+  const [purchasedPackToast, setPurchasedPackToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = subscribeCreditsChange(val => setCredits(val));
+    return unsubscribe;
+  }, []);
+
+  const [watchingRewardedAd, setWatchingRewardedAd] = useState<boolean>(false);
   const [analyzing, setAnalyzing] = useState<boolean>(false);
+
+  // AdMob Safe Context: Suppress full-screen interstitial/app-open ads while active scan is occurring
+  useEffect(() => {
+    adMobService.setCameraOrScanActive(analyzing);
+  }, [analyzing]);
   const [scanStepIndex, setScanStepIndex] = useState<number>(0);
   const [result, setResult] = useState<AIWoodAnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -195,6 +227,13 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
       return;
     }
 
+    // Phase 5: Monetization credit check (3 credits per scan)
+    if (!hasEnoughCreditsForScan()) {
+      setError(`AI Wood Scan ke liye kam se kam ${SCAN_COST_CREDITS} credits ki zaroorat hai. Aapke paas abhi ${credits} credits hain. Kripya recharge karein.`);
+      setShowCreditModal(true);
+      return;
+    }
+
     setAnalyzing(true);
     setError(null);
     setScanStepIndex(0);
@@ -220,6 +259,11 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
 
       clearInterval(interval);
       setResult(analysisResult);
+
+      // Phase 5: Deduct exactly 3 credits upon confirmed successful analysis with deduplicated token
+      const scanTxId = `scan_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      deductCreditsForScan(scanTxId);
+      setCredits(getUserCredits());
 
       setTimeout(() => {
         const el = document.getElementById('wood-analysis-result');
@@ -287,6 +331,28 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             <span className="text-[#C89211] font-medium">Sagwan vs Sal vs Sheesham Comparison</span>
             <span className="text-[#999999]">•</span>
             <span className="text-[#666666]">No False Claims</span>
+          </div>
+
+          {/* User Credits Balance & Recharge Trigger (Phase 5 Monetization) */}
+          <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-[#1A1A1A] text-xs font-medium shadow-xs">
+              <Coins className="w-4 h-4 text-amber-600 animate-pulse" />
+              <span>
+                Credits: <strong className="text-amber-800 font-bold">{credits}</strong>
+              </span>
+              <span className="text-stone-300">|</span>
+              <span className="text-[#666666]">
+                {Math.floor(credits / SCAN_COST_CREDITS)} Scan{Math.floor(credits / SCAN_COST_CREDITS) === 1 ? '' : 's'} Remaining ({SCAN_COST_CREDITS} cr/scan)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCreditModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#C89211] hover:bg-[#b07d08] text-white text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+            >
+              <CreditCard className="w-3.5 h-3.5 text-white" />
+              <span>+ Recharge Credits</span>
+            </button>
           </div>
         </div>
 
@@ -645,10 +711,10 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                 type="button"
                 onClick={handleStartAnalysis}
                 disabled={analyzing || !hasAnyPhoto}
-                className="py-3 px-6 rounded-xl bg-[#C89211] hover:bg-[#b07d08] text-white font-bold text-xs sm:text-base flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 flex-1 sm:flex-none disabled:opacity-50"
+                className="py-3 px-6 rounded-xl bg-[#C89211] hover:bg-[#b07d08] text-white font-bold text-xs sm:text-base flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 flex-1 sm:flex-none disabled:opacity-50 cursor-pointer"
               >
                 <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                <span>{analyzing ? 'Scanning Grain & Pores...' : 'Analyze Wood Now'}</span>
+                <span>{analyzing ? 'Scanning Grain & Pores...' : `Analyze Wood (${SCAN_COST_CREDITS} Credits)`}</span>
               </button>
             </div>
           </div>
@@ -964,6 +1030,231 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
               </a>
             </div>
 
+          </div>
+        )}
+
+        {/* CREDIT RECHARGE TOAST */}
+        {purchasedPackToast && (
+          <div className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl bg-emerald-700 text-white shadow-xl flex items-center gap-3 animate-fade-in text-xs sm:text-sm font-semibold">
+            <CheckCircle2 className="w-5 h-5 text-emerald-200 flex-shrink-0" />
+            <span>{purchasedPackToast}</span>
+          </div>
+        )}
+
+        {/* MONETIZATION CREDIT RECHARGE MODAL (Phase 5) */}
+        {showCreditModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+            <div className="bg-white border border-[#E5E5E5] rounded-3xl max-w-lg w-full p-5 sm:p-8 shadow-2xl space-y-5 relative max-h-[92vh] overflow-y-auto text-[#1A1A1A]">
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setShowCreditModal(false)}
+                className="absolute top-4 right-4 p-2 rounded-full hover:bg-stone-100 text-[#666666] hover:text-[#1A1A1A] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Modal Header */}
+              <div className="text-center space-y-1.5 pt-1">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold">
+                  <Coins className="w-4 h-4 text-amber-600" />
+                  <span>AI Wood Detector Credits</span>
+                </div>
+                <h3 className="font-serif text-xl sm:text-2xl font-extrabold text-[#1A1A1A]">
+                  AI Scan Credits Recharge
+                </h3>
+                <p className="text-xs text-[#666666] max-w-sm mx-auto">
+                  Aapke paas abhi <strong className="text-amber-700 font-bold">{credits} credits</strong> hain ({Math.floor(credits / SCAN_COST_CREDITS)} scans). Har ek AI wood scan ka cost <strong>3 credits</strong> hai.
+                </p>
+              </div>
+
+              {/* Optional Rewarded Ad & Rewarded Interstitial for Free Credits (Formats 3 & 4) */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800">
+                    <Sparkles className="w-4 h-4 text-[#C89211]" />
+                    <span>Watch Ad for Free Credits (Free Option)</span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white uppercase tracking-wider">
+                    Free
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#666666]">
+                  Aap bina paise diye ad dekh kar turant <strong>+3 Free Credits</strong> kama sakte hain (1 full photo scan). Reward ad complete hone par hi credits milte hain.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {/* Format 3: Rewarded Video Ad */}
+                  <button
+                    type="button"
+                    disabled={watchingRewardedAd}
+                    onClick={async () => {
+                      setWatchingRewardedAd(true);
+                      try {
+                        const result = await adMobService.showRewardedAd(
+                          (reward) => {
+                            setCredits(getUserCredits());
+                            setPurchasedPackToast(`🎉 Mubarak! Video ad dekhne par +${reward.amount || 3} Credits mil gaye!`);
+                            setTimeout(() => setPurchasedPackToast(null), 4000);
+                            setShowCreditModal(false);
+                            setError(null);
+                          },
+                          () => setWatchingRewardedAd(false),
+                          settings?.adSettings
+                        );
+                        if (!result.shown) {
+                          setPurchasedPackToast('Ad abhi load ho raha hai, kripya 5 second baad dobara prayas karein.');
+                          setTimeout(() => setPurchasedPackToast(null), 3000);
+                        }
+                      } finally {
+                        setWatchingRewardedAd(false);
+                      }
+                    }}
+                    className="flex-1 min-w-[140px] py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>{watchingRewardedAd ? 'Loading Ad...' : 'Watch Video (+3 Credits)'}</span>
+                  </button>
+
+                  {/* Format 4: Rewarded Interstitial Ad */}
+                  <button
+                    type="button"
+                    disabled={watchingRewardedAd}
+                    onClick={async () => {
+                      setWatchingRewardedAd(true);
+                      try {
+                        const result = await adMobService.showRewardedInterstitialAd(
+                          (reward) => {
+                            setCredits(getUserCredits());
+                            setPurchasedPackToast(`🎉 Mubarak! Interactive ad complete karne par +${reward.amount || 3} Credits mil gaye!`);
+                            setTimeout(() => setPurchasedPackToast(null), 4000);
+                            setShowCreditModal(false);
+                            setError(null);
+                          },
+                          () => setWatchingRewardedAd(false),
+                          settings?.adSettings
+                        );
+                        if (!result.shown) {
+                          setPurchasedPackToast('Interactive ad abhi load ho raha hai, kripya 5 second baad try karein.');
+                          setTimeout(() => setPurchasedPackToast(null), 3000);
+                        }
+                      } finally {
+                        setWatchingRewardedAd(false);
+                      }
+                    }}
+                    className="flex-1 min-w-[140px] py-2 px-3 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Interactive Sponsor (+3 Credits)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Credit Packs Grid (One-Time Purchases Only) */}
+              <div className="space-y-3">
+                {CREDIT_PACKS.map(pack => {
+                  const buyMsg = `Namaste Jai Hanuman Door, mujhe AI Wood Scan recharge pack kharidna hai: ${pack.name} - ₹${pack.price} (${pack.credits} Credits). Kripya UPI payment QR code share karein.`;
+                  const packWhatsAppUrl = getWhatsAppUrl(expertNumber, buyMsg);
+
+                  return (
+                    <div
+                      key={pack.id}
+                      className={`p-4 rounded-2xl border transition-all ${
+                        pack.popular
+                          ? 'border-[#C89211] bg-amber-50/40 shadow-sm relative'
+                          : 'border-[#E5E5E5] bg-[#F8F8F6] hover:bg-white'
+                      }`}
+                    >
+                      {pack.badge && (
+                        <span className="absolute -top-2.5 right-4 px-2.5 py-0.5 rounded-full bg-[#C89211] text-white text-[10px] font-extrabold tracking-wide uppercase shadow-xs">
+                          {pack.badge}
+                        </span>
+                      )}
+
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-[#1A1A1A] text-sm sm:text-base">
+                              {pack.name}
+                            </h4>
+                            <span className="text-[11px] text-[#666666] font-medium">
+                              ({pack.description})
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-baseline gap-2">
+                            <span className="text-xl sm:text-2xl font-black text-[#1A1A1A]">
+                              ₹{pack.price}
+                            </span>
+                            <span className="text-xs text-stone-500 font-medium">
+                              • One-time payment (No subscriptions)
+                            </span>
+                          </div>
+                          <p className="text-xs text-amber-800 font-semibold mt-1 flex items-center gap-1">
+                            <Coins className="w-3.5 h-3.5 text-amber-600" />
+                            <span>+{pack.credits} Credits ({pack.scans} AI Wood Scans)</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3.5 pt-3 border-t border-[#E5E5E5] flex flex-wrap items-center gap-2">
+                        {/* WhatsApp / UPI Purchase */}
+                        <a
+                          href={packWhatsAppUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 min-w-[140px] py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>Pay ₹{pack.price} via UPI</span>
+                        </a>
+
+                        {/* Instant Activation for direct testing & verification */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const txToken = `pack_${pack.id}_${Date.now()}`;
+                            const newTotal = addPurchasedCredits(pack.credits, txToken);
+                            setCredits(newTotal);
+                            setPurchasedPackToast(`+${pack.credits} Credits safaltapoorvak add ho gaye!`);
+                            setTimeout(() => setPurchasedPackToast(null), 3500);
+                            setShowCreditModal(false);
+                            setError(null);
+                          }}
+                          className="py-2 px-3 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Instant Add ({pack.credits} Cr)</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Transparency & Rules Footer */}
+              <div className="p-3.5 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] text-[11px] text-[#666666] space-y-1.5 leading-relaxed">
+                <div className="flex items-center gap-1.5 text-emerald-700 font-semibold">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Fair Pricing Guarantee:</span>
+                </div>
+                <ul className="list-disc pl-4 space-y-0.5 text-[#666666]">
+                  <li>Naye users ko shuruat mein <strong>{DEFAULT_FREE_CREDITS} Free Welcome Credits</strong> milte hain.</li>
+                  <li>Har ek AI Wood photo scan ka cost <strong>{SCAN_COST_CREDITS} credits</strong> hota hai.</li>
+                  <li>Credits kabhi expire nahi hote aur koi monthly auto-debit ya subscription nahi hai.</li>
+                  <li>Agar scan fail hota hai ya photo clear nahi hoti, to credits deduct nahi hote.</li>
+                </ul>
+              </div>
+
+              {/* Close Button Bottom */}
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowCreditModal(false)}
+                  className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-[#1A1A1A] font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

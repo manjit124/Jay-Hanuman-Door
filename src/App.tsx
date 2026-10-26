@@ -362,9 +362,37 @@ export const App: React.FC = () => {
     setFavoriteDoorIds(getGuestFavorites());
   }, []);
 
-  // Initialize Native Google AdMob SDK and preload interstitials
+  // Initialize Native Google AdMob SDK and preload ad units
   useEffect(() => {
     adMobService.initialize(settings?.adSettings);
+  }, [settings?.adSettings]);
+
+  // Format 6: Google AdMob App Open Ad (Cold start & Foreground return)
+  useEffect(() => {
+    const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.());
+    if (!isNative) return;
+
+    let appStateHandle: { remove: () => Promise<void> } | null = null;
+    CapApp.addListener('appStateChange', (state) => {
+      if (state.isActive) {
+        // App returned to foreground: show App Open Ad if eligible
+        adMobService.showAppOpenAd(settings?.adSettings);
+      }
+    }).then(h => {
+      appStateHandle = h;
+    }).catch(() => {});
+
+    // Cold start: Attempt App Open Ad after UI mounts (2.5s settle timer)
+    const coldStartTimer = setTimeout(() => {
+      adMobService.showAppOpenAd(settings?.adSettings);
+    }, 2500);
+
+    return () => {
+      clearTimeout(coldStartTimer);
+      if (appStateHandle?.remove) {
+        appStateHandle.remove().catch(() => {});
+      }
+    };
   }, [settings?.adSettings]);
 
   useEffect(() => {
@@ -577,8 +605,11 @@ export const App: React.FC = () => {
   };
 
   const handleOpenQuotationModal = (calcResult: CalculationResult, door?: Door | null) => {
-    setQuotationCalcResult(calcResult);
-    setQuotationDoor(door || null);
+    // Format 2: Google AdMob Interstitial (Natural break after door calculation)
+    adMobService.showQuotationInterstitial(() => {
+      setQuotationCalcResult(calcResult);
+      setQuotationDoor(door || null);
+    }, settings?.adSettings);
   };
 
   // Featured doors list for Home Screen (Section 2)

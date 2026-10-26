@@ -592,6 +592,7 @@ export interface BusinessSettings {
   businessName: string;
   tagline: string;
   logoUrl?: string;
+  productionApiUrl?: string;
   phone: string;
   whatsappNumber: string;
   googleMapsUrl?: string;
@@ -617,12 +618,19 @@ export interface AdMobSettings {
   appId?: string;
   bannerAdUnitId?: string;
   interstitialAdUnitId?: string;
+  rewardedAdUnitId?: string;
+  rewardedInterstitialAdUnitId?: string;
   nativeAdUnitId?: string;
+  appOpenAdUnitId?: string;
   enableBanners: boolean;
   enableInterstitials: boolean;
+  enableRewardedAds: boolean;
+  enableRewardedInterstitialAds: boolean;
   enableCatalogNativeAds: boolean;
+  enableAppOpenAds: boolean;
   catalogNativeAdFrequency: number; // e.g. 6 or 8
   interstitialMinIntervalSeconds: number; // e.g. 45 or 60
+  appOpenMinIntervalSeconds: number; // e.g. 180
 }
 
 export interface AdminStats {

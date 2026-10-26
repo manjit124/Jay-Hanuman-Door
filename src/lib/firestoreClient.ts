@@ -30,7 +30,9 @@ export function getClientFirestore(): Firestore | null {
       return null;
     }
 
-    if (!getApps().length) {
+    const apps = getApps();
+    const existing = apps.find(a => a.name === 'jai-hanuman-client') || apps.find(a => a.name === '[DEFAULT]');
+    if (!existing) {
       clientApp = initializeApp({
         apiKey: firebaseConfig.apiKey,
         authDomain: firebaseConfig.authDomain,
@@ -40,7 +42,7 @@ export function getClientFirestore(): Firestore | null {
         appId: firebaseConfig.appId,
       }, 'jai-hanuman-client');
     } else {
-      clientApp = getApps()[0];
+      clientApp = existing;
     }
 
     const dbId = (firebaseConfig as any).firestoreDatabaseId || '(default)';
@@ -214,6 +216,7 @@ import type {
   HardwareItem,
   HomeBanner,
   BusinessSettings,
+  Article,
 } from '../types.ts';
 import {
   DEFAULT_DOORS,
@@ -405,4 +408,203 @@ export async function updateMaterialDirectFirestore(id: string, updates: Partial
     return dbData.materials[idx];
   }
   throw new Error('Material not found in Cloud Firestore');
+}
+
+export async function deleteMaterialDirectFirestore(id: string): Promise<boolean> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.materials)) return false;
+  dbData.materials = dbData.materials.filter((m: DoorMaterial) => m.id !== id);
+  return await saveDirectFirestoreData(dbData);
+}
+
+// ---------------- Finishes Direct Firestore ----------------
+export async function saveFinishDirectFirestore(finish: Partial<PolishFinish>): Promise<PolishFinish> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.finishes)) dbData.finishes = [];
+  const newFin: PolishFinish = {
+    id: finish.id || 'fin-' + Date.now(),
+    name: finish.name || 'New Finish',
+    ratePerSqFt: Number(finish.ratePerSqFt) || 0,
+    description: finish.description || '',
+    active: finish.active !== undefined ? Boolean(finish.active) : true,
+    image: finish.image,
+  };
+  dbData.finishes.push(newFin);
+  await saveDirectFirestoreData(dbData);
+  return newFin;
+}
+
+export async function updateFinishDirectFirestore(id: string, updates: Partial<PolishFinish>): Promise<PolishFinish> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.finishes)) dbData.finishes = [];
+  const idx = dbData.finishes.findIndex((f: PolishFinish) => f.id === id);
+  if (idx !== -1) {
+    dbData.finishes[idx] = { ...dbData.finishes[idx], ...updates, id };
+    await saveDirectFirestoreData(dbData);
+    return dbData.finishes[idx];
+  }
+  throw new Error('Polish finish not found in Cloud Firestore');
+}
+
+export async function deleteFinishDirectFirestore(id: string): Promise<boolean> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.finishes)) return false;
+  dbData.finishes = dbData.finishes.filter((f: PolishFinish) => f.id !== id);
+  return await saveDirectFirestoreData(dbData);
+}
+
+// ---------------- Frames Direct Firestore ----------------
+export async function saveFrameDirectFirestore(frame: Partial<ChaukhatFrame>): Promise<ChaukhatFrame> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.frames)) dbData.frames = [];
+  const newFrm: ChaukhatFrame = {
+    id: frame.id || 'frm-' + Date.now(),
+    name: frame.name || 'New Frame',
+    price: Number(frame.price) || 0,
+    description: frame.description || '',
+    active: frame.active !== undefined ? Boolean(frame.active) : true,
+    image: frame.image,
+  };
+  dbData.frames.push(newFrm);
+  await saveDirectFirestoreData(dbData);
+  return newFrm;
+}
+
+export async function updateFrameDirectFirestore(id: string, updates: Partial<ChaukhatFrame>): Promise<ChaukhatFrame> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.frames)) dbData.frames = [];
+  const idx = dbData.frames.findIndex((f: ChaukhatFrame) => f.id === id);
+  if (idx !== -1) {
+    dbData.frames[idx] = { ...dbData.frames[idx], ...updates, id };
+    await saveDirectFirestoreData(dbData);
+    return dbData.frames[idx];
+  }
+  throw new Error('Frame not found in Cloud Firestore');
+}
+
+export async function deleteFrameDirectFirestore(id: string): Promise<boolean> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.frames)) return false;
+  dbData.frames = dbData.frames.filter((f: ChaukhatFrame) => f.id !== id);
+  return await saveDirectFirestoreData(dbData);
+}
+
+// ---------------- Hardware Direct Firestore ----------------
+export async function saveHardwareDirectFirestore(item: Partial<HardwareItem>): Promise<HardwareItem> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.hardware)) dbData.hardware = [];
+  const newHwd: HardwareItem = {
+    id: item.id || 'hwd-' + Date.now(),
+    name: item.name || 'New Hardware Item',
+    price: Number(item.price) || 0,
+    description: item.description || '',
+    active: item.active !== undefined ? Boolean(item.active) : true,
+    defaultQty: Number(item.defaultQty) || 1,
+    image: item.image,
+  };
+  dbData.hardware.push(newHwd);
+  await saveDirectFirestoreData(dbData);
+  return newHwd;
+}
+
+export async function updateHardwareDirectFirestore(id: string, updates: Partial<HardwareItem>): Promise<HardwareItem> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.hardware)) dbData.hardware = [];
+  const idx = dbData.hardware.findIndex((h: HardwareItem) => h.id === id);
+  if (idx !== -1) {
+    dbData.hardware[idx] = { ...dbData.hardware[idx], ...updates, id };
+    await saveDirectFirestoreData(dbData);
+    return dbData.hardware[idx];
+  }
+  throw new Error('Hardware item not found in Cloud Firestore');
+}
+
+export async function deleteHardwareDirectFirestore(id: string): Promise<boolean> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.hardware)) return false;
+  dbData.hardware = dbData.hardware.filter((h: HardwareItem) => h.id !== id);
+  return await saveDirectFirestoreData(dbData);
+}
+
+// ---------------- Banners Direct Firestore ----------------
+export async function saveBannerDirectFirestore(banner: Partial<HomeBanner>): Promise<HomeBanner> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.banners)) dbData.banners = [];
+  const newBnr: HomeBanner = {
+    id: banner.id || 'banner-' + Date.now(),
+    title: banner.title || 'New Banner',
+    subtitle: banner.subtitle || '',
+    image: banner.image || '',
+    destinationUrl: banner.destinationUrl || (banner as any).link || '',
+    slot: banner.slot || 'hero',
+    bannerType: banner.bannerType || 'main',
+    active: banner.active !== undefined ? Boolean(banner.active) : true,
+    order: Number(banner.order) || dbData.banners.length + 1,
+  };
+  dbData.banners.push(newBnr);
+  await saveDirectFirestoreData(dbData);
+  return newBnr;
+}
+
+export async function updateBannerDirectFirestore(id: string, updates: Partial<HomeBanner>): Promise<HomeBanner> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.banners)) dbData.banners = [];
+  const idx = dbData.banners.findIndex((b: HomeBanner) => b.id === id);
+  if (idx !== -1) {
+    dbData.banners[idx] = { ...dbData.banners[idx], ...updates, id };
+    await saveDirectFirestoreData(dbData);
+    return dbData.banners[idx];
+  }
+  throw new Error('Banner not found in Cloud Firestore');
+}
+
+export async function deleteBannerDirectFirestore(id: string): Promise<boolean> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.banners)) return false;
+  dbData.banners = dbData.banners.filter((b: HomeBanner) => b.id !== id);
+  return await saveDirectFirestoreData(dbData);
+}
+
+// ---------------- Articles Direct Firestore ----------------
+export async function saveArticleDirectFirestore(article: Partial<Article>): Promise<Article> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.articles)) dbData.articles = [];
+  const newArt: Article = {
+    id: article.id || 'art-' + Date.now(),
+    title: article.title || 'New Article',
+    slug: article.slug || ('article-' + Date.now()),
+    excerpt: article.excerpt || (article as any).summary || '',
+    content: article.content || '',
+    category: article.category || 'Timber Guides',
+    image: article.image || '',
+    tags: Array.isArray(article.tags) ? article.tags : [],
+    readTime: article.readTime || `${(article as any).readingTimeMinutes || 5} min read`,
+    views: Number(article.views) || 0,
+    likes: Number(article.likes) || 0,
+    published: article.published !== undefined ? Boolean(article.published) : true,
+    publishedAt: article.publishedAt || new Date().toISOString(),
+    createdAt: article.createdAt || new Date().toISOString(),
+  };
+  dbData.articles.unshift(newArt);
+  await saveDirectFirestoreData(dbData);
+  return newArt;
+}
+
+export async function updateArticleDirectFirestore(id: string, updates: Partial<Article>): Promise<Article> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.articles)) dbData.articles = [];
+  const idx = dbData.articles.findIndex((a: Article) => a.id === id);
+  if (idx !== -1) {
+    dbData.articles[idx] = { ...dbData.articles[idx], ...updates, id };
+    await saveDirectFirestoreData(dbData);
+    return dbData.articles[idx];
+  }
+  throw new Error('Article not found in Cloud Firestore');
+}
+
+export async function deleteArticleDirectFirestore(id: string): Promise<boolean> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.articles)) return false;
+  dbData.articles = dbData.articles.filter((a: Article) => a.id !== id);
+  return await saveDirectFirestoreData(dbData);
 }

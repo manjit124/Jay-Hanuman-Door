@@ -1268,6 +1268,12 @@ export async function initCloudDatabase(): Promise<DatabaseSchema> {
       inMemoryDb = normalizeDatabaseSchema(cloudData);
       lastLoadedMtime = Date.now();
 
+      if (!inMemoryDb.settings?.productionApiUrl && process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL') {
+        inMemoryDb.settings = inMemoryDb.settings || {} as any;
+        inMemoryDb.settings.productionApiUrl = process.env.APP_URL.trim().replace(/\/$/, '');
+        saveAuthoritativeFirestoreDb(inMemoryDb).catch(() => {});
+      }
+
       // Mirror to local disk cache synchronously for instant cold reads
       try {
         writeAtomicJson(DB_FILE, inMemoryDb);

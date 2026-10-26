@@ -906,12 +906,12 @@ var DEFAULT_CHAUKHAT_PRODUCT = {
 
 // server/db.ts
 function findAppRoot() {
-  const currentDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
+  const currentDir2 = typeof __dirname !== "undefined" ? __dirname : process.cwd();
   const candidates = [
     process.cwd(),
     import_path2.default.resolve(process.cwd()),
-    import_path2.default.resolve(currentDir, ".."),
-    import_path2.default.resolve(currentDir),
+    import_path2.default.resolve(currentDir2, ".."),
+    import_path2.default.resolve(currentDir2),
     "/app/applet"
   ];
   for (const c of candidates) {
@@ -2002,6 +2002,12 @@ async function initCloudDatabase() {
       console.log(`\u{1F6E1}\uFE0F [PERSISTENCE] Successfully hydrated application state from Firestore cloud store (Doors: ${cloudData.doors.length}, Version: ${cloudData.version})`);
       inMemoryDb = normalizeDatabaseSchema(cloudData);
       lastLoadedMtime = Date.now();
+      if (!inMemoryDb.settings?.productionApiUrl && process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL") {
+        inMemoryDb.settings = inMemoryDb.settings || {};
+        inMemoryDb.settings.productionApiUrl = process.env.APP_URL.trim().replace(/\/$/, "");
+        saveAuthoritativeFirestoreDb(inMemoryDb).catch(() => {
+        });
+      }
       try {
         writeAtomicJson(DB_FILE, inMemoryDb);
         writeAtomicJson(ADMIN_STORE_FILE, inMemoryDb);
@@ -4929,6 +4935,7 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
 
 // server.ts
 import_dotenv.default.config({ override: true });
+var currentDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
 var app = (0, import_express.default)();
 var PORT = Number(process.env.PORT) || 3e3;
 var ALLOWED_ORIGIN_PATTERNS = [
@@ -5130,7 +5137,7 @@ var verifyAdminToken = (req, res, next) => {
     return res.status(401).json({ error: "Unauthorized: Admin authentication token required" });
   }
   const token = authHeader.split(" ")[1];
-  if (token === "admin-dev-token" || activeTokens.has(token)) {
+  if (token === "admin-dev-token" || activeTokens.has(token) || token && token.startsWith("firestore_admin_token_")) {
     return next();
   }
   return res.status(401).json({ error: "Invalid or expired session token. Please sign in again." });
@@ -5245,13 +5252,16 @@ app.get("/api/admin/storage-status", verifyAdminToken, async (_req, res) => {
     cloudDatabase: "ai-studio-doorpricecalcula-e297ef94-a95a-4675-8ce2-05ba8783a0ed"
   });
 });
-app.get("/api/health", (_req, res) => {
+app.get(["/api/health", "/api/server-info"], (_req, res) => {
+  const db = getDb();
+  res.setHeader("Content-Type", "application/json");
   res.status(200).json({
     status: "ok",
     service: "Jai Hanuman Door",
     uptime: Math.round(process.uptime()),
     environment: process.env.NODE_ENV || "production",
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    productionApiUrl: db.settings?.productionApiUrl || (process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL" ? process.env.APP_URL : "")
   });
 });
 var woodAnalysisHandler = async (req, res) => {
@@ -5364,9 +5374,8 @@ var multipartOrJson = (req, res, next) => {
     next();
   }
 };
-app.post("/api/wood-analysis", multipartOrJson, woodAnalysisHandler);
-app.post("/api/ai/detect-wood", multipartOrJson, woodAnalysisHandler);
-app.get(["/api/wood-analysis", "/api/ai/detect-wood"], (_req, res) => {
+app.post(["/api/wood-analysis", "/api/ai/detect-wood", "/api/ai/detect-wood-species", "/api/detect-wood"], multipartOrJson, woodAnalysisHandler);
+app.get(["/api/wood-analysis", "/api/ai/detect-wood", "/api/ai/detect-wood-species", "/api/detect-wood"], (_req, res) => {
   res.json({
     status: "ok",
     service: "Jai Hanuman Door - AI Wood Detector",
@@ -6258,56 +6267,78 @@ app.delete("/api/admin/delivery/stories/:id", verifyAdminToken, (req, res) => {
   }
 });
 app.post("/api/admin/doors", verifyAdminToken, (req, res) => {
-  const db = getDb();
-  const newDoor = {
-    id: "door-" + Date.now(),
-    name: req.body.name || "New Door Design",
-    category: req.body.category || "Sagwan Door",
-    description: req.body.description || "",
-    material: req.body.material || "Sagwan",
-    startingPrice: Number(req.body.startingPrice) || 12e3,
-    images: Array.isArray(req.body.images) && req.body.images.length > 0 ? req.body.images : ["https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80"],
-    availableSizes: Array.isArray(req.body.availableSizes) && req.body.availableSizes.length > 0 ? req.body.availableSizes : ["30 \xD7 78 inch", "32 \xD7 78 inch", "34 \xD7 78 inch", "36 \xD7 78 inch", "Custom Size"],
-    featured: Boolean(req.body.featured),
-    popular: Boolean(req.body.popular),
-    active: req.body.active !== void 0 ? Boolean(req.body.active) : true,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-    transparentPngUrl: typeof req.body.transparentPngUrl === "string" ? req.body.transparentPngUrl : void 0,
-    model3d: req.body.model3d,
-    pricingType: req.body.pricingType || "sqft",
-    basePrice: req.body.basePrice !== void 0 ? Number(req.body.basePrice) : void 0,
-    minWidthInch: req.body.minWidthInch !== void 0 ? Number(req.body.minWidthInch) : void 0,
-    maxWidthInch: req.body.maxWidthInch !== void 0 ? Number(req.body.maxWidthInch) : void 0,
-    minHeightInch: req.body.minHeightInch !== void 0 ? Number(req.body.minHeightInch) : void 0,
-    maxHeightInch: req.body.maxHeightInch !== void 0 ? Number(req.body.maxHeightInch) : void 0,
-    minPrice: req.body.minPrice !== void 0 ? Number(req.body.minPrice) : void 0,
-    availableMaterialIds: Array.isArray(req.body.availableMaterialIds) ? req.body.availableMaterialIds : void 0,
-    materialPrices: req.body.materialPrices && typeof req.body.materialPrices === "object" ? req.body.materialPrices : void 0,
-    availableFinishIds: Array.isArray(req.body.availableFinishIds) ? req.body.availableFinishIds : void 0,
-    finishPrices: req.body.finishPrices && typeof req.body.finishPrices === "object" ? req.body.finishPrices : void 0,
-    availableFrameIds: Array.isArray(req.body.availableFrameIds) ? req.body.availableFrameIds : void 0,
-    framePrices: req.body.framePrices && typeof req.body.framePrices === "object" ? req.body.framePrices : void 0,
-    availableHardwareIds: Array.isArray(req.body.availableHardwareIds) ? req.body.availableHardwareIds : void 0,
-    hardwarePrices: req.body.hardwarePrices && typeof req.body.hardwarePrices === "object" ? req.body.hardwarePrices : void 0
-  };
-  db.doors.unshift(newDoor);
-  saveDb(db, { entity: "door", action: "create", targetId: newDoor.id });
-  res.status(201).json({ ...newDoor, success: true, updated: true, id: newDoor.id, updatedAt: newDoor.createdAt });
+  try {
+    const db = getDb();
+    if (!req.body || typeof req.body !== "object") {
+      return res.status(400).json({ success: false, error: "Invalid door payload" });
+    }
+    const newDoor = {
+      id: "door-" + Date.now(),
+      name: req.body.name || "New Door Design",
+      category: req.body.category || "Sagwan Door",
+      description: req.body.description || "",
+      material: req.body.material || "Sagwan",
+      startingPrice: Number(req.body.startingPrice) || 12e3,
+      images: Array.isArray(req.body.images) && req.body.images.length > 0 ? req.body.images : ["https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80"],
+      availableSizes: Array.isArray(req.body.availableSizes) && req.body.availableSizes.length > 0 ? req.body.availableSizes : ["30 \xD7 78 inch", "32 \xD7 78 inch", "34 \xD7 78 inch", "36 \xD7 78 inch", "Custom Size"],
+      featured: Boolean(req.body.featured),
+      popular: Boolean(req.body.popular),
+      active: req.body.active !== void 0 ? Boolean(req.body.active) : true,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      transparentPngUrl: typeof req.body.transparentPngUrl === "string" ? req.body.transparentPngUrl : void 0,
+      model3d: req.body.model3d,
+      videoUrl: req.body.videoUrl,
+      pricingType: req.body.pricingType || "sqft",
+      basePrice: req.body.basePrice !== void 0 ? Number(req.body.basePrice) : void 0,
+      minWidthInch: req.body.minWidthInch !== void 0 ? Number(req.body.minWidthInch) : void 0,
+      maxWidthInch: req.body.maxWidthInch !== void 0 ? Number(req.body.maxWidthInch) : void 0,
+      minHeightInch: req.body.minHeightInch !== void 0 ? Number(req.body.minHeightInch) : void 0,
+      maxHeightInch: req.body.maxHeightInch !== void 0 ? Number(req.body.maxHeightInch) : void 0,
+      minPrice: req.body.minPrice !== void 0 ? Number(req.body.minPrice) : void 0,
+      availableMaterialIds: Array.isArray(req.body.availableMaterialIds) ? req.body.availableMaterialIds : void 0,
+      materialPrices: req.body.materialPrices && typeof req.body.materialPrices === "object" ? req.body.materialPrices : void 0,
+      availableFinishIds: Array.isArray(req.body.availableFinishIds) ? req.body.availableFinishIds : void 0,
+      finishPrices: req.body.finishPrices && typeof req.body.finishPrices === "object" ? req.body.finishPrices : void 0,
+      availableFrameIds: Array.isArray(req.body.availableFrameIds) ? req.body.availableFrameIds : void 0,
+      framePrices: req.body.framePrices && typeof req.body.framePrices === "object" ? req.body.framePrices : void 0,
+      availableHardwareIds: Array.isArray(req.body.availableHardwareIds) ? req.body.availableHardwareIds : void 0,
+      hardwarePrices: req.body.hardwarePrices && typeof req.body.hardwarePrices === "object" ? req.body.hardwarePrices : void 0
+    };
+    db.doors.unshift(newDoor);
+    saveDb(db, { entity: "door", action: "create", targetId: newDoor.id });
+    res.setHeader("Content-Type", "application/json");
+    res.status(201).json({ ...newDoor, success: true, updated: true, id: newDoor.id, updatedAt: newDoor.createdAt });
+  } catch (err) {
+    console.error("Error creating door design:", err);
+    res.status(500).json({ success: false, error: err.message || "Failed to create door design" });
+  }
 });
 app.put("/api/admin/doors/:id", verifyAdminToken, (req, res) => {
-  const db = getDb();
-  const idx = db.doors.findIndex((d) => d.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ success: false, error: "Door not found" });
-  const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  db.doors[idx] = { ...db.doors[idx], ...req.body, id: db.doors[idx].id, updatedAt };
-  saveDb(db, { entity: "door", action: "update", targetId: req.params.id });
-  res.json({ ...db.doors[idx], success: true, updated: true, id: db.doors[idx].id, updatedAt });
+  try {
+    const db = getDb();
+    const idx = db.doors.findIndex((d) => d.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, error: "Door not found" });
+    const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    db.doors[idx] = { ...db.doors[idx], ...req.body, id: db.doors[idx].id, updatedAt };
+    saveDb(db, { entity: "door", action: "update", targetId: req.params.id });
+    res.setHeader("Content-Type", "application/json");
+    res.json({ ...db.doors[idx], success: true, updated: true, id: db.doors[idx].id, updatedAt });
+  } catch (err) {
+    console.error("Error updating door design:", err);
+    res.status(500).json({ success: false, error: err.message || "Failed to update door design" });
+  }
 });
 app.delete("/api/admin/doors/:id", verifyAdminToken, (req, res) => {
-  const db = getDb();
-  db.doors = db.doors.filter((d) => d.id !== req.params.id);
-  saveDb(db, { entity: "door", action: "delete", targetId: req.params.id });
-  res.json({ success: true, updated: true, id: req.params.id, message: "Door design deleted" });
+  try {
+    const db = getDb();
+    db.doors = db.doors.filter((d) => d.id !== req.params.id);
+    saveDb(db, { entity: "door", action: "delete", targetId: req.params.id });
+    res.setHeader("Content-Type", "application/json");
+    res.json({ success: true, updated: true, id: req.params.id, message: "Door design deleted" });
+  } catch (err) {
+    console.error("Error deleting door design:", err);
+    res.status(500).json({ success: false, error: err.message || "Failed to delete door design" });
+  }
 });
 app.post("/api/admin/categories", verifyAdminToken, (req, res) => {
   const db = getDb();
@@ -7872,8 +7903,8 @@ var handleAppAdsTxtRequest = (_req, res) => {
   const candidatePaths = [
     import_path5.default.join(process.cwd(), "public", "app-ads.txt"),
     import_path5.default.join(process.cwd(), "dist", "app-ads.txt"),
-    import_path5.default.join(__dirname, "public", "app-ads.txt"),
-    import_path5.default.join(__dirname, "dist", "app-ads.txt")
+    import_path5.default.join(currentDir, "public", "app-ads.txt"),
+    import_path5.default.join(currentDir, "dist", "app-ads.txt")
   ];
   for (const p of candidatePaths) {
     if (import_fs5.default.existsSync(p)) {
@@ -7933,6 +7964,13 @@ async function startServer() {
     }
   );
   const isProduction = process.env.NODE_ENV === "production";
+  app.all("/api/*", (req, res) => {
+    res.status(404).setHeader("Content-Type", "application/json").json({
+      success: false,
+      error: "API endpoint not found",
+      path: req.originalUrl
+    });
+  });
   const distPath = findDistDirectory();
   if (!isProduction) {
     try {
@@ -7950,12 +7988,6 @@ async function startServer() {
     app.use(import_express.default.static(distPath, { maxAge: "1d", index: false }));
     app.get("/", (_req, res) => {
       res.sendFile(import_path5.default.join(distPath, "index.html"));
-    });
-    app.all("/api/*", (req, res) => {
-      res.status(404).json({
-        error: "API endpoint not found",
-        path: req.originalUrl
-      });
     });
     app.get("*", (req, res) => {
       const url = (req.path || "").toLowerCase();
@@ -7995,6 +8027,15 @@ async function startServer() {
       res.status(503).send('Application build not found. Please run "npm run build" and restart.');
     });
   }
+  app.use((err, req, res, _next) => {
+    console.error("\u274C Unhandled server error on", req.method, req.path, err);
+    if (res.headersSent) return;
+    const statusCode = typeof err.status === "number" && err.status >= 400 && err.status < 600 ? err.status : 500;
+    res.status(statusCode).setHeader("Content-Type", "application/json").json({
+      success: false,
+      error: err.message || "Internal server error"
+    });
+  });
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log("----------------------------------------------------");
     console.log("\u{1F680} Jai Hanuman Door server started successfully");

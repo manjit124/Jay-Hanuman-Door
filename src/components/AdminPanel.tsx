@@ -5365,6 +5365,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </span>
                         </div>
 
+                        {/* Production API Server URL (Capacitor Android & Cloud Run) */}
+                        <div className="sm:col-span-2 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                          <label className="block font-semibold text-amber-800 mb-1 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                              <Server className="w-4 h-4 text-[#C89211]" />
+                              Production API Server URL (Android &amp; Cloud Run)
+                            </span>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white text-stone-700 border border-stone-200">
+                              Active: {settings.productionApiUrl || 'Direct Local / Cloud Firestore'}
+                            </span>
+                          </label>
+                          <input
+                            type="url"
+                            value={settings.productionApiUrl || ''}
+                            onChange={e => setSettings({ ...settings, productionApiUrl: e.target.value.trim() })}
+                            placeholder="e.g. https://ais-dev-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app"
+                            className="w-full px-3 py-2 rounded bg-white border border-amber-600/50 text-[#1A1A1A] font-mono text-xs sm:text-sm"
+                          />
+                          <span className="text-[10px] text-[#666666] mt-1 block">
+                            Android Capacitor app reads this URL from Firestore settings to connect to the active Cloud Run backend for AI Wood Scan and sync without needing an APK rebuild.
+                          </span>
+                        </div>
+
                         <div>
                           <label className="block font-semibold text-[#1A1A1A] mb-1">Display Contact Phone</label>
                           <input

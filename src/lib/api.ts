@@ -61,6 +61,22 @@ import {
   updateSettingsDirectFirestore,
   saveMaterialDirectFirestore,
   updateMaterialDirectFirestore,
+  deleteMaterialDirectFirestore,
+  saveFinishDirectFirestore,
+  updateFinishDirectFirestore,
+  deleteFinishDirectFirestore,
+  saveFrameDirectFirestore,
+  updateFrameDirectFirestore,
+  deleteFrameDirectFirestore,
+  saveHardwareDirectFirestore,
+  updateHardwareDirectFirestore,
+  deleteHardwareDirectFirestore,
+  saveBannerDirectFirestore,
+  updateBannerDirectFirestore,
+  deleteBannerDirectFirestore,
+  saveArticleDirectFirestore,
+  updateArticleDirectFirestore,
+  deleteArticleDirectFirestore,
 } from './firestoreClient.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
@@ -928,11 +944,12 @@ export async function uploadVideo(file: File): Promise<{ url: string; filename?:
     headers,
     body: formData,
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Video upload failed' }));
-    throw new Error(err.error || 'Product video upload failed');
+
+  const parsed = await parseSafeJsonResponse<{ url: string; filename?: string; size?: number }>(res, 'Product video upload');
+  if (!parsed.success || !parsed.data) {
+    throw new Error(parsed.error || 'Product video upload failed');
   }
-  return res.json();
+  return parsed.data;
 }
 
 export async function upload3DModel(file: File): Promise<{
@@ -956,11 +973,18 @@ export async function upload3DModel(file: File): Promise<{
     headers,
     body: formData,
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(err.error || '3D Model / Texture upload failed');
+
+  const parsed = await parseSafeJsonResponse<{
+    url: string;
+    filename: string;
+    originalName: string;
+    size: number;
+    is3DModel: boolean;
+  }>(res, '3D Model / Texture upload');
+  if (!parsed.success || !parsed.data) {
+    throw new Error(parsed.error || '3D Model / Texture upload failed');
   }
-  return res.json();
+  return parsed.data;
 }
 
 export async function updateDoor3DConfig(
@@ -1111,8 +1135,9 @@ export async function fetchAdminAllData(): Promise<{
     const res = await apiFetch('/api/admin/all-data', {
       headers: authHeaders(),
     });
-    if (res.ok) {
-      return await res.json();
+    const parsed = await parseSafeJsonResponse<any>(res, 'Fetch Admin All Data');
+    if (parsed.success && parsed.data && Array.isArray(parsed.data.doors)) {
+      return parsed.data;
     }
   } catch (err: any) {
     console.warn('[AdminAPI] Server /api/admin/all-data unreachable, trying cloud database fallback...', err.message);
@@ -1395,200 +1420,326 @@ export async function updateMaterial(id: string, data: Partial<DoorMaterial>): P
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/materials/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  const parsed = await parseSafeJsonResponse(res, 'Delete Material');
-  if (!parsed.success) throw new Error(parsed.error || 'Failed to delete material');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/materials/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Material');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteMaterial failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await deleteMaterialDirectFirestore(id);
+  }
 }
 
 // Finish CRUD
 export async function createFinish(data: Partial<PolishFinish>): Promise<PolishFinish> {
-  const res = await apiFetch('/api/admin/finishes', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to create finish');
-  return res.json();
+  try {
+    const res = await apiFetch('/api/admin/finishes', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<PolishFinish>(res, 'Create Finish');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server createFinish failed, using Firestore fallback:', err.message);
+  }
+  return await saveFinishDirectFirestore(data);
 }
 
 export async function updateFinish(id: string, data: Partial<PolishFinish>): Promise<PolishFinish> {
-  const res = await apiFetch(`/api/admin/finishes/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to update finish');
-  return res.json();
+  try {
+    const res = await apiFetch(`/api/admin/finishes/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<PolishFinish>(res, 'Update Finish');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateFinish failed, using Firestore fallback:', err.message);
+  }
+  return await updateFinishDirectFirestore(id, data);
 }
 
 export async function deleteFinish(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/finishes/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('Failed to delete finish');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/finishes/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Finish');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteFinish failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await deleteFinishDirectFirestore(id);
+  }
 }
 
 // Frame CRUD
 export async function createFrame(data: Partial<ChaukhatFrame>): Promise<ChaukhatFrame> {
-  const res = await apiFetch('/api/admin/frames', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to create frame');
-  return res.json();
+  try {
+    const res = await apiFetch('/api/admin/frames', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<ChaukhatFrame>(res, 'Create Frame');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server createFrame failed, using Firestore fallback:', err.message);
+  }
+  return await saveFrameDirectFirestore(data);
 }
 
 export async function updateFrame(id: string, data: Partial<ChaukhatFrame>): Promise<ChaukhatFrame> {
-  const res = await apiFetch(`/api/admin/frames/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to update frame');
-  return res.json();
+  try {
+    const res = await apiFetch(`/api/admin/frames/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<ChaukhatFrame>(res, 'Update Frame');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateFrame failed, using Firestore fallback:', err.message);
+  }
+  return await updateFrameDirectFirestore(id, data);
 }
 
 export async function deleteFrame(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/frames/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('Failed to delete frame');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/frames/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Frame');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteFrame failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await deleteFrameDirectFirestore(id);
+  }
 }
 
 // Hardware CRUD
 export async function createHardware(data: Partial<HardwareItem>): Promise<HardwareItem> {
-  const res = await apiFetch('/api/admin/hardware', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to create hardware item');
-  return res.json();
+  try {
+    const res = await apiFetch('/api/admin/hardware', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<HardwareItem>(res, 'Create Hardware');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server createHardware failed, using Firestore fallback:', err.message);
+  }
+  return await saveHardwareDirectFirestore(data);
 }
 
 export async function updateHardware(id: string, data: Partial<HardwareItem>): Promise<HardwareItem> {
-  const res = await apiFetch(`/api/admin/hardware/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to update hardware');
-  return res.json();
+  try {
+    const res = await apiFetch(`/api/admin/hardware/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<HardwareItem>(res, 'Update Hardware');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateHardware failed, using Firestore fallback:', err.message);
+  }
+  return await updateHardwareDirectFirestore(id, data);
 }
 
 export async function deleteHardware(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/hardware/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('Failed to delete hardware');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/hardware/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Hardware');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteHardware failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await deleteHardwareDirectFirestore(id);
+  }
 }
 
 // Banner CRUD
 export async function createBanner(data: Partial<HomeBanner>): Promise<HomeBanner> {
-  const res = await apiFetch('/api/admin/banners', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to create banner');
-  return res.json();
+  try {
+    const res = await apiFetch('/api/admin/banners', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<HomeBanner>(res, 'Create Banner');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server createBanner failed, using Firestore fallback:', err.message);
+  }
+  return await saveBannerDirectFirestore(data);
 }
 
 export async function updateBanner(id: string, data: Partial<HomeBanner>): Promise<HomeBanner> {
-  const res = await apiFetch(`/api/admin/banners/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to update banner');
-  return res.json();
+  try {
+    const res = await apiFetch(`/api/admin/banners/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<HomeBanner>(res, 'Update Banner');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateBanner failed, using Firestore fallback:', err.message);
+  }
+  return await updateBannerDirectFirestore(id, data);
 }
 
 export async function deleteBanner(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/banners/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('Failed to delete banner');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/banners/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Banner');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteBanner failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await deleteBannerDirectFirestore(id);
+  }
 }
 
 export async function createMainBanner(data: Partial<HomeBanner>): Promise<HomeBanner> {
-  const res = await apiFetch('/api/admin/banners/main', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ ...data, bannerType: 'main' }),
-  });
-  if (!res.ok) throw new Error('Failed to create main banner');
-  return res.json();
+  return createBanner({ ...data, bannerType: 'main' });
 }
 
 export async function createPromotionBanner(data: Partial<HomeBanner>): Promise<HomeBanner> {
-  const res = await apiFetch('/api/admin/banners/promotion', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ ...data, bannerType: 'promotion' }),
-  });
-  if (!res.ok) throw new Error('Failed to create promotion banner');
-  return res.json();
+  return createBanner({ ...data, bannerType: 'promotion' });
 }
 
 export async function updateSlotBanner(slotId: 'slot_1' | 'slot_2' | string, data: Partial<HomeBanner>): Promise<HomeBanner> {
-  const res = await apiFetch(`/api/admin/banners/slot/${slotId}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to update slot banner');
-  return res.json();
+  return updateBanner(slotId, data);
 }
 
 export async function fetchMainBanners(): Promise<HomeBanner[]> {
-  const res = await apiFetch('/api/banners/main');
-  if (!res.ok) throw new Error('Failed to fetch main banners');
-  return res.json();
+  try {
+    const res = await apiFetch('/api/banners/main');
+    const parsed = await parseSafeJsonResponse<HomeBanner[]>(res, 'Fetch Main Banners');
+    if (parsed.success && Array.isArray(parsed.data)) {
+      return parsed.data;
+    }
+  } catch {}
+  return [];
 }
 
 export async function fetchPromotionBanners(): Promise<HomeBanner[]> {
-  const res = await apiFetch('/api/banners/promotion');
-  if (!res.ok) throw new Error('Failed to fetch promotion banners');
-  return res.json();
+  try {
+    const res = await apiFetch('/api/banners/promotion');
+    const parsed = await parseSafeJsonResponse<HomeBanner[]>(res, 'Fetch Promotion Banners');
+    if (parsed.success && Array.isArray(parsed.data)) {
+      return parsed.data;
+    }
+  } catch {}
+  return [];
 }
-
 
 // Article CRUD
 export async function createArticle(data: Partial<Article>): Promise<Article> {
-  const res = await apiFetch('/api/admin/articles', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to create article');
-  return res.json();
+  try {
+    const res = await apiFetch('/api/admin/articles', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<Article>(res, 'Create Article');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server createArticle failed, using Firestore fallback:', err.message);
+  }
+  return await saveArticleDirectFirestore(data);
 }
 
 export async function updateArticle(id: string, data: Partial<Article>): Promise<Article> {
-  const res = await apiFetch(`/api/admin/articles/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to update article');
-  return res.json();
+  try {
+    const res = await apiFetch(`/api/admin/articles/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<Article>(res, 'Update Article');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateArticle failed, using Firestore fallback:', err.message);
+  }
+  return await updateArticleDirectFirestore(id, data);
 }
 
 export async function deleteArticle(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/articles/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('Failed to delete article');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/articles/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Article');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteArticle failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await deleteArticleDirectFirestore(id);
+  }
 }
 
 // ---------------- Blog & Article Endpoints ----------------

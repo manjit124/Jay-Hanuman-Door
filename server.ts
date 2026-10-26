@@ -476,14 +476,17 @@ app.get('/api/admin/storage-status', verifyAdminToken, async (_req, res) => {
   });
 });
 
-// Health check endpoint for Hostinger container and deployment monitors
-app.get('/api/health', (_req, res) => {
+// Health check & Server Info endpoint
+app.get(['/api/health', '/api/server-info'], (_req, res) => {
+  const db = getDb();
+  res.setHeader('Content-Type', 'application/json');
   res.status(200).json({
     status: 'ok',
     service: 'Jai Hanuman Door',
     uptime: Math.round(process.uptime()),
     environment: process.env.NODE_ENV || 'production',
     timestamp: new Date().toISOString(),
+    productionApiUrl: db.settings?.productionApiUrl || (process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL' ? process.env.APP_URL : ''),
   });
 });
 
@@ -626,12 +629,11 @@ const multipartOrJson = (req: express.Request, res: express.Response, next: expr
   }
 };
 
-// Mount Wood Detection on both /api/wood-analysis and /api/ai/detect-wood
-app.post('/api/wood-analysis', multipartOrJson, woodAnalysisHandler);
-app.post('/api/ai/detect-wood', multipartOrJson, woodAnalysisHandler);
+// Mount Wood Detection on /api/wood-analysis, /api/ai/detect-wood, and aliases
+app.post(['/api/wood-analysis', '/api/ai/detect-wood', '/api/ai/detect-wood-species', '/api/detect-wood'], multipartOrJson, woodAnalysisHandler);
 
 // Health check endpoints for wood detector
-app.get(['/api/wood-analysis', '/api/ai/detect-wood'], (_req, res) => {
+app.get(['/api/wood-analysis', '/api/ai/detect-wood', '/api/ai/detect-wood-species', '/api/detect-wood'], (_req, res) => {
   res.json({
     status: 'ok',
     service: 'Jai Hanuman Door - AI Wood Detector',
@@ -3842,6 +3844,15 @@ async function startServer() {
   );
 
   const isProduction = process.env.NODE_ENV === 'production';
+  // Dedicated API 404 handler - MUST execute before Vite dev middlewares or SPA fallback!
+  app.all('/api/*', (req, res) => {
+    res.status(404).setHeader('Content-Type', 'application/json').json({
+      success: false,
+      error: 'API endpoint not found',
+      path: req.originalUrl,
+    });
+  });
+
   const distPath = findDistDirectory();
 
   if (!isProduction) {
@@ -3862,14 +3873,6 @@ async function startServer() {
     // Explicit Root route
     app.get('/', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
-    });
-
-    // Dedicated API 404 handler - never return HTML for missing API routes
-    app.all('/api/*', (req, res) => {
-      res.status(404).json({
-        error: 'API endpoint not found',
-        path: req.originalUrl,
-      });
     });
 
     // SPA fallback route for all standard client routes (e.g. /catalog, /calculator, /articles)
@@ -3923,6 +3926,17 @@ async function startServer() {
       res.status(503).send('Application build not found. Please run "npm run build" and restart.');
     });
   }
+
+  // Global Express JSON error handler - guarantees server errors on /api never return HTML
+  app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('❌ Unhandled server error on', req.method, req.path, err);
+    if (res.headersSent) return;
+    const statusCode = typeof err.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500;
+    res.status(statusCode).setHeader('Content-Type', 'application/json').json({
+      success: false,
+      error: err.message || 'Internal server error',
+    });
+  });
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('----------------------------------------------------');
