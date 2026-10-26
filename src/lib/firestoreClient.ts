@@ -249,7 +249,7 @@ export async function fetchDirectFirestoreData(): Promise<any | null> {
 
 /**
  * Establishes an authentic Firebase Authentication session for authorized administrators.
- * Ensures `request.auth` is non-null and holds an authorized admin identity (via verified email or /admins/{uid} role record)
+ * Requires `auth.currentUser` to possess an authorized admin email (`shivshahidoors@gmail.com`)
  * so that Cloud Firestore security rules validate operations securely.
  */
 export async function ensureFirebaseAuthSession(email = 'shivshahidoors@gmail.com', password = 'admin123'): Promise<boolean> {
@@ -257,29 +257,16 @@ export async function ensureFirebaseAuthSession(email = 'shivshahidoors@gmail.co
   if (!auth) return false;
 
   // 1. If already signed in with a recognized admin email
-  if (auth.currentUser) {
-    if (auth.currentUser.email) {
-      const currentEmail = auth.currentUser.email.toLowerCase().trim();
-      if (
-        currentEmail === 'shivshahidoors@gmail.com' ||
-        currentEmail === 'jayhanumandoor@gmail.com' ||
-        currentEmail === 'jaihanumandoor@gmail.com' ||
-        currentEmail.endsWith('@jaihanumandoor.com') ||
-        currentEmail.endsWith('@shivshahidoors.com')
-      ) {
-        return true;
-      }
-    }
-
-    // Check if admin doc exists for current UID
-    const db = getClientFirestore();
-    if (db && auth.currentUser.uid) {
-      try {
-        const adminDoc = await getDoc(doc(db, 'admins', auth.currentUser.uid));
-        if (adminDoc.exists()) {
-          return true;
-        }
-      } catch {}
+  if (auth.currentUser && auth.currentUser.email) {
+    const currentEmail = auth.currentUser.email.toLowerCase().trim();
+    if (
+      currentEmail === 'shivshahidoors@gmail.com' ||
+      currentEmail === 'jayhanumandoor@gmail.com' ||
+      currentEmail === 'jaihanumandoor@gmail.com' ||
+      currentEmail.endsWith('@jaihanumandoor.com') ||
+      currentEmail.endsWith('@shivshahidoors.com')
+    ) {
+      return true;
     }
   }
 
@@ -303,41 +290,26 @@ export async function ensureFirebaseAuthSession(email = 'shivshahidoors@gmail.co
       } catch (createErr: any) {
         console.warn('[FirestoreClient] Firebase Auth user creation notice:', createErr.message);
       }
+    } else if (signInErr.code === 'auth/operation-not-allowed') {
+      console.warn('[FirestoreClient] Notice: Email/Password provider disabled in Firebase Console. Google Sign-In required.');
     }
   }
 
-  // 3. Resilient Fallback: If Email/Password provider is restricted in Firebase Console,
-  // authenticate session via anonymous auth
-  if (!auth.currentUser) {
-    try {
-      const anonRes = await signInAnonymously(auth);
-      console.info('[FirestoreClient] Firebase Auth session established (UID:', anonRes.user.uid, ')');
-    } catch (anonErr: any) {
-      console.warn('[FirestoreClient] Anonymous auth fallback notice:', anonErr.message);
+  // Verify that auth.currentUser has an authorized admin email token
+  if (auth.currentUser && auth.currentUser.email) {
+    const activeEmail = auth.currentUser.email.toLowerCase().trim();
+    if (
+      activeEmail === 'shivshahidoors@gmail.com' ||
+      activeEmail === 'jayhanumandoor@gmail.com' ||
+      activeEmail === 'jaihanumandoor@gmail.com' ||
+      activeEmail.endsWith('@jaihanumandoor.com') ||
+      activeEmail.endsWith('@shivshahidoors.com')
+    ) {
+      return true;
     }
   }
 
-  // 4. Provision /admins/{uid} role document so Firestore security rules recognize this authenticated session
-  if (auth.currentUser?.uid) {
-    const db = getClientFirestore();
-    if (db) {
-      try {
-        const adminDocRef = doc(db, 'admins', auth.currentUser.uid);
-        await setDoc(adminDocRef, {
-          email: targetEmail,
-          role: 'admin',
-          authorizedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }, { merge: true });
-        console.info('[FirestoreClient] Admin role document provisioned at /admins/' + auth.currentUser.uid);
-        return true;
-      } catch (docErr: any) {
-        console.warn('[FirestoreClient] Admin role doc creation notice:', docErr.message);
-      }
-    }
-  }
-
-  return Boolean(auth.currentUser);
+  return false;
 }
 
 /**

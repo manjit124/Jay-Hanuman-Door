@@ -7,38 +7,21 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return isAuthenticated() && (
-        (request.auth.token.keys().hasAll(['email']) && (
-          request.auth.token.email.toLowerCase() in [
-            'shivshahidoors@gmail.com',
-            'jayhanumandoor@gmail.com',
-            'jaihanumandoor@gmail.com',
-            'orders@jaihanumandoor.com',
-            'admin@jaihanumandoor.com',
-            'admin@shivshahidoors.com'
-          ] ||
-          request.auth.token.email.matches('.*@jaihanumandoor\\.com$') ||
-          request.auth.token.email.matches('.*@shivshahidoors\\.com$')
-        )) ||
-        (request.auth.token.keys().hasAll(['admin']) && request.auth.token.admin == true) ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
-    }
-
-    // Admin role records
-    match /admins/{uid} {
-      allow read: if isAuthenticated() && request.auth.uid == uid;
-      allow create, update: if isAuthenticated() && request.auth.uid == uid &&
-                            (request.resource.data.keys().hasAll(['email']) && 
-                             request.resource.data.email.toLowerCase() in [
-                               'shivshahidoors@gmail.com',
-                               'jayhanumandoor@gmail.com',
-                               'jaihanumandoor@gmail.com',
-                               'orders@jaihanumandoor.com',
-                               'admin@jaihanumandoor.com',
-                               'admin@shivshahidoors.com'
-                             ]);
-      allow delete: if isAdmin();
+      return isAuthenticated() &&
+             request.auth.token.keys().hasAll(['email']) &&
+             (
+               request.auth.token.email.toLowerCase() in [
+                 'shivshahidoors@gmail.com',
+                 'jayhanumandoor@gmail.com',
+                 'jaihanumandoor@gmail.com',
+                 'orders@jaihanumandoor.com',
+                 'admin@jaihanumandoor.com',
+                 'admin@shivshahidoors.com'
+               ] ||
+               request.auth.token.email.matches('.*@jaihanumandoor\\.com$') ||
+               request.auth.token.email.matches('.*@shivshahidoors\\.com$') ||
+               (request.auth.token.keys().hasAll(['admin']) && request.auth.token.admin == true)
+             );
     }
 
     // Master store document
@@ -47,24 +30,43 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Granular doors collection
+    // Door catalog collection
     match /doors/{doorId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Settings collection
+    // Materials pricing collection
+    match /materials/{materialId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Home banners collection
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Business settings collection
     match /settings/{document} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Default fallback rule
+    // Media uploads collection
+    match /media_files/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Default catch-all fallback rule
     match /{document=**} {
       allow read: if true;
       allow write: if isAdmin();
     }
   }
 }
+
 
 
