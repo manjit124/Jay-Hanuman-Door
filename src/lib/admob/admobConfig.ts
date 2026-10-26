@@ -88,11 +88,10 @@ export function getActiveAdMobSettings(customSettings?: AdMobSettings): AdMobSet
   }
 
   const env = (import.meta as any).env || {};
-  const isEnvProduction = env.PROD && env.VITE_ADMOB_TEST_MODE === 'false';
-  const testMode = customSettings?.testMode ?? localOverride.testMode ?? !isEnvProduction;
-
-  // Selected default IDs depending on testMode
-  const activeDefaults = testMode ? ADMOB_TEST_IDS : ADMOB_PRODUCTION_IDS;
+  const isProd = Boolean(env.PROD);
+  const testMode = customSettings?.testMode ??
+    localOverride.testMode ??
+    (env.VITE_ADMOB_TEST_MODE !== undefined ? env.VITE_ADMOB_TEST_MODE === 'true' : !isProd);
 
   const rawAppId = customSettings?.appId || localOverride.appId || env.VITE_ADMOB_APP_ID;
   const rawBanner = customSettings?.bannerAdUnitId || localOverride.bannerAdUnitId || env.VITE_ADMOB_BANNER_ID;
@@ -102,16 +101,23 @@ export function getActiveAdMobSettings(customSettings?: AdMobSettings): AdMobSet
   const rawNative = customSettings?.nativeAdUnitId || localOverride.nativeAdUnitId || env.VITE_ADMOB_NATIVE_ID;
   const rawAppOpen = customSettings?.appOpenAdUnitId || localOverride.appOpenAdUnitId || env.VITE_ADMOB_APP_OPEN_ID;
 
+  // Safeguard: In production mode (testMode = false), if a test ID was configured, replace it with the production ID
+  const resolveId = (raw: string | undefined, prod: string, test: string) => {
+    if (testMode) return test;
+    if (!raw || raw === test || Object.values(ADMOB_TEST_IDS).includes(raw as any)) return prod;
+    return raw;
+  };
+
   return {
     enabled: customSettings?.enabled ?? localOverride.enabled ?? (env.VITE_ADMOB_ENABLED !== 'false'),
     testMode,
-    appId: testMode ? ADMOB_TEST_IDS.APP_ID : (rawAppId || ADMOB_PRODUCTION_IDS.APP_ID),
-    bannerAdUnitId: testMode ? ADMOB_TEST_IDS.BANNER : (rawBanner || ADMOB_PRODUCTION_IDS.BANNER),
-    interstitialAdUnitId: testMode ? ADMOB_TEST_IDS.INTERSTITIAL : (rawInterstitial || ADMOB_PRODUCTION_IDS.INTERSTITIAL),
-    rewardedAdUnitId: testMode ? ADMOB_TEST_IDS.REWARDED : (rawRewarded || ADMOB_PRODUCTION_IDS.REWARDED),
-    rewardedInterstitialAdUnitId: testMode ? ADMOB_TEST_IDS.REWARDED_INTERSTITIAL : (rawRewardedInterstitial || ADMOB_PRODUCTION_IDS.REWARDED_INTERSTITIAL),
-    nativeAdUnitId: testMode ? ADMOB_TEST_IDS.NATIVE : (rawNative || ADMOB_PRODUCTION_IDS.NATIVE),
-    appOpenAdUnitId: testMode ? ADMOB_TEST_IDS.APP_OPEN : (rawAppOpen || ADMOB_PRODUCTION_IDS.APP_OPEN),
+    appId: resolveId(rawAppId, ADMOB_PRODUCTION_IDS.APP_ID, ADMOB_TEST_IDS.APP_ID),
+    bannerAdUnitId: resolveId(rawBanner, ADMOB_PRODUCTION_IDS.BANNER, ADMOB_TEST_IDS.BANNER),
+    interstitialAdUnitId: resolveId(rawInterstitial, ADMOB_PRODUCTION_IDS.INTERSTITIAL, ADMOB_TEST_IDS.INTERSTITIAL),
+    rewardedAdUnitId: resolveId(rawRewarded, ADMOB_PRODUCTION_IDS.REWARDED, ADMOB_TEST_IDS.REWARDED),
+    rewardedInterstitialAdUnitId: resolveId(rawRewardedInterstitial, ADMOB_PRODUCTION_IDS.REWARDED_INTERSTITIAL, ADMOB_TEST_IDS.REWARDED_INTERSTITIAL),
+    nativeAdUnitId: resolveId(rawNative, ADMOB_PRODUCTION_IDS.NATIVE, ADMOB_TEST_IDS.NATIVE),
+    appOpenAdUnitId: resolveId(rawAppOpen, ADMOB_PRODUCTION_IDS.APP_OPEN, ADMOB_TEST_IDS.APP_OPEN),
     enableBanners: customSettings?.enableBanners ?? localOverride.enableBanners ?? true,
     enableInterstitials: customSettings?.enableInterstitials ?? localOverride.enableInterstitials ?? true,
     enableRewardedAds: customSettings?.enableRewardedAds ?? localOverride.enableRewardedAds ?? true,
