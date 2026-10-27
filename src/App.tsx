@@ -302,9 +302,13 @@ export const App: React.FC = () => {
   const loadAppData = async () => {
     try {
       setLoading(true);
-      const [catalogData, calcData] = await Promise.all([
+      const [catalogData, calcData, delData] = await Promise.all([
         fetchCatalog(),
         fetchCalculatorData(),
+        fetchPublicDeliveryData().catch(err => {
+          console.warn('Delivery data fallback in use:', err);
+          return null;
+        }),
       ]);
 
       setDoors(catalogData.doors || []);
@@ -321,19 +325,14 @@ export const App: React.FC = () => {
       setFrames(calcData.frames || []);
       setHardware(calcData.hardware || []);
 
-      // Load All India Delivery public states and customer stories
-      fetchPublicDeliveryData()
-        .then(delData => {
-          if (delData.states && delData.states.length > 0) {
-            setDeliveryStates(delData.states);
-          }
-          if (delData.stories && delData.stories.length > 0) {
-            setDeliveryStories(delData.stories);
-          }
-        })
-        .catch(err => {
-          console.warn('Delivery data fallback in use:', err);
-        });
+      if (delData) {
+        if (Array.isArray(delData.states) && delData.states.length > 0) {
+          setDeliveryStates(delData.states);
+        }
+        if (Array.isArray(delData.stories)) {
+          setDeliveryStories(delData.stories);
+        }
+      }
 
       // Check if deep-linked to a door directly
       if (typeof window !== 'undefined') {

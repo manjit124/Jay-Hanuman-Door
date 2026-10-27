@@ -54,6 +54,13 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
   const [editingStory, setEditingStory] = useState<DeliveryStory | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState<'door' | 'delivery' | null>(null);
+  const [localStories, setLocalStories] = useState<DeliveryStory[]>(stories);
+  const [confirmDeleteStoryId, setConfirmDeleteStoryId] = useState<string | null>(null);
+  const [deletingStoryId, setDeletingStoryId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    setLocalStories(stories);
+  }, [stories]);
 
   // Form fields
   const [formData, setFormData] = useState<{
@@ -225,15 +232,26 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
   };
 
   const handleDeleteStory = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete delivery story for "${name}"?`)) {
-      return;
-    }
+    if (!id || deletingStoryId) return;
     try {
-      await adminDeleteDeliveryStory(id);
-      showToast('Delivery story deleted successfully.');
-      onRefresh();
+      setDeletingStoryId(id);
+      const res = await adminDeleteDeliveryStory(id);
+      setLocalStories(prev => prev.filter(s => s.id !== id));
+      setConfirmDeleteStoryId(null);
+      if (editingStory && editingStory.id === id) {
+        setIsModalOpen(false);
+        setEditingStory(null);
+      }
+      await Promise.resolve(onRefresh());
+      if (res?.cleanupWarning) {
+        showToast(`Story "${name}" deleted from database. Storage cleanup note: ${res.cleanupWarning}`);
+      } else {
+        showToast(`Delivery story for "${name}" deleted permanently.`);
+      }
     } catch (err: any) {
-      showToast(`Delete failed: ${err.message}`);
+      showToast(`Delete failed: ${err?.message || 'Unable to delete delivery story'}`);
+    } finally {
+      setDeletingStoryId(null);
     }
   };
 
@@ -298,7 +316,7 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
 
   // Filter stories
   const filteredStories = useMemo(() => {
-    return stories.filter(story => {
+    return localStories.filter(story => {
       const q = searchQuery.toLowerCase();
       const matchQuery =
         !q ||
@@ -317,7 +335,7 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
 
       return matchQuery && matchState && matchStatus;
     });
-  }, [stories, searchQuery, filterState, filterStatus]);
+  }, [localStories, searchQuery, filterState, filterStatus]);
 
   // Filter states
   const filteredStates = useMemo(() => {
@@ -332,8 +350,8 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
     });
   }, [states, searchQuery]);
 
-  const verifiedCount = stories.filter(s => s.isVerifiedCustomer).length;
-  const publishedCount = stories.filter(s => s.published !== false).length;
+  const verifiedCount = localStories.filter(s => s.isVerifiedCustomer).length;
+  const publishedCount = localStories.filter(s => s.published !== false).length;
   const availableStatesCount = states.filter(s => s.available).length;
 
   return (
@@ -559,43 +577,87 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
                     </div>
 
                     {/* Card Actions Footer */}
-                    <div className="flex items-center justify-between gap-2 pt-3 mt-3 border-t border-stone-100 text-xs">
-                      <button
-                        onClick={() => handleToggleStoryPublish(story)}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-medium cursor-pointer transition-colors ${
-                          story.published === false
-                            ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                            : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                        }`}
-                        title={story.published === false ? 'Publish this story' : 'Unpublish to draft'}
-                      >
-                        {story.published === false ? (
-                          <>
-                            <Eye className="w-3.5 h-3.5" /> Publish
-                          </>
-                        ) : (
-                          <>
-                            <EyeOff className="w-3.5 h-3.5" /> Unpublish
-                          </>
-                        )}
-                      </button>
+                    <div className="pt-3 mt-3 border-t border-stone-100 text-xs">
+                      {confirmDeleteStoryId === story.id ? (
+                        <div className="flex items-center justify-between gap-2 bg-rose-50 border border-rose-200 rounded-xl px-2.5 py-2">
+                          <span className="text-[11px] font-bold text-rose-800 truncate">
+                            Delete &ldquo;{story.customerName}&rdquo;?
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              disabled={deletingStoryId === story.id}
+                              onClick={() => handleDeleteStory(story.id, story.customerName)}
+                              className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            >
+                              {deletingStoryId === story.id ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  <span>Deleting...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Confirm Delete</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deletingStoryId === story.id}
+                              onClick={() => setConfirmDeleteStoryId(null)}
+                              className="px-2 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-300 text-stone-700 font-semibold text-[11px] cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleStoryPublish(story)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-medium cursor-pointer transition-colors ${
+                              story.published === false
+                                ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                            }`}
+                            title={story.published === false ? 'Publish this story' : 'Unpublish to draft'}
+                          >
+                            {story.published === false ? (
+                              <>
+                                <Eye className="w-3.5 h-3.5" /> Publish
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="w-3.5 h-3.5" /> Unpublish
+                              </>
+                            )}
+                          </button>
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => openStoryModal(story)}
-                          className="p-1.5 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-100 cursor-pointer"
-                          title="Edit Story"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteStory(story.id, story.customerName)}
-                          className="p-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 cursor-pointer"
-                          title="Delete Story"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openStoryModal(story)}
+                              className="px-2.5 py-1.5 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-100 cursor-pointer inline-flex items-center gap-1 font-medium"
+                              title="Edit Story"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deletingStoryId === story.id}
+                              onClick={() => setConfirmDeleteStoryId(story.id)}
+                              className="px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 cursor-pointer inline-flex items-center gap-1 font-semibold disabled:opacity-50"
+                              title="Delete Story"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1101,22 +1163,71 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
               </div>
 
               {/* Footer CTA */}
-              <div className="pt-4 border-t border-stone-200 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl border border-stone-300 text-stone-700 text-xs font-bold hover:bg-stone-50 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#b07f0e] text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  {isSaving ? 'Saving...' : editingStory ? 'Update Story' : 'Save Delivery Story'}
-                </button>
+              <div className="pt-4 border-t border-stone-200 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  {editingStory && (
+                    confirmDeleteStoryId === editingStory.id ? (
+                      <div className="inline-flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-xl px-3 py-1.5">
+                        <span className="text-xs font-bold text-rose-800">Confirm permanent delete?</span>
+                        <button
+                          type="button"
+                          disabled={deletingStoryId === editingStory.id}
+                          onClick={() => handleDeleteStory(editingStory.id, editingStory.customerName)}
+                          className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          {deletingStoryId === editingStory.id ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Deleting...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Yes, Delete</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingStoryId === editingStory.id}
+                          onClick={() => setConfirmDeleteStoryId(null)}
+                          className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-300 text-stone-700 text-xs font-semibold cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteStoryId(editingStory.id)}
+                        className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Story</span>
+                      </button>
+                    )
+                  )}
+                </div>
+                <div className="flex items-center gap-3 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmDeleteStoryId(null);
+                      setIsModalOpen(false);
+                    }}
+                    className="px-4 py-2.5 rounded-xl border border-stone-300 text-stone-700 text-xs font-bold hover:bg-stone-50 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#b07f0e] text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4" />
+                    {isSaving ? 'Saving...' : editingStory ? 'Update Story' : 'Save Delivery Story'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

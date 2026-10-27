@@ -249,6 +249,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Uploading state
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [isUploadingModel, setIsUploadingModel] = useState(false);
   const [isUploadingPng, setIsUploadingPng] = useState(false);
@@ -325,9 +326,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return false;
   };
 
+  const [confirmDeleteBannerId, setConfirmDeleteBannerId] = useState<string | null>(null);
+  const [deletingBannerId, setDeletingBannerId] = useState<string | null>(null);
+
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 3500);
+  };
+
+  const handleDeleteBanner = async (bannerId: string, bannerLabel?: string) => {
+    if (!bannerId || deletingBannerId) return;
+    setDeletingBannerId(bannerId);
+    try {
+      await ensureActiveAuthSession();
+      const res = await deleteBanner(bannerId);
+      setBanners(prev => prev.filter(b => b.id !== bannerId));
+      if (editingBanner?.id === bannerId) {
+        setEditingBanner(null);
+        setBannerUploadError(null);
+      }
+      setConfirmDeleteBannerId(null);
+      await loadData();
+      onDataUpdated();
+      const label = bannerLabel ? `"${bannerLabel}"` : 'Banner';
+      if (res?.cleanupWarning) {
+        showToast(`${label} deleted from database (Image cleanup note: ${res.cleanupWarning})`);
+      } else {
+        showToast(`${label} deleted permanently`);
+      }
+    } catch (err: any) {
+      showToast(`Delete failed: ${err?.message || 'Unable to delete banner'}`);
+    } finally {
+      setDeletingBannerId(null);
+    }
   };
 
   const loadData = async () => {
@@ -448,22 +479,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // Direct File Upload helper
+  // Direct File Upload helper (supports single or multi-file selection with browser compression & progress)
   const handleFileUploadHelper = async (
     e: React.ChangeEvent<HTMLInputElement>,
-    onSuccess: (url: string) => void
+    onSuccess: (url: string, allUrls?: string[]) => void
   ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files: File[] = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0 || uploadingImage) return;
     setUploadingImage(true);
+    setUploadProgress(5);
+    const uploadedUrls: string[] = [];
+    let totalSavedBytes = 0;
     try {
-      const res = await uploadImage(file);
-      onSuccess(res.url);
-      showToast('Image uploaded successfully');
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const res = await uploadImage(file, {
+          maxDimension: 1680,
+          quality: 0.82,
+          onProgress: (pct) => {
+            const overall = Math.round(((i + pct / 100) / files.length) * 100);
+            setUploadProgress(overall);
+          },
+        });
+        uploadedUrls.push(res.url);
+        if (res.originalSize && res.optimizedSize && res.originalSize > res.optimizedSize) {
+          totalSavedBytes += res.originalSize - res.optimizedSize;
+        }
+        onSuccess(res.url, uploadedUrls);
+      }
+      const savedKb = Math.round(totalSavedBytes / 1024);
+      showToast(
+        files.length > 1
+          ? `${files.length} photos uploaded${savedKb > 20 ? ` (saved ${savedKb} KB)` : ''}`
+          : `Image uploaded${savedKb > 20 ? ` (optimized by ${savedKb} KB)` : ' successfully'}`
+      );
     } catch (err: any) {
-      alert(err.message || 'Image upload failed');
+      showToast(err?.message || 'Image upload failed. Please retry.');
     } finally {
       setUploadingImage(false);
+      setUploadProgress(null);
+      e.target.value = '';
     }
   };
 
@@ -1871,24 +1926,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               Door Image (Direct File Upload)
                             </label>
                             <div className="flex items-center gap-3">
-                              <label className="cursor-pointer px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition-colors">
-                                <Upload className="w-3.5 h-3.5" />
-                                {uploadingImage ? 'Uploading...' : 'Choose File to Upload'}
+                              <label className={`px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 transition-colors ${uploadingImage ? 'bg-stone-400 cursor-wait' : 'cursor-pointer bg-[#C89211] hover:bg-[#A0700B]'}`}>
+                                {uploadingImage ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Upload className="w-3.5 h-3.5" />
+                                )}
+                                {uploadingImage
+                                  ? `Uploading${uploadProgress !== null ? ` ${uploadProgress}%` : ''}...`
+                                  : 'Choose File(s) to Upload'}
                                 <input
                                   type="file"
                                   accept="image/*"
+                                  multiple
                                   disabled={uploadingImage}
                                   onChange={e =>
                                     handleFileUploadHelper(e, url => {
-                                      const current = editingDoor.images || [];
-                                      setEditingDoor({ ...editingDoor, images: [url, ...current] });
+                                      setEditingDoor(prev => {
+                                        if (!prev) return prev;
+                                        const current = prev.images || [];
+                                        if (current.includes(url)) return prev;
+                                        return {
+                                          ...prev,
+                                          image: current.length === 0 ? url : (prev.image || url),
+                                          images: [url, ...current],
+                                        };
+                                      });
                                     })
                                   }
                                   className="hidden"
                                 />
                               </label>
                               <span className="text-[11px] text-[#666666]">
-                                Select JPG/PNG file from your phone or PC
+                                Auto-optimizes camera photos (1680px HD) for fast upload
                               </span>
                             </div>
 
@@ -2177,27 +2247,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <div className="flex flex-wrap items-center gap-2 pt-1">
                               {/* Upload custom PNG */}
                               <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] border border-[#E5E5E5] text-xs font-semibold cursor-pointer transition">
-                                <Upload className="w-3.5 h-3.5" />
-                                <span>{isUploadingPng ? 'Uploading PNG...' : 'Upload Transparent PNG'}</span>
+                                {isUploadingPng ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Upload className="w-3.5 h-3.5" />
+                                )}
+                                <span>
+                                  {isUploadingPng
+                                    ? `Uploading PNG${uploadProgress !== null ? ` ${uploadProgress}%` : ''}...`
+                                    : 'Upload Transparent PNG'}
+                                </span>
                                 <input
                                   type="file"
-                                  accept=".png,.webp"
+                                  accept=".png,.webp,image/png,image/webp"
                                   disabled={isUploadingPng}
                                   onChange={async (e) => {
                                     const file = e.target.files?.[0];
-                                    if (!file) return;
+                                    if (!file || isUploadingPng) return;
                                     try {
                                       setIsUploadingPng(true);
-                                      const res = await uploadImage(file);
+                                      setUploadProgress(5);
+                                      const res = await uploadImage(file, {
+                                        maxDimension: 1800,
+                                        preserveTransparency: true,
+                                        onProgress: pct => setUploadProgress(pct),
+                                      });
                                       setEditingDoor(prev => ({
                                         ...prev,
                                         transparentPngUrl: res.url,
                                       }));
                                       showToast('Transparent PNG uploaded successfully!');
                                     } catch (err: any) {
-                                      alert(err.message || 'PNG upload failed');
+                                      showToast(err?.message || 'PNG upload failed. Please retry.');
                                     } finally {
                                       setIsUploadingPng(false);
+                                      setUploadProgress(null);
+                                      e.target.value = '';
                                     }
                                   }}
                                   className="hidden"
@@ -3861,7 +3946,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   {uploadingImage ? (
                                     <>
                                       <Loader2 className="w-4 h-4 animate-spin" />
-                                      <span>Uploading to R2...</span>
+                                      <span>Uploading{uploadProgress !== null ? ` ${uploadProgress}%` : ''}...</span>
                                     </>
                                   ) : (
                                     <>
@@ -3875,23 +3960,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     disabled={uploadingImage}
                                     onChange={async e => {
                                       const file = e.target.files?.[0];
-                                      if (!file) return;
+                                      if (!file || uploadingImage) return;
                                       setBannerUploadError(null);
                                       if (!file.type.startsWith('image/')) {
                                         const err = 'Invalid file type: Please select an image (JPG, PNG, WebP, SVG, AVIF).';
                                         setBannerUploadError(err);
                                         showToast(err);
+                                        e.target.value = '';
                                         return;
                                       }
                                       if (file.size > 15 * 1024 * 1024) {
                                         const err = 'File size exceeds 15 MB limit. Please upload a smaller image.';
                                         setBannerUploadError(err);
                                         showToast(err);
+                                        e.target.value = '';
                                         return;
                                       }
                                       setUploadingImage(true);
+                                      setUploadProgress(5);
                                       try {
-                                        const res = await uploadImage(file);
+                                        const res = await uploadImage(file, {
+                                          maxDimension: 1920,
+                                          quality: 0.84,
+                                          onProgress: pct => setUploadProgress(pct),
+                                        });
                                         setEditingBanner(prev => prev ? { ...prev, image: res.url, bannerType: 'main' } : null);
                                         showToast('Main banner uploaded successfully!');
                                       } catch (err: any) {
@@ -3900,6 +3992,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                         showToast(msg);
                                       } finally {
                                         setUploadingImage(false);
+                                        setUploadProgress(null);
                                         e.target.value = '';
                                       }
                                     }}
@@ -4079,17 +4172,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </div>
 
                           {/* Action Buttons */}
-                          <div className="flex justify-end gap-3 pt-3 border-t border-[#E5E5E5]">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingBanner(null);
-                                setBannerUploadError(null);
-                              }}
-                              className="px-4 py-2.5 rounded-xl bg-[#F8F8F6] text-[#1A1A1A] font-semibold transition cursor-pointer"
-                            >
-                              Cancel
-                            </button>
+                          <div className="flex flex-wrap justify-between items-center gap-3 pt-3 border-t border-[#E5E5E5]">
+                            <div>
+                              {editingBanner.id && (
+                                confirmDeleteBannerId === editingBanner.id ? (
+                                  <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 rounded-xl px-2.5 py-1.5">
+                                    <span className="text-[11px] font-bold text-rose-700">Delete permanently?</span>
+                                    <button
+                                      type="button"
+                                      disabled={deletingBannerId === editingBanner.id}
+                                      onClick={() => handleDeleteBanner(editingBanner.id!, editingBanner.title || 'Main Banner')}
+                                      className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                                    >
+                                      {deletingBannerId === editingBanner.id ? 'Deleting...' : 'Yes, Delete'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={deletingBannerId === editingBanner.id}
+                                      onClick={() => setConfirmDeleteBannerId(null)}
+                                      className="px-2 py-1 rounded-lg bg-white hover:bg-stone-100 text-stone-600 text-[11px] font-semibold border border-stone-200 transition cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteBannerId(editingBanner.id!)}
+                                    className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                                    title="Delete this main banner permanently"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-rose-600" />
+                                    <span>Delete Main Banner</span>
+                                  </button>
+                                )
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingBanner(null);
+                                  setBannerUploadError(null);
+                                  setConfirmDeleteBannerId(null);
+                                }}
+                                className="px-4 py-2.5 rounded-xl bg-[#F8F8F6] text-[#1A1A1A] font-semibold transition cursor-pointer"
+                              >
+                                Cancel
+                              </button>
                             <button
                               type="button"
                               onClick={async () => {
@@ -4133,6 +4263,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <Check className="w-4 h-4" />
                               <span>Save Main Banner</span>
                             </button>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -4225,21 +4356,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (confirm(`Delete main banner "${b.title || 'Untitled'}"?`)) {
-                                    await deleteBanner(b.id);
-                                    loadData();
-                                    onDataUpdated();
-                                    showToast('Main banner deleted successfully');
-                                  }
-                                }}
-                                className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 cursor-pointer"
-                                title="Delete Main Banner"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {confirmDeleteBannerId === b.id ? (
+                                <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 rounded-xl px-2 py-1">
+                                  <button
+                                    type="button"
+                                    disabled={deletingBannerId === b.id}
+                                    onClick={() => handleDeleteBanner(b.id, b.title || 'Main Banner')}
+                                    className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                                  >
+                                    {deletingBannerId === b.id ? 'Deleting...' : 'Confirm Delete'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={deletingBannerId === b.id}
+                                    onClick={() => setConfirmDeleteBannerId(null)}
+                                    className="px-2 py-1 rounded-lg bg-white hover:bg-stone-100 text-stone-600 text-[11px] font-semibold border border-stone-200 transition cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteBannerId(b.id)}
+                                  className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 cursor-pointer"
+                                  title="Delete Main Banner"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -4522,29 +4667,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <div className="flex flex-wrap justify-between items-center gap-3 pt-3 border-t border-[#E5E5E5]">
                             <div>
                               {editingBanner.id && (
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (confirm(`Are you sure you want to permanently delete banner "${editingBanner.title || 'Untitled'}" (ID: ${editingBanner.id})? This cannot be undone.`)) {
-                                      try {
-                                        await deleteBanner(editingBanner.id);
-                                        setBanners(prev => prev.filter(b => b.id !== editingBanner.id));
-                                        setEditingBanner(null);
-                                        setBannerUploadError(null);
-                                        loadData();
-                                        onDataUpdated();
-                                        showToast('Promotional banner deleted successfully');
-                                      } catch (err: any) {
-                                        alert(err.message || 'Failed to delete banner');
-                                      }
-                                    }
-                                  }}
-                                  className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition active:scale-95 cursor-pointer flex items-center gap-1.5"
-                                  title="Delete this banner permanently"
-                                >
-                                  <Trash2 className="w-4 h-4 text-rose-600" />
-                                  <span>Delete Banner</span>
-                                </button>
+                                confirmDeleteBannerId === editingBanner.id ? (
+                                  <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 rounded-xl px-2.5 py-1.5">
+                                    <span className="text-[11px] font-bold text-rose-700">Delete permanently?</span>
+                                    <button
+                                      type="button"
+                                      disabled={deletingBannerId === editingBanner.id}
+                                      onClick={() => handleDeleteBanner(editingBanner.id!, editingBanner.title || 'Promotional Banner')}
+                                      className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                                    >
+                                      {deletingBannerId === editingBanner.id ? 'Deleting...' : 'Yes, Delete'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={deletingBannerId === editingBanner.id}
+                                      onClick={() => setConfirmDeleteBannerId(null)}
+                                      className="px-2 py-1 rounded-lg bg-white hover:bg-stone-100 text-stone-600 text-[11px] font-semibold border border-stone-200 transition cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteBannerId(editingBanner.id!)}
+                                    className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                                    title="Delete this banner permanently"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-rose-600" />
+                                    <span>Delete Banner</span>
+                                  </button>
+                                )
                               )}
                             </div>
                             <div className="flex items-center gap-2">
@@ -4694,7 +4847,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     {uploadingImage ? (
                                       <>
                                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        <span>Uploading...</span>
+                                        <span>Uploading{uploadProgress !== null ? ` ${uploadProgress}%` : ''}...</span>
                                       </>
                                     ) : (
                                       <>
@@ -4708,10 +4861,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       disabled={uploadingImage}
                                       onChange={async e => {
                                         const file = e.target.files?.[0];
-                                        if (!file) return;
+                                        if (!file || uploadingImage) return;
                                         setUploadingImage(true);
+                                        setUploadProgress(5);
                                         try {
-                                          const res = await uploadImage(file);
+                                          const res = await uploadImage(file, {
+                                            maxDimension: 1800,
+                                            quality: 0.83,
+                                            onProgress: pct => setUploadProgress(pct),
+                                          });
                                           await updateSlotBanner('slot_1', { image: res.url });
                                           loadData();
                                           onDataUpdated();
@@ -4720,6 +4878,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                           showToast(err?.message || 'Upload failed');
                                         } finally {
                                           setUploadingImage(false);
+                                          setUploadProgress(null);
                                           e.target.value = '';
                                         }
                                       }}
@@ -4821,27 +4980,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <Edit2 className="w-3.5 h-3.5" />
                                     <span>Edit Slide Details</span>
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      if (confirm(`Are you sure you want to permanently delete Promotional Banner A ("${primaryBannerA.title || 'Untitled'}")?`)) {
-                                        try {
-                                          await deleteBanner(primaryBannerA.id);
-                                          setBanners(prev => prev.filter(b => b.id !== primaryBannerA.id));
-                                          loadData();
-                                          onDataUpdated();
-                                          showToast('Banner A deleted successfully');
-                                        } catch (err: any) {
-                                          showToast(`Delete failed: ${err.message}`);
-                                        }
-                                      }
-                                    }}
-                                    className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-                                    title="Delete Banner A"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                                    <span>Delete Banner</span>
-                                  </button>
+                                  {confirmDeleteBannerId === primaryBannerA.id ? (
+                                    <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 rounded-lg px-2 py-1">
+                                      <span className="text-[11px] font-bold text-rose-700">Delete Banner A?</span>
+                                      <button
+                                        type="button"
+                                        disabled={deletingBannerId === primaryBannerA.id}
+                                        onClick={() => handleDeleteBanner(primaryBannerA.id, primaryBannerA.title || 'Banner A')}
+                                        className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                                      >
+                                        {deletingBannerId === primaryBannerA.id ? 'Deleting...' : 'Confirm'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={deletingBannerId === primaryBannerA.id}
+                                        onClick={() => setConfirmDeleteBannerId(null)}
+                                        className="px-2 py-0.5 rounded bg-white hover:bg-stone-100 text-stone-600 text-[11px] font-semibold border border-stone-200 transition cursor-pointer"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteBannerId(primaryBannerA.id)}
+                                      className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                                      title="Delete Banner A"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                      <span>Delete Banner</span>
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -4895,26 +5064,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     >
                                       <Edit2 className="w-3.5 h-3.5" />
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        if (confirm(`Delete slide "${b.title || 'Untitled'}" (ID: ${b.id}) from Slot A?`)) {
-                                          try {
-                                            await deleteBanner(b.id);
-                                            setBanners(prev => prev.filter(item => item.id !== b.id));
-                                            loadData();
-                                            onDataUpdated();
-                                            showToast('Slide deleted from Slot A');
-                                          } catch (err: any) {
-                                            showToast(`Delete failed: ${err.message}`);
-                                          }
-                                        }
-                                      }}
-                                      className="p-1.5 rounded-lg hover:bg-rose-100 text-rose-600 cursor-pointer"
-                                      title="Delete Slide"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                                    {confirmDeleteBannerId === b.id ? (
+                                      <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 rounded-lg px-2 py-0.5">
+                                        <button
+                                          type="button"
+                                          disabled={deletingBannerId === b.id}
+                                          onClick={() => handleDeleteBanner(b.id, b.title || `Slide #${idx + 1}`)}
+                                          className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold transition cursor-pointer disabled:opacity-50"
+                                        >
+                                          {deletingBannerId === b.id ? 'Deleting...' : 'Confirm'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={deletingBannerId === b.id}
+                                          onClick={() => setConfirmDeleteBannerId(null)}
+                                          className="px-1.5 py-0.5 rounded bg-white hover:bg-stone-100 text-stone-600 text-[10px] font-semibold border border-stone-200 transition cursor-pointer"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteBannerId(b.id)}
+                                        className="p-1.5 rounded-lg hover:bg-rose-100 text-rose-600 cursor-pointer"
+                                        title="Delete Slide"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                               ))}
@@ -5014,7 +5192,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     {uploadingImage ? (
                                       <>
                                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        <span>Uploading...</span>
+                                        <span>Uploading{uploadProgress !== null ? ` ${uploadProgress}%` : ''}...</span>
                                       </>
                                     ) : (
                                       <>
@@ -5028,10 +5206,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       disabled={uploadingImage}
                                       onChange={async e => {
                                         const file = e.target.files?.[0];
-                                        if (!file) return;
+                                        if (!file || uploadingImage) return;
                                         setUploadingImage(true);
+                                        setUploadProgress(5);
                                         try {
-                                          const res = await uploadImage(file);
+                                          const res = await uploadImage(file, {
+                                            maxDimension: 1800,
+                                            quality: 0.83,
+                                            onProgress: pct => setUploadProgress(pct),
+                                          });
                                           await updateSlotBanner('slot_2', { image: res.url });
                                           loadData();
                                           onDataUpdated();
@@ -5040,6 +5223,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                           showToast(err?.message || 'Upload failed');
                                         } finally {
                                           setUploadingImage(false);
+                                          setUploadProgress(null);
                                           e.target.value = '';
                                         }
                                       }}
@@ -5141,27 +5325,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <Edit2 className="w-3.5 h-3.5" />
                                     <span>Edit Slide Details</span>
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      if (confirm(`Are you sure you want to permanently delete Promotional Banner B ("${primaryBannerB.title || 'Untitled'}")?`)) {
-                                        try {
-                                          await deleteBanner(primaryBannerB.id);
-                                          setBanners(prev => prev.filter(b => b.id !== primaryBannerB.id));
-                                          loadData();
-                                          onDataUpdated();
-                                          showToast('Banner B deleted successfully');
-                                        } catch (err: any) {
-                                          showToast(`Delete failed: ${err.message}`);
-                                        }
-                                      }
-                                    }}
-                                    className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-                                    title="Delete Banner B"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                                    <span>Delete Banner</span>
-                                  </button>
+                                  {confirmDeleteBannerId === primaryBannerB.id ? (
+                                    <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 rounded-lg px-2 py-1">
+                                      <span className="text-[11px] font-bold text-rose-700">Delete Banner B?</span>
+                                      <button
+                                        type="button"
+                                        disabled={deletingBannerId === primaryBannerB.id}
+                                        onClick={() => handleDeleteBanner(primaryBannerB.id, primaryBannerB.title || 'Banner B')}
+                                        className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                                      >
+                                        {deletingBannerId === primaryBannerB.id ? 'Deleting...' : 'Confirm'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={deletingBannerId === primaryBannerB.id}
+                                        onClick={() => setConfirmDeleteBannerId(null)}
+                                        className="px-2 py-0.5 rounded bg-white hover:bg-stone-100 text-stone-600 text-[11px] font-semibold border border-stone-200 transition cursor-pointer"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteBannerId(primaryBannerB.id)}
+                                      className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                                      title="Delete Banner B"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                      <span>Delete Banner</span>
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -5215,26 +5409,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     >
                                       <Edit2 className="w-3.5 h-3.5" />
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        if (confirm(`Delete slide "${b.title || 'Untitled'}" (ID: ${b.id}) from Slot B?`)) {
-                                          try {
-                                            await deleteBanner(b.id);
-                                            setBanners(prev => prev.filter(item => item.id !== b.id));
-                                            loadData();
-                                            onDataUpdated();
-                                            showToast('Slide deleted from Slot B');
-                                          } catch (err: any) {
-                                            showToast(`Delete failed: ${err.message}`);
-                                          }
-                                        }
-                                      }}
-                                      className="p-1.5 rounded-lg hover:bg-rose-100 text-rose-600 cursor-pointer"
-                                      title="Delete Slide"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                                    {confirmDeleteBannerId === b.id ? (
+                                      <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 rounded-lg px-2 py-0.5">
+                                        <button
+                                          type="button"
+                                          disabled={deletingBannerId === b.id}
+                                          onClick={() => handleDeleteBanner(b.id, b.title || `Slide #${idx + 1}`)}
+                                          className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold transition cursor-pointer disabled:opacity-50"
+                                        >
+                                          {deletingBannerId === b.id ? 'Deleting...' : 'Confirm'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={deletingBannerId === b.id}
+                                          onClick={() => setConfirmDeleteBannerId(null)}
+                                          className="px-1.5 py-0.5 rounded bg-white hover:bg-stone-100 text-stone-600 text-[10px] font-semibold border border-stone-200 transition cursor-pointer"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteBannerId(b.id)}
+                                        className="p-1.5 rounded-lg hover:bg-rose-100 text-rose-600 cursor-pointer"
+                                        title="Delete Slide"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                               ))}
@@ -5287,27 +5490,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <Edit2 className="w-3.5 h-3.5" />
                                     <span>Edit / Assign</span>
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      if (confirm(`Permanently delete promotional banner "${b.title || 'Untitled'}" (ID: ${b.id})?`)) {
-                                        try {
-                                          await deleteBanner(b.id);
-                                          setBanners(prev => prev.filter(item => item.id !== b.id));
-                                          loadData();
-                                          onDataUpdated();
-                                          showToast('Promotional banner deleted successfully');
-                                        } catch (err: any) {
-                                          showToast(`Delete failed: ${err.message}`);
-                                        }
-                                      }
-                                    }}
-                                    className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-                                    title="Delete Banner"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                                    <span>Delete</span>
-                                  </button>
+                                  {confirmDeleteBannerId === b.id ? (
+                                    <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 rounded-lg px-2 py-1">
+                                      <button
+                                        type="button"
+                                        disabled={deletingBannerId === b.id}
+                                        onClick={() => handleDeleteBanner(b.id, b.title || 'Promotional Banner')}
+                                        className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                                      >
+                                        {deletingBannerId === b.id ? 'Deleting...' : 'Confirm Delete'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={deletingBannerId === b.id}
+                                        onClick={() => setConfirmDeleteBannerId(null)}
+                                        className="px-2 py-0.5 rounded bg-white hover:bg-stone-100 text-stone-600 text-[11px] font-semibold border border-stone-200 transition cursor-pointer"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteBannerId(b.id)}
+                                      className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                                      title="Delete Banner"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                      <span>Delete</span>
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             ))}

@@ -13,7 +13,12 @@ export const OurStorySection: React.FC<OurStorySectionProps> = ({ teamMembers, s
 
   // Fallback to configured team member if present and not overridden in storySettings
   const ownerMember = teamMembers?.find(
-    m => m.name.toLowerCase().includes('manjeet') || m.role?.toLowerCase().includes('founder') || m.role?.toLowerCase().includes('owner')
+    m =>
+      m.name?.toLowerCase().includes('manjeet') ||
+      m.designation?.toLowerCase().includes('founder') ||
+      m.designation?.toLowerCase().includes('owner') ||
+      (m as any).role?.toLowerCase().includes('founder') ||
+      (m as any).role?.toLowerCase().includes('owner')
   );
 
   const sectionTitle = story?.sectionTitle || DEFAULT_STORY_SETTINGS.sectionTitle!;
@@ -21,10 +26,22 @@ export const OurStorySection: React.FC<OurStorySectionProps> = ({ teamMembers, s
   const storyHeading = story?.storyHeading || DEFAULT_STORY_SETTINGS.storyHeading!;
   const companyStory = story?.companyStory || DEFAULT_STORY_SETTINGS.companyStory!;
 
+  const defaultOwnerUnsplash = DEFAULT_STORY_SETTINGS.ownerPhotoUrl!;
+  const storyPhoto = story?.ownerPhotoUrl?.trim();
+  const memberPhoto = (ownerMember?.photo || (ownerMember as any)?.imageUrl || '').trim();
+
+  // If storyPhoto iscustomized (or memberPhoto is not customized), use storyPhoto; if storyPhoto is still default Unsplash while memberPhoto was customized in Team tab, prefer memberPhoto
+  const resolvedOwnerPhoto =
+    storyPhoto && storyPhoto !== defaultOwnerUnsplash
+      ? storyPhoto
+      : memberPhoto && memberPhoto !== defaultOwnerUnsplash
+      ? memberPhoto
+      : storyPhoto || memberPhoto || defaultOwnerUnsplash;
+
   const ownerName = story?.ownerName || ownerMember?.name || DEFAULT_STORY_SETTINGS.ownerName!;
-  const ownerRole = story?.ownerDesignation || ownerMember?.role || DEFAULT_STORY_SETTINGS.ownerDesignation!;
-  const ownerPhoto = story?.ownerPhotoUrl || ownerMember?.imageUrl || DEFAULT_STORY_SETTINGS.ownerPhotoUrl!;
-  const ownerBio = story?.ownerDescription || ownerMember?.bio || DEFAULT_STORY_SETTINGS.ownerDescription!;
+  const ownerRole = story?.ownerDesignation || ownerMember?.designation || (ownerMember as any)?.role || DEFAULT_STORY_SETTINGS.ownerDesignation!;
+  const ownerPhoto = resolvedOwnerPhoto;
+  const ownerBio = story?.ownerDescription || ownerMember?.shortBio || (ownerMember as any)?.bio || DEFAULT_STORY_SETTINGS.ownerDescription!;
 
   const highlights = story?.highlights && story.highlights.length === 3
     ? story.highlights

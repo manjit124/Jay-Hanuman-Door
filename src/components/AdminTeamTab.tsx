@@ -114,10 +114,21 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sorted members
-  const sortedMembers = [...(teamMembers || [])].sort(
-    (a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)
-  );
+  // Sorted members (enrich Founder/Owner photo from storySettings if customized)
+  const defaultFounderUnsplash = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80';
+  const storyOwnerPhoto = settings?.storySettings?.ownerPhotoUrl?.trim();
+  const sortedMembers = [...(teamMembers || [])]
+    .map(m => {
+      const isFounder =
+        m.name?.toLowerCase().includes('manjeet') ||
+        m.designation?.toLowerCase().includes('founder') ||
+        m.designation?.toLowerCase().includes('owner');
+      if (isFounder && storyOwnerPhoto && (!m.photo || m.photo === defaultFounderUnsplash)) {
+        return { ...m, photo: storyOwnerPhoto };
+      }
+      return m;
+    })
+    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
   const activeCount = sortedMembers.filter(m => m.active).length;
   const inactiveCount = sortedMembers.length - activeCount;

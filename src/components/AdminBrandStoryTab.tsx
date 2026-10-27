@@ -66,6 +66,7 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
   });
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [showLivePreview, setShowLivePreview] = useState(false);
 
@@ -108,17 +109,25 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
       return;
     }
 
+    if (uploadingPhoto) return;
+
     try {
       setUploadingPhoto(true);
-      const res = await uploadImage(file);
+      setUploadProgress(5);
+      const res = await uploadImage(file, {
+        maxDimension: 1200,
+        quality: 0.84,
+        onProgress: pct => setUploadProgress(pct),
+      });
       if (res?.url) {
         setFormData(prev => ({ ...prev, ownerPhotoUrl: res.url }));
-        showToast('Owner photo uploaded successfully! Click "Save Changes" to apply.');
+        showToast('Owner photo uploaded! Click "Save Changes" to apply.');
       }
     } catch (err: any) {
-      alert(err.message || 'Image upload failed. Please try again.');
+      showToast(err?.message || 'Image upload failed. Please try again.');
     } finally {
       setUploadingPhoto(false);
+      setUploadProgress(null);
       e.target.value = '';
     }
   };
@@ -477,7 +486,11 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
                       : 'bg-[#FFF7E3] hover:bg-[#FFEEC0] text-[#C89211] border border-[#C89211]/40'
                   }`}>
                     <Upload className="w-3.5 h-3.5" />
-                    <span>{uploadingPhoto ? 'Uploading...' : 'Upload New Photo'}</span>
+                    <span>
+                      {uploadingPhoto
+                        ? `Uploading${uploadProgress !== null ? ` ${uploadProgress}%` : ''}...`
+                        : 'Upload New Photo'}
+                    </span>
                     <input
                       type="file"
                       accept="image/png,image/jpeg,image/webp,image/jpg"

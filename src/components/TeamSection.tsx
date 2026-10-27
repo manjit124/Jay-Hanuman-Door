@@ -15,12 +15,24 @@ interface TeamSectionProps {
 }
 
 export const TeamSection: React.FC<TeamSectionProps> = ({ teamMembers, settings }) => {
-  // Filter active members and sort by displayOrder
+  // Filter active members, enrich Founder/Owner photo from storySettings if customized, and sort by displayOrder
   const activeMembers = React.useMemo(() => {
+    const defaultUnsplash = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80';
+    const storyOwnerPhoto = settings?.storySettings?.ownerPhotoUrl?.trim();
     return (teamMembers || [])
       .filter(m => m.active)
+      .map(m => {
+        const isFounder =
+          m.name?.toLowerCase().includes('manjeet') ||
+          m.designation?.toLowerCase().includes('founder') ||
+          m.designation?.toLowerCase().includes('owner');
+        if (isFounder && storyOwnerPhoto && (!m.photo || m.photo === defaultUnsplash)) {
+          return { ...m, photo: storyOwnerPhoto };
+        }
+        return m;
+      })
       .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-  }, [teamMembers]);
+  }, [teamMembers, settings?.storySettings?.ownerPhotoUrl]);
 
   // Selected member for detail modal
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);

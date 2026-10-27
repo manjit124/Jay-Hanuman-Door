@@ -47,6 +47,27 @@ if (!isPostBuild) {
       // Ensure mirror file is up to date
       fs.writeFileSync(mirrorFile, raw, 'utf8');
       console.log(`📦 [Pre-Build] Snapshot saved to: data/backups/pre-build-snapshot-${ts}.json`);
+
+      // Prune excess historical snapshots to keep build context fast and compact
+      [backupsDir, path.join(rootDir, 'server', 'data', 'backups')].forEach(bDir => {
+        try {
+          if (!fs.existsSync(bDir)) return;
+          const files = fs.readdirSync(bDir)
+            .filter(f => f.endsWith('.json'))
+            .map(f => {
+              const full = path.join(bDir, f);
+              let mtimeMs = 0;
+              try { mtimeMs = fs.statSync(full).mtimeMs; } catch {}
+              return { full, mtimeMs };
+            })
+            .sort((a, b) => a.mtimeMs - b.mtimeMs);
+          if (files.length > 6) {
+            files.slice(0, files.length - 6).forEach(item => {
+              try { fs.unlinkSync(item.full); } catch {}
+            });
+          }
+        } catch {}
+      });
     } catch (err) {
       console.warn('⚠️ [Pre-Build] Could not parse database.json for snapshot:', err.message);
     }

@@ -77,6 +77,21 @@ import {
   saveArticleDirectFirestore,
   updateArticleDirectFirestore,
   deleteArticleDirectFirestore,
+  saveTeamMemberDirectFirestore,
+  updateTeamMemberDirectFirestore,
+  toggleTeamMemberDirectFirestore,
+  reorderTeamMembersDirectFirestore,
+  deleteTeamMemberDirectFirestore,
+  toggleStateDeliveryDirectFirestore,
+  updateStateDeliveryDirectFirestore,
+  createDeliveryStoryDirectFirestore,
+  updateDeliveryStoryDirectFirestore,
+  deleteDeliveryStoryDirectFirestore,
+  saveChaukhatProductDirectFirestore,
+  deleteChaukhatProductDirectFirestore,
+  reorderChaukhatProductsDirectFirestore,
+  saveChaukhatSectionSizeDirectFirestore,
+  deleteChaukhatSectionSizeDirectFirestore,
   cleanUndefined,
   isClientAdminAuthorized,
   ensureFirebaseAuthSession,
@@ -494,19 +509,15 @@ export function resolveApiUrl(path: string): string {
 export function resolveImageUrl(path: string | undefined | null, fallback?: string): string {
   const defaultFallback = fallback || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80';
   if (!path || !path.trim()) return defaultFallback;
-  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:')) {
+  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:')) {
     return path;
   }
   const base = getApiBaseUrl();
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
   if (base) {
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
     return `${base}${cleanPath}`;
   }
-  // If no base URL is available and path is a local upload relative path (e.g. /uploads/...), return high-res fallback
-  if (path.startsWith('/uploads/') || path.startsWith('/api/uploads/')) {
-    return defaultFallback;
-  }
-  return path;
+  return cleanPath;
 }
 
 /**
@@ -669,6 +680,15 @@ export function clearGuestCalculations(): void {
 
 // ---------------- Public Endpoints ----------------
 
+export function invalidateLocalCatalogAndCalculatorCache(): void {
+  try {
+    localStorage.removeItem(CATALOG_CACHE_KEY);
+    localStorage.removeItem(CALCULATOR_CACHE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export async function fetchCatalog(): Promise<{
   doors: Door[];
   categories: Category[];
@@ -694,32 +714,27 @@ export async function fetchCatalog(): Promise<{
       }
     }
   } catch (err: any) {
-    console.warn('Network request for catalog failed, trying client cache and direct Firestore cloud store...', err.message || err);
+    console.warn('Network request for catalog failed, trying direct Firestore cloud store...', err.message || err);
   }
 
-  // 2. Check local client cache
-  try {
-    const cached = localStorage.getItem(CATALOG_CACHE_KEY);
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
-        console.info('Restored catalog data from client cache.');
-        return parsed;
-      }
-    }
-  } catch {}
-
-  // 3. Resilient Fallback: Authoritative direct Firestore database fetch
-  // Essential for installed Android APKs where server is initializing or unreachable
+  // 2. Authoritative direct Firestore database fetch (Prioritized before local cache so Android APK always gets fresh admin updates)
   try {
     const fsData = await fetchDirectFirestoreData();
     if (fsData && Array.isArray(fsData.doors) && fsData.doors.length > 0) {
+      const activeBanners = Array.isArray(fsData.banners)
+        ? fsData.banners.filter((b: any) => b.active !== false)
+        : DEFAULT_BANNERS;
+      const activeTeamMembers = Array.isArray(fsData.teamMembers)
+        ? fsData.teamMembers
+            .filter((m: any) => m.active !== false)
+            .sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0))
+        : [];
       const catalogData = {
         doors: fsData.doors,
         categories: Array.isArray(fsData.categories) && fsData.categories.length > 0 ? fsData.categories : DEFAULT_CATEGORIES,
-        banners: Array.isArray(fsData.banners) && fsData.banners.length > 0 ? fsData.banners : DEFAULT_BANNERS,
+        banners: activeBanners,
         articles: Array.isArray(fsData.articles) && fsData.articles.length > 0 ? fsData.articles : DEFAULT_ARTICLES,
-        teamMembers: fsData.teamMembers || [],
+        teamMembers: activeTeamMembers,
         settings: fsData.settings || DEFAULT_SETTINGS,
       };
       try {
@@ -734,6 +749,18 @@ export async function fetchCatalog(): Promise<{
   } catch (fsErr: any) {
     console.warn('Direct Firestore catalog fallback error:', fsErr.message);
   }
+
+  // 3. Check local client cache (Offline fallback)
+  try {
+    const cached = localStorage.getItem(CATALOG_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
+        console.info('Restored catalog data from client cache.');
+        return parsed;
+      }
+    }
+  } catch {}
 
   // 4. Guaranteed offline fallback dataset (Ensures zero blank screens)
   console.info('Using built-in master catalog fallback.');
@@ -773,29 +800,18 @@ export async function fetchCalculatorData(): Promise<{
       return result;
     }
   } catch (err: any) {
-    console.warn('Network request for calculator data failed, checking cache and Firestore...', err.message || err);
+    console.warn('Network request for calculator data failed, checking Firestore and cache...', err.message || err);
   }
 
-  // 2. Check local client cache
-  try {
-    const cached = localStorage.getItem(CALCULATOR_CACHE_KEY);
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      if (parsed && Array.isArray(parsed.materials) && parsed.materials.length > 0) {
-        return parsed;
-      }
-    }
-  } catch {}
-
-  // 3. Resilient Fallback: Authoritative direct Firestore database fetch
+  // 2. Authoritative direct Firestore database fetch (Prioritized before local cache so Android APK always gets fresh rates)
   try {
     const fsData = await fetchDirectFirestoreData();
     if (fsData) {
       const result = {
-        materials: Array.isArray(fsData.materials) && fsData.materials.length > 0 ? fsData.materials : DEFAULT_MATERIALS,
-        finishes: Array.isArray(fsData.finishes) && fsData.finishes.length > 0 ? fsData.finishes : DEFAULT_FINISHES,
-        frames: Array.isArray(fsData.frames) && fsData.frames.length > 0 ? fsData.frames : DEFAULT_FRAMES,
-        hardware: Array.isArray(fsData.hardware) && fsData.hardware.length > 0 ? fsData.hardware : DEFAULT_HARDWARE,
+        materials: Array.isArray(fsData.materials) && fsData.materials.length > 0 ? fsData.materials.filter((m: any) => m.active !== false) : DEFAULT_MATERIALS,
+        finishes: Array.isArray(fsData.finishes) && fsData.finishes.length > 0 ? fsData.finishes.filter((f: any) => f.active !== false) : DEFAULT_FINISHES,
+        frames: Array.isArray(fsData.frames) && fsData.frames.length > 0 ? fsData.frames.filter((fr: any) => fr.active !== false) : DEFAULT_FRAMES,
+        hardware: Array.isArray(fsData.hardware) && fsData.hardware.length > 0 ? fsData.hardware.filter((h: any) => h.active !== false) : DEFAULT_HARDWARE,
         settings: fsData.settings || DEFAULT_SETTINGS,
       };
       try {
@@ -806,6 +822,17 @@ export async function fetchCalculatorData(): Promise<{
   } catch (fsErr: any) {
     console.warn('Direct Firestore calculator data error:', fsErr.message);
   }
+
+  // 3. Check local client cache (Offline fallback)
+  try {
+    const cached = localStorage.getItem(CALCULATOR_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.materials) && parsed.materials.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
 
   // 4. Guaranteed offline fallback master rates
   return {
@@ -902,91 +929,464 @@ export async function clearUserCalculations(): Promise<void> {
 }
 
 
+export interface ImageUploadOptions {
+  /** Maximum width or height in pixels (default: 1680 for door/product photos, 1920 for banners) */
+  maxDimension?: number;
+  /** JPEG/WebP compression quality between 0.1 and 1.0 (default: 0.82 to preserve wood grain and carving detail) */
+  quality?: number;
+  /** Force preservation of alpha transparency (default: auto-detected for PNG/WebP cutouts) */
+  preserveTransparency?: boolean;
+  /** Skip recompression if file is already <= this size in bytes and within maxDimension (default: 320 KB) */
+  skipThresholdBytes?: number;
+  /** Optional progress callback (0 to 100) */
+  onProgress?: (percent: number, stage?: 'optimizing' | 'uploading') => void;
+}
+
+export interface ImageOptimizationResult {
+  file: File;
+  originalSize: number;
+  optimizedSize: number;
+  width: number;
+  height: number;
+  skipped: boolean;
+  durationMs: number;
+}
+
+export interface UploadedImageResponse {
+  url: string;
+  originalSize?: number;
+  optimizedSize?: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+}
+
 /**
- * Compresses an image file on the client using HTML5 Canvas to a web-optimized JPEG data URL.
- * Guarantees that even 10MB+ smartphone camera photos stay well below 80KB,
- * ensuring they fit comfortably inside Firestore documents and load instantly.
+ * Checks if a canvas contains any semi-transparent or transparent pixels by sampling a grid.
  */
-export async function compressImageToDataUrl(file: File, maxDimension = 1200, quality = 0.8): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error('Failed to read image file'));
-      reader.readAsDataURL(file);
-      return;
+function canvasHasTransparency(ctx: CanvasRenderingContext2D, width: number, height: number): boolean {
+  try {
+    const sampleW = Math.min(width, 64);
+    const sampleH = Math.min(height, 64);
+    const stepX = Math.max(1, Math.floor(width / sampleW));
+    const stepY = Math.max(1, Math.floor(height / sampleH));
+    const imgData = ctx.getImageData(0, 0, width, height).data;
+    for (let y = 0; y < height; y += stepY) {
+      for (let x = 0; x < width; x += stepX) {
+        const alphaIndex = (y * width + x) * 4 + 3;
+        if (imgData[alphaIndex] < 250) {
+          return true;
+        }
+      }
     }
+  } catch {
+    // If tainted or unavailable, assume transparent to be safe
+    return true;
+  }
+  return false;
+}
 
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Failed to read image file from disk'));
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('Failed to decode image data'));
-      img.onload = () => {
-        let width = img.width;
-        let height = img.height;
-
-        if (width > maxDimension || height > maxDimension) {
-          if (width > height) {
-            height = Math.round((height * maxDimension) / width);
-            width = maxDimension;
-          } else {
-            width = Math.round((width * maxDimension) / height);
-            height = maxDimension;
-          }
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(e.target?.result as string);
-          return;
-        }
-
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        resolve(dataUrl);
+/**
+ * Decodes an image file efficiently in the browser using native createImageBitmap (respecting EXIF orientation)
+ * with a fast object-URL fallback. Avoids slow FileReader.readAsDataURL base64 allocation on multi-megabyte files.
+ */
+async function decodeImageSource(file: File): Promise<{
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  cleanup: () => void;
+}> {
+  if (typeof window !== 'undefined' && typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' } as any);
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        cleanup: () => {
+          try {
+            bitmap.close();
+          } catch {}
+        },
       };
-      img.src = e.target?.result as string;
+    } catch {
+      // Fall through to HTMLImageElement + objectURL
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({
+        source: img,
+        width: img.naturalWidth || img.width,
+        height: img.naturalHeight || img.height,
+        cleanup: () => URL.revokeObjectURL(objectUrl),
+      });
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Failed to decode image file. Please select a valid JPG, PNG, or WebP photo.'));
+    };
+    img.src = objectUrl;
   });
 }
 
-export async function uploadImage(file: File): Promise<{ url: string }> {
+/**
+ * Compresses and resizes an image in the browser before upload while preserving aspect ratio,
+ * orientation, wood grain detail, and PNG cutout transparency.
+ */
+export async function optimizeImageForUpload(
+  file: File,
+  options: ImageUploadOptions = {}
+): Promise<ImageOptimizationResult> {
+  const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const maxDimension = options.maxDimension ?? 1680;
+  const quality = options.quality ?? 0.82;
+  const skipThresholdBytes = options.skipThresholdBytes ?? 320 * 1024;
+
+  // Never attempt canvas compression on non-image files or SVG vector graphics
+  if (
+    typeof window === 'undefined' ||
+    typeof document === 'undefined' ||
+    !file.type.startsWith('image/') ||
+    file.type === 'image/svg+xml' ||
+    file.type === 'image/gif'
+  ) {
+    return {
+      file,
+      originalSize: file.size,
+      optimizedSize: file.size,
+      width: 0,
+      height: 0,
+      skipped: true,
+      durationMs: 0,
+    };
+  }
+
+  const decoded = await decodeImageSource(file);
+  try {
+    const origWidth = decoded.width;
+    const origHeight = decoded.height;
+    const needsResize = origWidth > maxDimension || origHeight > maxDimension;
+
+    const isStandardWebImage =
+      file.type === 'image/jpeg' || file.type === 'image/jpg' || file.type === 'image/webp' || file.type === 'image/png';
+
+    // Skip recompression when the image is already compact and within target dimensions
+    if (!needsResize && file.size <= skipThresholdBytes && isStandardWebImage) {
+      const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime);
+      return {
+        file,
+        originalSize: file.size,
+        optimizedSize: file.size,
+        width: origWidth,
+        height: origHeight,
+        skipped: true,
+        durationMs: elapsed,
+      };
+    }
+
+    let targetWidth = origWidth;
+    let targetHeight = origHeight;
+    if (needsResize) {
+      if (origWidth >= origHeight) {
+        targetWidth = maxDimension;
+        targetHeight = Math.max(1, Math.round((origHeight * maxDimension) / origWidth));
+      } else {
+        targetHeight = maxDimension;
+        targetWidth = Math.max(1, Math.round((origWidth * maxDimension) / origHeight));
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return {
+        file,
+        originalSize: file.size,
+        optimizedSize: file.size,
+        width: origWidth,
+        height: origHeight,
+        skipped: true,
+        durationMs: 0,
+      };
+    }
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.clearRect(0, 0, targetWidth, targetHeight);
+    ctx.drawImage(decoded.source, 0, 0, targetWidth, targetHeight);
+
+    const isPngOrWebp =
+      file.type === 'image/png' ||
+      file.type === 'image/webp' ||
+      file.name?.toLowerCase().endsWith('.png') ||
+      file.name?.toLowerCase().endsWith('.webp');
+
+    let keepAlpha = Boolean(options.preserveTransparency);
+    if (!keepAlpha && isPngOrWebp) {
+      keepAlpha = canvasHasTransparency(ctx, targetWidth, targetHeight);
+    }
+
+    const outputMime = keepAlpha ? 'image/png' : 'image/jpeg';
+    const outputExt = keepAlpha ? '.png' : '.jpg';
+
+    const blob = await new Promise<Blob | null>(resolve => {
+      canvas.toBlob(b => resolve(b), outputMime, keepAlpha ? undefined : quality);
+    });
+
+    if (!blob) {
+      return {
+        file,
+        originalSize: file.size,
+        optimizedSize: file.size,
+        width: origWidth,
+        height: origHeight,
+        skipped: true,
+        durationMs: 0,
+      };
+    }
+
+    // If recompression did not reduce size and no resize occurred, keep the original file untouched
+    if (!needsResize && blob.size >= file.size) {
+      const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime);
+      return {
+        file,
+        originalSize: file.size,
+        optimizedSize: file.size,
+        width: origWidth,
+        height: origHeight,
+        skipped: true,
+        durationMs: elapsed,
+      };
+    }
+
+    const baseName = (file.name || 'door-photo').replace(/\.[^/.]+$/, '');
+    const optimizedFile = new File([blob], `${baseName}${outputExt}`, {
+      type: outputMime,
+      lastModified: Date.now(),
+    });
+
+    const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime);
+    return {
+      file: optimizedFile,
+      originalSize: file.size,
+      optimizedSize: optimizedFile.size,
+      width: targetWidth,
+      height: targetHeight,
+      skipped: false,
+      durationMs: elapsed,
+    };
+  } finally {
+    decoded.cleanup();
+  }
+}
+
+/**
+ * Compresses an image file on the client using HTML5 Canvas to a web-optimized permanent data URL.
+ * Used as an offline/serverless fallback for standalone Android APK builds when the HTTP upload endpoint is unreachable.
+ */
+export async function compressImageToDataUrl(file: File, maxDimension = 1000, quality = 0.80): Promise<string> {
+  const optimized = await optimizeImageForUpload(file, {
+    maxDimension,
+    quality,
+    skipThresholdBytes: 180 * 1024,
+  });
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('Failed to encode optimized image as Data URL'));
+    reader.readAsDataURL(optimized.file);
+  });
+}
+
+/**
+ * Uploads a binary File via XMLHttpRequest with real upload progress events and a strict timeout.
+ */
+function uploadFileWithProgress(
+  endpoint: string,
+  fileToUpload: File,
+  onProgress?: (percent: number) => void,
+  timeoutMs = 20000
+): Promise<{ ok: boolean; status: number; data?: any; error?: string; isHtml?: boolean }> {
+  return new Promise((resolve, reject) => {
+    const fullUrl = resolveApiUrl(endpoint);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', fullUrl, true);
+    xhr.timeout = timeoutMs;
+
+    const token = getAdminToken();
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && event.total > 0) {
+          const pct = Math.min(95, Math.max(20, Math.round(20 + (event.loaded / event.total) * 75)));
+          onProgress(pct);
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      const status = xhr.status;
+      const contentType = (xhr.getResponseHeader('content-type') || '').toLowerCase();
+      const responseText = xhr.responseText || '';
+      const isHtml = responseText.trim().startsWith('<') || contentType.includes('text/html');
+
+      if (isHtml || !contentType.includes('application/json')) {
+        resolve({
+          ok: false,
+          status,
+          isHtml,
+          error: isHtml
+            ? `Upload server returned HTML (${status}) instead of JSON`
+            : `Upload server returned non-JSON (${status})`,
+        });
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(responseText);
+        if (status >= 200 && status < 300 && parsed && parsed.url) {
+          resolve({ ok: true, status, data: parsed });
+        } else {
+          resolve({
+            ok: false,
+            status,
+            error: parsed?.error || `Upload failed with HTTP ${status}`,
+          });
+        }
+      } catch (err: any) {
+        resolve({
+          ok: false,
+          status,
+          error: `Malformed JSON response from upload server: ${err.message}`,
+        });
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error('Network error during image upload'));
+    };
+
+    xhr.ontimeout = () => {
+      reject(new Error(`Image upload timed out after ${Math.round(timeoutMs / 1000)} seconds`));
+    };
+
+    const formData = new FormData();
+    formData.append('file', fileToUpload, fileToUpload.name);
+    xhr.send(formData);
+  });
+}
+
+export async function uploadImage(
+  file: File,
+  options: ImageUploadOptions = {}
+): Promise<UploadedImageResponse> {
   if (!file) {
     throw new Error('No image file provided for upload.');
   }
 
-  // 1. Attempt backend upload endpoint
+  const totalStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  options.onProgress?.(5, 'optimizing');
+
+  // 1. Optimize & resize image in browser BEFORE uploading over the network
+  let optimization: ImageOptimizationResult;
   try {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const res = await apiFetch('/api/upload', {
-      method: 'POST',
-      body: formData,
+    optimization = await optimizeImageForUpload(file, {
+      maxDimension: options.maxDimension ?? 1680,
+      quality: options.quality ?? 0.82,
+      preserveTransparency: options.preserveTransparency,
+      skipThresholdBytes: options.skipThresholdBytes ?? 320 * 1024,
     });
-
-    const parsed = await parseSafeJsonResponse<{ url: string }>(res, 'Image upload');
-    if (parsed.success && parsed.data?.url) {
-      return parsed.data;
-    }
-  } catch (err: any) {
-    console.warn('[AdminAPI] Server uploadImage failed, utilizing high-quality client compression fallback:', err.message);
+  } catch (optErr: any) {
+    console.warn('[AdminUpload] Browser image optimization fallback:', optErr.message);
+    optimization = {
+      file,
+      originalSize: file.size,
+      optimizedSize: file.size,
+      width: 0,
+      height: 0,
+      skipped: true,
+      durationMs: 0,
+    };
   }
 
-  // 2. High-Quality Client Canvas Compression Fallback:
-  // Converts camera/gallery photo to a web-optimized JPEG data URL (max 1200px, 0.8 quality).
-  // This guarantees payload size is ~50KB - 80KB instead of 10MB+, ensuring it never breaks Firestore's 1MB limit.
+  options.onProgress?.(20, 'uploading');
+
+  // 2. Upload the OPTIMIZED binary file directly to /api/upload with progress & timeout
   try {
-    const compressedUrl = await compressImageToDataUrl(file, 1200, 0.8);
-    return { url: compressedUrl };
-  } catch (compressErr: any) {
-    console.error('[AdminAPI] Image compression failed:', compressErr.message);
-    throw new Error(`Failed to process image: ${compressErr.message || 'Image encoding failed'}`);
+    const uploadRes = await uploadFileWithProgress(
+      '/api/upload',
+      optimization.file,
+      (pct) => options.onProgress?.(pct, 'uploading'),
+      20000
+    );
+
+    if (uploadRes.ok && uploadRes.data?.url) {
+      const serverUrl = String(uploadRes.data.url).trim();
+      const totalDurationMs = Math.round(
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart
+      );
+      options.onProgress?.(100, 'uploading');
+
+      console.info(
+        `[AdminUpload] Photo uploaded in ${totalDurationMs}ms | Original: ${(optimization.originalSize / 1024).toFixed(1)}KB -> Optimized: ${(optimization.optimizedSize / 1024).toFixed(1)}KB (${optimization.width}x${optimization.height}) | URL: ${serverUrl}`
+      );
+
+      // If running inside native Capacitor APK and server returned a relative path, resolve with base URL
+      if (isCapacitorOrNative() && serverUrl.startsWith('/')) {
+        return {
+          url: resolveImageUrl(serverUrl),
+          originalSize: optimization.originalSize,
+          optimizedSize: optimization.optimizedSize,
+          width: optimization.width,
+          height: optimization.height,
+          durationMs: totalDurationMs,
+        };
+      }
+
+      return {
+        url: serverUrl,
+        originalSize: optimization.originalSize,
+        optimizedSize: optimization.optimizedSize,
+        width: optimization.width,
+        height: optimization.height,
+        durationMs: totalDurationMs,
+      };
+    }
+  } catch (err: any) {
+    console.warn('[AdminUpload] Direct server upload unreachable, using client fallback:', err.message);
+  }
+
+  // 3. Resilient Fallback (only when backend server is unreachable, e.g., standalone offline Android APK)
+  try {
+    const fallbackDataUrl = await compressImageToDataUrl(
+      optimization.file,
+      Math.min(options.maxDimension ?? 1000, 1000),
+      0.80
+    );
+    const totalDurationMs = Math.round(
+      (typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart
+    );
+    options.onProgress?.(100, 'uploading');
+    return {
+      url: fallbackDataUrl,
+      originalSize: optimization.originalSize,
+      optimizedSize: optimization.optimizedSize,
+      width: optimization.width,
+      height: optimization.height,
+      durationMs: totalDurationMs,
+    };
+  } catch (fallbackErr: any) {
+    throw new Error(fallbackErr.message || 'Failed to process and upload image.');
   }
 }
 
@@ -1256,7 +1656,8 @@ export async function fetchPublicDeliveryData(): Promise<{
 }> {
   try {
     const res = await apiFetch('/api/delivery/states');
-    if (res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
       return {
         states: Array.isArray(data.states) && data.states.length > 0 ? data.states : DEFAULT_INDIA_STATES,
@@ -1264,8 +1665,19 @@ export async function fetchPublicDeliveryData(): Promise<{
       };
     }
   } catch (err) {
-    console.warn('Could not fetch delivery states from server, using local fallback:', err);
+    console.warn('Could not fetch delivery states from server, trying direct Firestore:', err);
   }
+
+  try {
+    const fsData = await fetchDirectFirestoreData();
+    if (fsData) {
+      return {
+        states: Array.isArray(fsData.deliveryStates) && fsData.deliveryStates.length > 0 ? fsData.deliveryStates : DEFAULT_INDIA_STATES,
+        stories: Array.isArray(fsData.deliveryStories) ? fsData.deliveryStories.filter((s: any) => s.active !== false) : DEFAULT_DELIVERY_STORIES,
+      };
+    }
+  } catch {}
+
   return {
     states: DEFAULT_INDIA_STATES,
     stories: DEFAULT_DELIVERY_STORIES,
@@ -1273,63 +1685,131 @@ export async function fetchPublicDeliveryData(): Promise<{
 }
 
 export async function adminToggleStateDelivery(stateId: string): Promise<IndiaDeliveryState> {
-  const res = await apiFetch('/api/admin/delivery/state/toggle', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ stateId }),
-  });
-  if (!res.ok) throw new Error('Failed to toggle state delivery status');
-  const data = await res.json();
-  return data.state;
+  try {
+    const res = await apiFetch('/api/admin/delivery/state/toggle', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ stateId }),
+    });
+    const parsed = await parseSafeJsonResponse<{ state: IndiaDeliveryState }>(res, 'Toggle State Delivery');
+    if (parsed.success && parsed.data?.state) {
+      return parsed.data.state;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server adminToggleStateDelivery failed, using Firestore fallback:', err.message);
+  }
+  return await toggleStateDeliveryDirectFirestore(stateId);
 }
 
 export async function adminUpdateStateDelivery(
   stateId: string,
   updates: Partial<IndiaDeliveryState>
 ): Promise<IndiaDeliveryState> {
-  const res = await apiFetch(`/api/admin/delivery/state/${stateId}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(updates),
-  });
-  if (!res.ok) throw new Error('Failed to update state delivery details');
-  const data = await res.json();
-  return data.state;
+  try {
+    const res = await apiFetch(`/api/admin/delivery/state/${stateId}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(updates),
+    });
+    const parsed = await parseSafeJsonResponse<{ state: IndiaDeliveryState }>(res, 'Update State Delivery');
+    if (parsed.success && parsed.data?.state) {
+      return parsed.data.state;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server adminUpdateStateDelivery failed, using Firestore fallback:', err.message);
+  }
+  return await updateStateDeliveryDirectFirestore(stateId, updates);
 }
 
 export async function adminCreateDeliveryStory(
   story: Omit<DeliveryStory, 'id' | 'createdAt'>
 ): Promise<DeliveryStory> {
-  const res = await apiFetch('/api/admin/delivery/stories', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(story),
-  });
-  if (!res.ok) throw new Error('Failed to create delivery story');
-  const data = await res.json();
-  return data.story;
+  try {
+    const res = await apiFetch('/api/admin/delivery/stories', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(story),
+    });
+    const parsed = await parseSafeJsonResponse<{ story: DeliveryStory }>(res, 'Create Delivery Story');
+    if (parsed.success && parsed.data?.story) {
+      return parsed.data.story;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server adminCreateDeliveryStory failed, using Firestore fallback:', err.message);
+  }
+  return await createDeliveryStoryDirectFirestore(story);
 }
 
 export async function adminUpdateDeliveryStory(
   id: string,
   updates: Partial<DeliveryStory>
 ): Promise<DeliveryStory> {
-  const res = await apiFetch(`/api/admin/delivery/stories/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(updates),
-  });
-  if (!res.ok) throw new Error('Failed to update delivery story');
-  const data = await res.json();
-  return data.story;
+  try {
+    const res = await apiFetch(`/api/admin/delivery/stories/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(updates),
+    });
+    const parsed = await parseSafeJsonResponse<{ story: DeliveryStory }>(res, 'Update Delivery Story');
+    if (parsed.success && parsed.data?.story) {
+      return parsed.data.story;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server adminUpdateDeliveryStory failed, using Firestore fallback:', err.message);
+  }
+  return await updateDeliveryStoryDirectFirestore(id, updates);
 }
 
-export async function adminDeleteDeliveryStory(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/delivery/stories/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('Failed to delete delivery story');
+export async function adminDeleteDeliveryStory(
+  id: string
+): Promise<{ deleted: string; cleanupWarning?: string }> {
+  if (!isClientAdminAuthorized()) {
+    throw new Error('Unauthorized: Administrator authorization required to delete delivery stories.');
+  }
+  const targetId = String(id || '').trim();
+  if (!targetId) {
+    throw new Error('Delivery story ID is required for deletion.');
+  }
+
+  invalidateLocalCatalogAndCalculatorCache();
+  let serverSuccess = false;
+  let serverError: string | null = null;
+  let cleanupWarning: string | undefined;
+
+  try {
+    const res = await apiFetch(`/api/admin/delivery/stories/${encodeURIComponent(targetId)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse<any>(res, 'Delete Delivery Story');
+    if (parsed.success) {
+      serverSuccess = true;
+      if (parsed.data?.cleanupWarning) {
+        cleanupWarning = String(parsed.data.cleanupWarning);
+      }
+    } else {
+      serverError = parsed.error || `HTTP ${res.status}`;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server adminDeleteDeliveryStory failed:', err.message);
+    serverError = err.message || 'Server request failed';
+  }
+
+  // Always keep client Firestore & local override synchronized
+  let firestoreSuccess = false;
+  try {
+    firestoreSuccess = await deleteDeliveryStoryDirectFirestore(targetId);
+  } catch (fsErr: any) {
+    if (!serverSuccess) {
+      throw new Error(fsErr?.message || serverError || 'Failed to delete delivery story.');
+    }
+  }
+
+  if (!serverSuccess && !firestoreSuccess) {
+    throw new Error(serverError || `Failed to delete delivery story "${targetId}" from database.`);
+  }
+
+  return { deleted: targetId, ...(cleanupWarning ? { cleanupWarning } : {}) };
 }
 
 // Door CRUD
@@ -1466,6 +1946,7 @@ export async function deleteDoor(id: string): Promise<void> {
 
 // Material CRUD
 export async function createMaterial(data: Partial<DoorMaterial>): Promise<DoorMaterial> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch('/api/admin/materials', {
       method: 'POST',
@@ -1485,6 +1966,7 @@ export async function createMaterial(data: Partial<DoorMaterial>): Promise<DoorM
 }
 
 export async function updateMaterial(id: string, data: Partial<DoorMaterial>): Promise<DoorMaterial> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch(`/api/admin/materials/${id}`, {
       method: 'PUT',
@@ -1504,6 +1986,7 @@ export async function updateMaterial(id: string, data: Partial<DoorMaterial>): P
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
+  invalidateLocalCatalogAndCalculatorCache();
   let serverSuccess = false;
   try {
     const res = await apiFetch(`/api/admin/materials/${id}`, {
@@ -1524,6 +2007,7 @@ export async function deleteMaterial(id: string): Promise<void> {
 
 // Finish CRUD
 export async function createFinish(data: Partial<PolishFinish>): Promise<PolishFinish> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch('/api/admin/finishes', {
       method: 'POST',
@@ -1541,6 +2025,7 @@ export async function createFinish(data: Partial<PolishFinish>): Promise<PolishF
 }
 
 export async function updateFinish(id: string, data: Partial<PolishFinish>): Promise<PolishFinish> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch(`/api/admin/finishes/${id}`, {
       method: 'PUT',
@@ -1558,6 +2043,7 @@ export async function updateFinish(id: string, data: Partial<PolishFinish>): Pro
 }
 
 export async function deleteFinish(id: string): Promise<void> {
+  invalidateLocalCatalogAndCalculatorCache();
   let serverSuccess = false;
   try {
     const res = await apiFetch(`/api/admin/finishes/${id}`, {
@@ -1578,6 +2064,7 @@ export async function deleteFinish(id: string): Promise<void> {
 
 // Frame CRUD
 export async function createFrame(data: Partial<ChaukhatFrame>): Promise<ChaukhatFrame> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch('/api/admin/frames', {
       method: 'POST',
@@ -1595,6 +2082,7 @@ export async function createFrame(data: Partial<ChaukhatFrame>): Promise<Chaukha
 }
 
 export async function updateFrame(id: string, data: Partial<ChaukhatFrame>): Promise<ChaukhatFrame> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch(`/api/admin/frames/${id}`, {
       method: 'PUT',
@@ -1612,6 +2100,7 @@ export async function updateFrame(id: string, data: Partial<ChaukhatFrame>): Pro
 }
 
 export async function deleteFrame(id: string): Promise<void> {
+  invalidateLocalCatalogAndCalculatorCache();
   let serverSuccess = false;
   try {
     const res = await apiFetch(`/api/admin/frames/${id}`, {
@@ -1632,6 +2121,7 @@ export async function deleteFrame(id: string): Promise<void> {
 
 // Hardware CRUD
 export async function createHardware(data: Partial<HardwareItem>): Promise<HardwareItem> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch('/api/admin/hardware', {
       method: 'POST',
@@ -1649,6 +2139,7 @@ export async function createHardware(data: Partial<HardwareItem>): Promise<Hardw
 }
 
 export async function updateHardware(id: string, data: Partial<HardwareItem>): Promise<HardwareItem> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch(`/api/admin/hardware/${id}`, {
       method: 'PUT',
@@ -1686,6 +2177,7 @@ export async function deleteHardware(id: string): Promise<void> {
 
 // Banner CRUD
 export async function createBanner(data: Partial<HomeBanner>): Promise<HomeBanner> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch('/api/admin/banners', {
       method: 'POST',
@@ -1703,6 +2195,7 @@ export async function createBanner(data: Partial<HomeBanner>): Promise<HomeBanne
 }
 
 export async function updateBanner(id: string, data: Partial<HomeBanner>): Promise<HomeBanner> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch(`/api/admin/banners/${id}`, {
       method: 'PUT',
@@ -1719,27 +2212,60 @@ export async function updateBanner(id: string, data: Partial<HomeBanner>): Promi
   return await updateBannerDirectFirestore(id, data);
 }
 
-export async function deleteBanner(id: string): Promise<void> {
+export async function deleteBanner(
+  id: string
+): Promise<{ deleted: string; cleanupWarning?: string }> {
+  if (!isClientAdminAuthorized()) {
+    throw new Error('Unauthorized: Administrator authorization required to delete banners.');
+  }
+  const targetId = String(id || '').trim();
+  if (!targetId) {
+    throw new Error('Banner ID is required for deletion.');
+  }
+
+  invalidateLocalCatalogAndCalculatorCache();
   let serverSuccess = false;
+  let serverError: string | null = null;
+  let cleanupWarning: string | undefined;
+
   try {
-    const res = await apiFetch(`/api/admin/banners/${id}`, {
+    const res = await apiFetch(`/api/admin/banners/${encodeURIComponent(targetId)}`, {
       method: 'DELETE',
       headers: authHeaders(),
     });
-    const parsed = await parseSafeJsonResponse(res, 'Delete Banner');
+    const parsed = await parseSafeJsonResponse<any>(res, 'Delete Banner');
     if (parsed.success) {
       serverSuccess = true;
+      if (parsed.data?.cleanupWarning) {
+        cleanupWarning = String(parsed.data.cleanupWarning);
+      }
+    } else {
+      serverError = parsed.error || `HTTP ${res.status}`;
     }
   } catch (err: any) {
     console.warn('[AdminAPI] Server deleteBanner failed:', err.message);
+    serverError = err.message || 'Server request failed';
   }
-  if (!serverSuccess) {
-    await deleteBannerDirectFirestore(id);
+
+  // Always keep client Firestore & local override synchronized
+  let firestoreSuccess = false;
+  try {
+    firestoreSuccess = await deleteBannerDirectFirestore(targetId);
+  } catch (fsErr: any) {
+    if (!serverSuccess) {
+      throw new Error(fsErr?.message || serverError || 'Failed to delete banner.');
+    }
   }
+
+  if (!serverSuccess && !firestoreSuccess) {
+    throw new Error(serverError || `Failed to delete banner "${targetId}" from database.`);
+  }
+
+  return { deleted: targetId, ...(cleanupWarning ? { cleanupWarning } : {}) };
 }
 
 export async function createMainBanner(data: Partial<HomeBanner>): Promise<HomeBanner> {
-  return createBanner({ ...data, bannerType: 'main' });
+  return createBanner({ ...data, bannerType: 'main', slot: 'hero' });
 }
 
 export async function createPromotionBanner(data: Partial<HomeBanner>): Promise<HomeBanner> {
@@ -1747,26 +2273,62 @@ export async function createPromotionBanner(data: Partial<HomeBanner>): Promise<
 }
 
 export async function updateSlotBanner(slotId: 'slot_1' | 'slot_2' | string, data: Partial<HomeBanner>): Promise<HomeBanner> {
-  return updateBanner(slotId, data);
+  invalidateLocalCatalogAndCalculatorCache();
+  try {
+    const res = await apiFetch(`/api/admin/banners/slot/${encodeURIComponent(slotId)}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<HomeBanner>(res, 'Update Slot Banner');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateSlotBanner failed, using Firestore fallback:', err.message);
+  }
+  return await updateBannerDirectFirestore(slotId, data);
 }
 
 export async function fetchMainBanners(): Promise<HomeBanner[]> {
+  const token = getAdminToken();
+  const endpoint = token ? '/api/admin/banners/main' : '/api/banners/main';
   try {
-    const res = await apiFetch('/api/banners/main');
+    const res = await apiFetch(endpoint, token ? { headers: authHeaders() } : undefined);
     const parsed = await parseSafeJsonResponse<HomeBanner[]>(res, 'Fetch Main Banners');
     if (parsed.success && Array.isArray(parsed.data)) {
       return parsed.data;
+    }
+  } catch {}
+
+  try {
+    const fsData = await fetchDirectFirestoreData();
+    if (fsData && Array.isArray(fsData.banners)) {
+      return fsData.banners
+        .filter((b: HomeBanner) => (token ? true : b.active !== false) && (b.bannerType === 'main' || b.slot === 'hero' || b.slot === 'main'))
+        .sort((a: HomeBanner, b: HomeBanner) => (a.order || 0) - (b.order || 0));
     }
   } catch {}
   return [];
 }
 
 export async function fetchPromotionBanners(): Promise<HomeBanner[]> {
+  const token = getAdminToken();
+  const endpoint = token ? '/api/admin/banners/promotion' : '/api/banners/promotion';
   try {
-    const res = await apiFetch('/api/banners/promotion');
+    const res = await apiFetch(endpoint, token ? { headers: authHeaders() } : undefined);
     const parsed = await parseSafeJsonResponse<HomeBanner[]>(res, 'Fetch Promotion Banners');
     if (parsed.success && Array.isArray(parsed.data)) {
       return parsed.data;
+    }
+  } catch {}
+
+  try {
+    const fsData = await fetchDirectFirestoreData();
+    if (fsData && Array.isArray(fsData.banners)) {
+      return fsData.banners
+        .filter((b: HomeBanner) => (token ? true : b.active !== false) && (b.bannerType === 'promotion' || (b.slot && b.slot !== 'hero' && b.slot !== 'main')))
+        .sort((a: HomeBanner, b: HomeBanner) => (a.order || 0) - (b.order || 0));
     }
   } catch {}
   return [];
@@ -2055,6 +2617,7 @@ export async function deleteArticleCategory(id: string): Promise<void> {
 
 // Settings
 export async function updateSettings(data: Partial<BusinessSettings> & { adminPassword?: string }): Promise<BusinessSettings> {
+  invalidateLocalCatalogAndCalculatorCache();
   try {
     const res = await apiFetch('/api/admin/settings', {
       method: 'PUT',
@@ -2289,83 +2852,131 @@ export async function deleteAdminNotificationCampaign(id: string): Promise<void>
 // ---------------- Team Management Endpoints ----------------
 
 export async function fetchTeamMembers(): Promise<TeamMember[]> {
-  const res = await apiFetch('/api/team-members');
-  if (!res.ok) throw new Error('Failed to fetch team members');
-  const data = await res.json();
-  return data.teamMembers || [];
+  try {
+    const res = await apiFetch('/api/team-members');
+    const parsed = await parseSafeJsonResponse<{ teamMembers: TeamMember[] }>(res, 'Fetch Team Members');
+    if (parsed.success && Array.isArray(parsed.data?.teamMembers)) {
+      return parsed.data.teamMembers;
+    }
+  } catch {}
+
+  try {
+    const fsData = await fetchDirectFirestoreData();
+    if (fsData && Array.isArray(fsData.teamMembers)) {
+      return fsData.teamMembers
+        .filter((m: TeamMember) => m.active !== false)
+        .sort((a: TeamMember, b: TeamMember) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    }
+  } catch {}
+  return [];
 }
 
 export async function fetchAdminTeamMembers(): Promise<TeamMember[]> {
-  const res = await apiFetch('/api/admin/team-members', {
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('Failed to fetch team members');
-  const data = await res.json();
-  return data.teamMembers || [];
+  try {
+    const res = await apiFetch('/api/admin/team-members', {
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse<{ teamMembers: TeamMember[] }>(res, 'Fetch Admin Team Members');
+    if (parsed.success && Array.isArray(parsed.data?.teamMembers)) {
+      return parsed.data.teamMembers;
+    }
+  } catch {}
+
+  const fsData = await fetchDirectFirestoreData();
+  if (fsData && Array.isArray(fsData.teamMembers)) {
+    return [...fsData.teamMembers].sort((a: TeamMember, b: TeamMember) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  }
+  return [];
 }
 
 export async function createTeamMember(data: Partial<TeamMember>): Promise<TeamMember> {
-  const res = await apiFetch('/api/admin/team-members', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to create team member');
+  invalidateLocalCatalogAndCalculatorCache();
+  try {
+    const res = await apiFetch('/api/admin/team-members', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<{ member: TeamMember }>(res, 'Create Team Member');
+    if (parsed.success && parsed.data?.member) {
+      return parsed.data.member;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server createTeamMember failed, using Firestore fallback:', err.message);
   }
-  const json = await res.json();
-  return json.member;
+  return await saveTeamMemberDirectFirestore(data);
 }
 
 export async function updateTeamMember(id: string, data: Partial<TeamMember>): Promise<TeamMember> {
-  const res = await apiFetch(`/api/admin/team-members/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to update team member');
+  invalidateLocalCatalogAndCalculatorCache();
+  try {
+    const res = await apiFetch(`/api/admin/team-members/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const parsed = await parseSafeJsonResponse<{ member: TeamMember }>(res, 'Update Team Member');
+    if (parsed.success && parsed.data?.member) {
+      return parsed.data.member;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server updateTeamMember failed, using Firestore fallback:', err.message);
   }
-  const json = await res.json();
-  return json.member;
+  return await updateTeamMemberDirectFirestore(id, data);
 }
 
 export async function toggleTeamMemberActive(id: string): Promise<{ success: boolean; active: boolean; member: TeamMember }> {
-  const res = await apiFetch(`/api/admin/team-members/${id}/toggle-active`, {
-    method: 'PATCH',
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to toggle team member active status');
+  invalidateLocalCatalogAndCalculatorCache();
+  try {
+    const res = await apiFetch(`/api/admin/team-members/${id}/toggle-active`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse<{ success: boolean; active: boolean; member: TeamMember }>(res, 'Toggle Team Member Active');
+    if (parsed.success && parsed.data?.member) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server toggleTeamMemberActive failed, using Firestore fallback:', err.message);
   }
-  return res.json();
+  return await toggleTeamMemberDirectFirestore(id);
 }
 
 export async function reorderTeamMembers(orderList: { id: string; displayOrder: number }[]): Promise<TeamMember[]> {
-  const res = await apiFetch('/api/admin/team-members-reorder', {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify({ orderList }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to reorder team members');
+  invalidateLocalCatalogAndCalculatorCache();
+  try {
+    const res = await apiFetch('/api/admin/team-members-reorder', {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ orderList }),
+    });
+    const parsed = await parseSafeJsonResponse<{ teamMembers: TeamMember[] }>(res, 'Reorder Team Members');
+    if (parsed.success && Array.isArray(parsed.data?.teamMembers)) {
+      return parsed.data.teamMembers;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server reorderTeamMembers failed, using Firestore fallback:', err.message);
   }
-  const json = await res.json();
-  return json.teamMembers || [];
+  return await reorderTeamMembersDirectFirestore(orderList);
 }
 
 export async function deleteTeamMember(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/team-members/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to delete team member');
+  invalidateLocalCatalogAndCalculatorCache();
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/team-members/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Team Member');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteTeamMember failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await deleteTeamMemberDirectFirestore(id);
   }
 }
 
@@ -2970,19 +3581,37 @@ export interface ChaukhatConfigResponse {
 export async function fetchChaukhatConfig(): Promise<ChaukhatConfigResponse> {
   try {
     const res = await apiFetch('/api/chaukhat/config');
-    if (!res.ok) throw new Error('Failed to fetch Chaukhat configuration');
-    return await res.json();
+    const parsed = await parseSafeJsonResponse<ChaukhatConfigResponse>(res, 'Fetch Chaukhat Config');
+    if (parsed.success && parsed.data && Array.isArray(parsed.data.products)) {
+      return parsed.data;
+    }
   } catch (err) {
-    console.warn('Using client defaults for Chaukhat configuration', err);
-    const defaults = await import('../data/chaukhatDefaults.ts');
-    return {
-      woodTypes: defaults.DEFAULT_CHAUKHAT_WOOD_TYPES,
-      sectionSizes: defaults.DEFAULT_CHAUKHAT_SECTION_SIZES,
-      dimensionPresets: defaults.DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
-      designs: defaults.DEFAULT_CHAUKHAT_DESIGNS,
-      products: [defaults.DEFAULT_CHAUKHAT_PRODUCT],
-    };
+    console.warn('Could not fetch Chaukhat config from server, trying Firestore:', err);
   }
+
+  const defaults = await import('../data/chaukhatDefaults.ts');
+  try {
+    const fsData = await fetchDirectFirestoreData();
+    if (fsData) {
+      return {
+        woodTypes: Array.isArray(fsData.chaukhatWoodTypes) && fsData.chaukhatWoodTypes.length > 0 ? fsData.chaukhatWoodTypes : defaults.DEFAULT_CHAUKHAT_WOOD_TYPES,
+        sectionSizes: Array.isArray(fsData.chaukhatSectionSizes) && fsData.chaukhatSectionSizes.length > 0 ? fsData.chaukhatSectionSizes : defaults.DEFAULT_CHAUKHAT_SECTION_SIZES,
+        dimensionPresets: Array.isArray(fsData.chaukhatDimensionPresets) && fsData.chaukhatDimensionPresets.length > 0 ? fsData.chaukhatDimensionPresets : defaults.DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+        designs: Array.isArray(fsData.chaukhatDesigns) && fsData.chaukhatDesigns.length > 0 ? fsData.chaukhatDesigns : defaults.DEFAULT_CHAUKHAT_DESIGNS,
+        products: Array.isArray(fsData.chaukhatProducts) && fsData.chaukhatProducts.length > 0
+          ? fsData.chaukhatProducts.filter((p: any) => p.active !== false).sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0))
+          : [defaults.DEFAULT_CHAUKHAT_PRODUCT],
+      };
+    }
+  } catch {}
+
+  return {
+    woodTypes: defaults.DEFAULT_CHAUKHAT_WOOD_TYPES,
+    sectionSizes: defaults.DEFAULT_CHAUKHAT_SECTION_SIZES,
+    dimensionPresets: defaults.DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+    designs: defaults.DEFAULT_CHAUKHAT_DESIGNS,
+    products: [defaults.DEFAULT_CHAUKHAT_PRODUCT],
+  };
 }
 
 export async function calculateChaukhatApi(data: {
@@ -3013,85 +3642,132 @@ export async function fetchAdminChaukhatAll(): Promise<{
   dimensionPresets: ChaukhatDimensionPreset[];
   woodTypes: ChaukhatWoodType[];
 }> {
-  const res = await apiFetch('/api/admin/chaukhat/all', {
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to fetch admin chaukhat data');
+  try {
+    const res = await apiFetch('/api/admin/chaukhat/all', {
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse<{
+      products: ChaukhatProduct[];
+      sectionSizes: ChaukhatSectionSize[];
+      dimensionPresets: ChaukhatDimensionPreset[];
+      woodTypes: ChaukhatWoodType[];
+    }>(res, 'Fetch Admin Chaukhat All');
+    if (parsed.success && parsed.data) {
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server fetchAdminChaukhatAll failed, using Firestore fallback:', err.message);
   }
-  return await res.json();
+
+  const defaults = await import('../data/chaukhatDefaults.ts');
+  const fsData = await fetchDirectFirestoreData();
+  return {
+    products: Array.isArray(fsData?.chaukhatProducts) && fsData.chaukhatProducts.length > 0 ? fsData.chaukhatProducts : [defaults.DEFAULT_CHAUKHAT_PRODUCT],
+    sectionSizes: Array.isArray(fsData?.chaukhatSectionSizes) && fsData.chaukhatSectionSizes.length > 0 ? fsData.chaukhatSectionSizes : defaults.DEFAULT_CHAUKHAT_SECTION_SIZES,
+    dimensionPresets: Array.isArray(fsData?.chaukhatDimensionPresets) && fsData.chaukhatDimensionPresets.length > 0 ? fsData.chaukhatDimensionPresets : defaults.DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+    woodTypes: Array.isArray(fsData?.chaukhatWoodTypes) && fsData.chaukhatWoodTypes.length > 0 ? fsData.chaukhatWoodTypes : defaults.DEFAULT_CHAUKHAT_WOOD_TYPES,
+  };
 }
 
 export async function saveAdminChaukhatProduct(product: Partial<ChaukhatProduct>): Promise<ChaukhatProduct> {
-  const method = product.id ? 'PUT' : 'POST';
-  const url = product.id
-    ? `/api/admin/chaukhat/products/${encodeURIComponent(product.id)}`
-    : '/api/admin/chaukhat/products';
+  try {
+    const method = product.id ? 'PUT' : 'POST';
+    const url = product.id
+      ? `/api/admin/chaukhat/products/${encodeURIComponent(product.id)}`
+      : '/api/admin/chaukhat/products';
 
-  const res = await apiFetch(url, {
-    method,
-    headers: authHeaders(),
-    body: JSON.stringify(product),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to save Chaukhat product');
+    const res = await apiFetch(url, {
+      method,
+      headers: authHeaders(),
+      body: JSON.stringify(product),
+    });
+    const parsed = await parseSafeJsonResponse<{ product: ChaukhatProduct }>(res, 'Save Chaukhat Product');
+    if (parsed.success && parsed.data?.product) {
+      return parsed.data.product;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server saveAdminChaukhatProduct failed, using Firestore fallback:', err.message);
   }
-  const json = await res.json();
-  return json.product;
+  return await saveChaukhatProductDirectFirestore(product);
 }
 
 export async function deleteAdminChaukhatProduct(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/chaukhat/products/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to delete Chaukhat product');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/chaukhat/products/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Chaukhat Product');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteAdminChaukhatProduct failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await deleteChaukhatProductDirectFirestore(id);
   }
 }
 
 export async function saveAdminChaukhatSectionSize(section: Partial<ChaukhatSectionSize>): Promise<ChaukhatSectionSize> {
-  const method = section.id ? 'PUT' : 'POST';
-  const url = section.id
-    ? `/api/admin/chaukhat/section-sizes/${encodeURIComponent(section.id)}`
-    : '/api/admin/chaukhat/section-sizes';
+  try {
+    const method = section.id ? 'PUT' : 'POST';
+    const url = section.id
+      ? `/api/admin/chaukhat/section-sizes/${encodeURIComponent(section.id)}`
+      : '/api/admin/chaukhat/section-sizes';
 
-  const res = await apiFetch(url, {
-    method,
-    headers: authHeaders(),
-    body: JSON.stringify(section),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to save Section Size');
+    const res = await apiFetch(url, {
+      method,
+      headers: authHeaders(),
+      body: JSON.stringify(section),
+    });
+    const parsed = await parseSafeJsonResponse<{ sectionSize: ChaukhatSectionSize }>(res, 'Save Section Size');
+    if (parsed.success && parsed.data?.sectionSize) {
+      return parsed.data.sectionSize;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server saveAdminChaukhatSectionSize failed, using Firestore fallback:', err.message);
   }
-  const json = await res.json();
-  return json.sectionSize;
+  return await saveChaukhatSectionSizeDirectFirestore(section);
 }
 
 export async function deleteAdminChaukhatSectionSize(id: string): Promise<void> {
-  const res = await apiFetch(`/api/admin/chaukhat/section-sizes/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to delete Section Size');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch(`/api/admin/chaukhat/section-sizes/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Delete Section Size');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server deleteAdminChaukhatSectionSize failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await deleteChaukhatSectionSizeDirectFirestore(id);
   }
 }
 
 export async function reorderAdminChaukhatProducts(ids: string[]): Promise<void> {
-  const res = await apiFetch('/api/admin/chaukhat/reorder', {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify({ ids }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to reorder Chaukhat products');
+  let serverSuccess = false;
+  try {
+    const res = await apiFetch('/api/admin/chaukhat/reorder', {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ ids }),
+    });
+    const parsed = await parseSafeJsonResponse(res, 'Reorder Chaukhat Products');
+    if (parsed.success) {
+      serverSuccess = true;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server reorderAdminChaukhatProducts failed:', err.message);
+  }
+  if (!serverSuccess) {
+    await reorderChaukhatProductsDirectFirestore(ids);
   }
 }
 

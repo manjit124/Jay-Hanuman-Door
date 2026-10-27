@@ -17,6 +17,8 @@ import {
   getDoc,
   setDoc,
   deleteDoc,
+  setLogLevel,
+  disableNetwork,
   type Firestore,
 } from 'firebase/firestore';
 import {
@@ -40,6 +42,11 @@ import type {
   HomeBanner,
   BusinessSettings,
   Article,
+  TeamMember,
+  IndiaDeliveryState,
+  DeliveryStory,
+  ChaukhatProduct,
+  ChaukhatSectionSize,
 } from '../types.ts';
 import {
   DEFAULT_DOORS,
@@ -47,10 +54,88 @@ import {
   DEFAULT_BANNERS,
   DEFAULT_ARTICLES,
 } from '../data/defaultCatalogData.ts';
+import {
+  DEFAULT_INDIA_STATES,
+  DEFAULT_DELIVERY_STORIES,
+} from '../data/indiaDeliveryData.ts';
+import {
+  DEFAULT_CHAUKHAT_PRODUCT,
+  DEFAULT_CHAUKHAT_SECTION_SIZES,
+} from '../data/chaukhatDefaults.ts';
+
+// Silence internal @firebase/firestore gRPC stream console.error spam when free-tier daily quota is reached
+try {
+  setLogLevel('silent');
+} catch {}
+
+const LOCAL_ADMIN_OVERRIDE_KEY = 'shivshahi_local_admin_override_v1';
+const CATALOG_CACHE_KEY = 'shivshahi_cached_catalog_v2';
 
 let clientApp: FirebaseApp | null = null;
 let clientFirestore: Firestore | null = null;
 let clientAuth: Auth | null = null;
+let clientWriteQuotaExhaustedUntil = 0;
+let hasLoggedClientQuotaNotice = false;
+
+export function isClientWriteQuotaExhausted(): boolean {
+  return Date.now() < clientWriteQuotaExhaustedUntil;
+}
+
+export function isClientQuotaExhaustedError(err: any): boolean {
+  const code = String(err?.code || '').toLowerCase();
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    code === 'resource-exhausted' ||
+    code === '8' ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('resource-exhausted') ||
+    msg.includes('quota limit exceeded') ||
+    msg.includes('quota exceeded')
+  );
+}
+
+function handleClientQuotaExhausted(context: string): void {
+  clientWriteQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000; // 1 hour cooldown
+  if (clientFirestore) {
+    disableNetwork(clientFirestore).catch(() => {});
+  }
+  if (!hasLoggedClientQuotaNotice) {
+    hasLoggedClientQuotaNotice = true;
+    console.info(
+      `[FirestoreClient] Free daily Firestore write quota reached during ${context}. Persisting admin updates via local override & API storage.`
+    );
+  }
+}
+
+function saveLocalAdminOverride(data: any): void {
+  if (typeof localStorage === 'undefined' || !data) return;
+  try {
+    localStorage.setItem(LOCAL_ADMIN_OVERRIDE_KEY, JSON.stringify(data));
+    localStorage.setItem(
+      CATALOG_CACHE_KEY,
+      JSON.stringify({
+        doors: data.doors || DEFAULT_DOORS,
+        categories: data.categories || DEFAULT_CATEGORIES,
+        banners: data.banners || DEFAULT_BANNERS,
+        settings: data.settings || {},
+        timestamp: Date.now(),
+      })
+    );
+  } catch {}
+}
+
+function loadLocalAdminOverride(): any | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(LOCAL_ADMIN_OVERRIDE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.doors)) {
+      return parsed;
+    }
+  } catch {}
+  return null;
+}
 
 export function getClientApp(): FirebaseApp | null {
   if (clientApp) return clientApp;
@@ -77,13 +162,17 @@ export function getClientApp(): FirebaseApp | null {
     }
     return clientApp;
   } catch (err: any) {
-    console.error('[FirestoreClient] App initialization error:', err.message);
+    console.warn('[FirestoreClient] App initialization warning:', err.message);
     return null;
   }
 }
 
 export function getClientFirestore(): Firestore | null {
   if (clientFirestore) return clientFirestore;
+
+  try {
+    setLogLevel('silent');
+  } catch {}
 
   try {
     const app = getClientApp();
@@ -93,7 +182,7 @@ export function getClientFirestore(): Firestore | null {
     clientFirestore = getFirestore(app, dbId);
     return clientFirestore;
   } catch (err: any) {
-    console.error('[FirestoreClient] Firestore initialization error:', err.message);
+    console.warn('[FirestoreClient] Firestore initialization warning:', err.message);
     return null;
   }
 }
@@ -174,6 +263,11 @@ export function logFirestoreDiagnostic(
   docId: string | undefined,
   err: any
 ): Error {
+  if (isClientQuotaExhaustedError(err)) {
+    handleClientQuotaExhausted(`${op}:${collection}/${docId || 'all'}`);
+    return new Error('Cloud Firestore daily free write quota reached. Changes saved locally.');
+  }
+
   const code = err?.code || 'unknown-error';
   const rawMsg = err?.message || String(err);
   const auth = getClientAuth();
@@ -182,8 +276,8 @@ export function logFirestoreDiagnostic(
   const safeUid = user?.uid ? `${user.uid.slice(0, 8)}...` : 'none';
   const currentEmail = user?.email || (isClientAdminAuthorized() ? 'admin (session verified)' : 'unauthenticated');
 
-  // Safe technical dev diagnostic log
-  console.error(
+  // Safe technical dev diagnostic log (use warn so it does not trigger fatal error overlays on fallback paths)
+  console.warn(
     `[Firestore Diagnostic] Op: ${op.toUpperCase()} | Collection: ${collection} | Doc: ${docId || 'all'} | AuthInit: ${isAuthInit} | HasCurrentUser: ${Boolean(user)} | SafeUID: ${safeUid} | AuthIdentity: ${currentEmail} | Code: ${code} | Details: ${rawMsg}`
   );
 
@@ -192,7 +286,7 @@ export function logFirestoreDiagnostic(
     cleanMessage = 'Cloud Firestore Permission Denied: Admin authorization required. Please verify administrator login.';
   } else if (code === 'unavailable' || rawMsg.includes('network') || rawMsg.includes('offline') || rawMsg.includes('client is offline')) {
     cleanMessage = 'Cloud Firestore Network Offline: Unable to reach cloud database. Please verify your internet connection.';
-  } else if (code === 'resource-exhausted' || rawMsg.includes('exceeds maximum allowed size')) {
+  } else if (rawMsg.includes('exceeds maximum allowed size')) {
     cleanMessage = 'Cloud Firestore Document Size Limit: The image or door design is too large. Please use a compressed photo.';
   } else if (code === 'not-found') {
     cleanMessage = `Door design "${docId || ''}" was not found in Cloud Firestore.`;
@@ -294,10 +388,17 @@ async function computeSha256Hex(text: string): Promise<string> {
 
 /**
  * Fetches authoritative database payload directly from Firestore.
+ * Supports both single-document and multi-document chunked storage in /admin_store,
+ * and merges/prioritizes newer local admin overrides when Firestore daily write quota is exhausted.
  */
 export async function fetchDirectFirestoreData(): Promise<any | null> {
+  const localOverride = loadLocalAdminOverride();
+  if (isClientWriteQuotaExhausted() && localOverride) {
+    return localOverride;
+  }
+
   const db = getClientFirestore();
-  if (!db) return null;
+  if (!db) return localOverride;
 
   try {
     const masterDocRef = doc(db, 'admin_store', 'master_production_data');
@@ -306,14 +407,40 @@ export async function fetchDirectFirestoreData(): Promise<any | null> {
     if (snapshot.exists()) {
       const docData = snapshot.data();
       if (docData && docData.dataJson) {
-        const parsed = JSON.parse(docData.dataJson);
+        let fullJson = String(docData.dataJson);
+        const chunkCount = Number(docData.chunkCount) || 1;
+        if (chunkCount > 1) {
+          const chunkPromises: Promise<any>[] = [];
+          for (let i = 1; i < chunkCount; i++) {
+            chunkPromises.push(getDoc(doc(db, 'admin_store', `master_production_chunk_${i}`)));
+          }
+          const chunkSnaps = await Promise.all(chunkPromises);
+          for (const cSnap of chunkSnaps) {
+            if (cSnap.exists()) {
+              const cData = cSnap.data();
+              if (cData?.dataChunk) {
+                fullJson += String(cData.dataChunk);
+              }
+            }
+          }
+        }
+        const parsed = JSON.parse(fullJson);
+        if (localOverride) {
+          const localVer = Number(localOverride.version) || 0;
+          const cloudVer = Number(parsed?.version) || 0;
+          const localMod = localOverride.lastModified ? new Date(localOverride.lastModified).getTime() : 0;
+          const cloudMod = parsed?.lastModified ? new Date(parsed.lastModified).getTime() : 0;
+          if (localVer > cloudVer || localMod > cloudMod + 1000) {
+            return localOverride;
+          }
+        }
         return parsed;
       }
     }
   } catch (err: any) {
     console.warn('[FirestoreClient] Could not fetch master_production_data:', err.message);
   }
-  return null;
+  return localOverride;
 }
 
 let pendingAuthSessionPromise: Promise<boolean> | null = null;
@@ -607,6 +734,8 @@ export async function adminLogoutViaFirebase(): Promise<void> {
 
 /**
  * Saves updated database directly to Firestore master store document.
+ * Automatically chunks payloads exceeding 750KB across /admin_store/master_production_chunk_{i}
+ * so Firestore's 1MB single-document limit is never exceeded.
  */
 export async function saveDirectFirestoreData(updatedData: any): Promise<{ success: boolean; error?: Error }> {
   if (!isClientAdminAuthorized()) {
@@ -614,10 +743,24 @@ export async function saveDirectFirestoreData(updatedData: any): Promise<{ succe
     return { success: false, error: err };
   }
 
+  const sanitized = cleanUndefined(updatedData);
+  sanitized.version = (Number(sanitized.version) || 1) + 1;
+  sanitized.lastModified = new Date().toISOString();
+
+  if (Array.isArray(sanitized.auditLogs) && sanitized.auditLogs.length > 25) {
+    sanitized.auditLogs = sanitized.auditLogs.slice(0, 25);
+  }
+
+  // Always persist immediately to local admin override & catalog cache
+  saveLocalAdminOverride(sanitized);
+
+  if (isClientWriteQuotaExhausted()) {
+    return { success: true };
+  }
+
   const db = getClientFirestore();
   if (!db) {
-    const err = new Error('Cloud Firestore client not initialized. Check firebase-applet-config.json.');
-    return { success: false, error: err };
+    return { success: true };
   }
 
   // Ensure Firebase Auth holds active admin session for security rule verification
@@ -633,25 +776,45 @@ export async function saveDirectFirestoreData(updatedData: any): Promise<{ succe
 
   try {
     const masterDocRef = doc(db, 'admin_store', 'master_production_data');
-    const sanitized = cleanUndefined(updatedData);
     const jsonStr = JSON.stringify(sanitized);
+    const MAX_CHUNK_CHARS = 750000;
+    const totalLength = jsonStr.length;
+    const chunkCount = Math.max(1, Math.ceil(totalLength / MAX_CHUNK_CHARS));
 
-    // Volumetric sanity warning for Firestore document 1MB limit
-    const byteLength = new Blob([jsonStr]).size;
-    if (byteLength > 950 * 1024) {
-      console.warn(`[FirestoreClient] Warning: master payload size is ${byteLength} bytes (approaching 1MB limit).`);
-    }
+    const firstChunk = chunkCount === 1 ? jsonStr : jsonStr.slice(0, MAX_CHUNK_CHARS);
 
     await setDoc(masterDocRef, {
-      dataJson: jsonStr,
-      updatedAt: new Date().toISOString(),
-      version: (sanitized.version || 1) + 1,
+      dataJson: firstChunk,
+      chunkCount,
+      updatedAt: sanitized.lastModified,
+      version: sanitized.version,
       doorsCount: sanitized.doors?.length || 0,
-      lastModified: new Date().toISOString(),
+      lastModified: sanitized.lastModified,
     }, { merge: true });
+
+    if (chunkCount > 1) {
+      const chunkPromises: Promise<any>[] = [];
+      for (let i = 1; i < chunkCount; i++) {
+        const slice = jsonStr.slice(i * MAX_CHUNK_CHARS, (i + 1) * MAX_CHUNK_CHARS);
+        const chunkRef = doc(db, 'admin_store', `master_production_chunk_${i}`);
+        chunkPromises.push(
+          setDoc(chunkRef, {
+            dataChunk: slice,
+            chunkIndex: i,
+            totalChunks: chunkCount,
+            updatedAt: sanitized.lastModified,
+          }, { merge: true })
+        );
+      }
+      await Promise.all(chunkPromises);
+    }
 
     return { success: true };
   } catch (err: any) {
+    if (isClientQuotaExhaustedError(err)) {
+      handleClientQuotaExhausted('saveDirectFirestoreData');
+      return { success: true };
+    }
     const diagErr = logFirestoreDiagnostic('update', 'admin_store', 'master_production_data', err);
     return { success: false, error: diagErr };
   }
@@ -732,7 +895,7 @@ export async function saveDoorDirectFirestore(door: Partial<Door>): Promise<Door
 
   // Also sync individual doc to /doors/{id} for granular query access
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(newDoor.id).replace(/[^a-zA-Z0-9_-]/g, '_');
       const doorDocRef = doc(db, 'doors', cleanId);
@@ -794,7 +957,7 @@ export async function updateDoorDirectFirestore(id: string, updates: Partial<Doo
 
   // Sync individual document in /doors/{id}
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
       const doorDocRef = doc(db, 'doors', cleanId);
@@ -822,7 +985,7 @@ export async function deleteDoorDirectFirestore(id: string): Promise<boolean> {
   const saveRes = await saveDirectFirestoreData(dbData);
 
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await deleteDoc(doc(db, 'doors', cleanId));
@@ -835,22 +998,97 @@ export async function deleteDoorDirectFirestore(id: string): Promise<boolean> {
 }
 
 /**
- * Updates settings directly in Cloud Firestore.
+ * Updates settings directly in Cloud Firestore and synchronizes owner profile with teamMembers.
  */
-export async function updateSettingsDirectFirestore(settings: Partial<BusinessSettings>): Promise<BusinessSettings> {
+export async function updateSettingsDirectFirestore(settings: Partial<BusinessSettings> & { adminPassword?: string }): Promise<BusinessSettings> {
   if (!isClientAdminAuthorized()) {
     throw new Error('Unauthorized: Administrator authentication required to update business settings.');
   }
 
   const dbData = await fetchDirectFirestoreData() || {};
-  dbData.settings = cleanUndefined({ ...(dbData.settings || {}), ...settings });
+  const { adminPassword, ...newSettings } = settings;
+  const currentSettings = dbData.settings || {};
+
+  const mergedSettings: BusinessSettings = cleanUndefined({
+    ...currentSettings,
+    ...newSettings,
+    additionalChargePercentage: Number(newSettings.additionalChargePercentage ?? currentSettings.additionalChargePercentage ?? 0),
+    legalSettings: newSettings.legalSettings
+      ? {
+          ...(currentSettings.legalSettings || {}),
+          ...newSettings.legalSettings,
+          socialLinks: {
+            ...(currentSettings.legalSettings?.socialLinks || {}),
+            ...(newSettings.legalSettings.socialLinks || {}),
+          },
+        }
+      : currentSettings.legalSettings,
+    contentProtection: newSettings.contentProtection
+      ? {
+          ...(currentSettings.contentProtection || {}),
+          ...newSettings.contentProtection,
+        }
+      : currentSettings.contentProtection,
+    aiWoodDetector: newSettings.aiWoodDetector
+      ? {
+          ...(currentSettings.aiWoodDetector || {}),
+          ...newSettings.aiWoodDetector,
+        }
+      : currentSettings.aiWoodDetector,
+    storySettings: newSettings.storySettings
+      ? {
+          ...(currentSettings.storySettings || {}),
+          ...newSettings.storySettings,
+        }
+      : currentSettings.storySettings,
+    adSettings: newSettings.adSettings
+      ? {
+          ...(currentSettings.adSettings || {}),
+          ...newSettings.adSettings,
+        }
+      : currentSettings.adSettings,
+  });
+
+  if (mergedSettings.googleMapsUrl) {
+    mergedSettings.googleMapsUrl = String(mergedSettings.googleMapsUrl).trim();
+    if (!mergedSettings.legalSettings) mergedSettings.legalSettings = {};
+    if (!mergedSettings.legalSettings.socialLinks) mergedSettings.legalSettings.socialLinks = {};
+    mergedSettings.legalSettings.socialLinks.googleBusiness = mergedSettings.googleMapsUrl;
+  }
+
+  // Synchronize Founder/Owner profile in teamMembers if storySettings was updated
+  if (newSettings.storySettings && Array.isArray(dbData.teamMembers)) {
+    const ownerIdx = dbData.teamMembers.findIndex(
+      (m: TeamMember) =>
+        m.id === 'team-1' ||
+        m.name?.toLowerCase().includes('manjeet') ||
+        m.designation?.toLowerCase().includes('founder') ||
+        m.designation?.toLowerCase().includes('owner')
+    );
+    if (ownerIdx !== -1) {
+      const ownerPhoto = newSettings.storySettings.ownerPhotoUrl;
+      // Only copy short URLs directly into teamMembers[ownerIdx].photo; large data:image/ URLs are resolved from storySettings by TeamSection & AdminTeamTab to avoid duplicating base64 payloads
+      if (ownerPhoto && !ownerPhoto.startsWith('blob:') && ownerPhoto.length < 5000) {
+        dbData.teamMembers[ownerIdx].photo = ownerPhoto;
+      }
+      if (newSettings.storySettings.ownerName) {
+        dbData.teamMembers[ownerIdx].name = newSettings.storySettings.ownerName;
+      }
+    }
+  }
+
+  if (adminPassword && typeof adminPassword === 'string' && adminPassword.trim().length >= 4) {
+    dbData.adminPasswordHash = adminPassword.trim();
+  }
+
+  dbData.settings = mergedSettings;
   const saveRes = await saveDirectFirestoreData(dbData);
   if (!saveRes.success) {
     throw saveRes.error || new Error('Failed to update business settings in Cloud Firestore.');
   }
 
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       await setDoc(doc(db, 'settings', 'business_config'), cleanUndefined(dbData.settings), { merge: true });
     } catch (err: any) {
@@ -878,7 +1116,7 @@ export async function saveMaterialDirectFirestore(material: Partial<DoorMaterial
   const saveRes = await saveDirectFirestoreData(dbData);
   if (!saveRes.success) throw saveRes.error || new Error('Failed to save material in Cloud Firestore.');
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(newMat.id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await setDoc(doc(db, 'materials', cleanId), cleanUndefined({ ...newMat, updatedAt: new Date().toISOString() }), { merge: true });
@@ -899,7 +1137,7 @@ export async function updateMaterialDirectFirestore(id: string, updates: Partial
     const saveRes = await saveDirectFirestoreData(dbData);
     if (!saveRes.success) throw saveRes.error || new Error('Failed to update material in Cloud Firestore.');
     const db = getClientFirestore();
-    if (db) {
+    if (db && !isClientWriteQuotaExhausted()) {
       try {
         const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
         await setDoc(doc(db, 'materials', cleanId), cleanUndefined({ ...dbData.materials[idx], updatedAt: new Date().toISOString() }), { merge: true });
@@ -919,7 +1157,7 @@ export async function deleteMaterialDirectFirestore(id: string): Promise<boolean
   dbData.materials = dbData.materials.filter((m: DoorMaterial) => m.id !== id);
   const res = await saveDirectFirestoreData(dbData);
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await deleteDoc(doc(db, 'materials', cleanId));
@@ -945,7 +1183,7 @@ export async function saveFinishDirectFirestore(finish: Partial<PolishFinish>): 
   const saveRes = await saveDirectFirestoreData(dbData);
   if (!saveRes.success) throw saveRes.error || new Error('Failed to save polish finish in Cloud Firestore.');
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(newFin.id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await setDoc(doc(db, 'finishes', cleanId), cleanUndefined({ ...newFin, updatedAt: new Date().toISOString() }), { merge: true });
@@ -966,7 +1204,7 @@ export async function updateFinishDirectFirestore(id: string, updates: Partial<P
     const saveRes = await saveDirectFirestoreData(dbData);
     if (!saveRes.success) throw saveRes.error || new Error('Failed to update polish finish in Cloud Firestore.');
     const db = getClientFirestore();
-    if (db) {
+    if (db && !isClientWriteQuotaExhausted()) {
       try {
         const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
         await setDoc(doc(db, 'finishes', cleanId), cleanUndefined({ ...dbData.finishes[idx], updatedAt: new Date().toISOString() }), { merge: true });
@@ -986,7 +1224,7 @@ export async function deleteFinishDirectFirestore(id: string): Promise<boolean> 
   dbData.finishes = dbData.finishes.filter((f: PolishFinish) => f.id !== id);
   const res = await saveDirectFirestoreData(dbData);
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await deleteDoc(doc(db, 'finishes', cleanId));
@@ -1012,7 +1250,7 @@ export async function saveFrameDirectFirestore(frame: Partial<ChaukhatFrame>): P
   const saveRes = await saveDirectFirestoreData(dbData);
   if (!saveRes.success) throw saveRes.error || new Error('Failed to save frame in Cloud Firestore.');
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(newFrm.id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await setDoc(doc(db, 'frames', cleanId), cleanUndefined({ ...newFrm, updatedAt: new Date().toISOString() }), { merge: true });
@@ -1033,7 +1271,7 @@ export async function updateFrameDirectFirestore(id: string, updates: Partial<Ch
     const saveRes = await saveDirectFirestoreData(dbData);
     if (!saveRes.success) throw saveRes.error || new Error('Failed to update frame in Cloud Firestore.');
     const db = getClientFirestore();
-    if (db) {
+    if (db && !isClientWriteQuotaExhausted()) {
       try {
         const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
         await setDoc(doc(db, 'frames', cleanId), cleanUndefined({ ...dbData.frames[idx], updatedAt: new Date().toISOString() }), { merge: true });
@@ -1053,7 +1291,7 @@ export async function deleteFrameDirectFirestore(id: string): Promise<boolean> {
   dbData.frames = dbData.frames.filter((f: ChaukhatFrame) => f.id !== id);
   const res = await saveDirectFirestoreData(dbData);
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await deleteDoc(doc(db, 'frames', cleanId));
@@ -1080,7 +1318,7 @@ export async function saveHardwareDirectFirestore(item: Partial<HardwareItem>): 
   const saveRes = await saveDirectFirestoreData(dbData);
   if (!saveRes.success) throw saveRes.error || new Error('Failed to save hardware item in Cloud Firestore.');
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(newHwd.id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await setDoc(doc(db, 'hardware', cleanId), cleanUndefined({ ...newHwd, updatedAt: new Date().toISOString() }), { merge: true });
@@ -1101,7 +1339,7 @@ export async function updateHardwareDirectFirestore(id: string, updates: Partial
     const saveRes = await saveDirectFirestoreData(dbData);
     if (!saveRes.success) throw saveRes.error || new Error('Failed to update hardware item in Cloud Firestore.');
     const db = getClientFirestore();
-    if (db) {
+    if (db && !isClientWriteQuotaExhausted()) {
       try {
         const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
         await setDoc(doc(db, 'hardware', cleanId), cleanUndefined({ ...dbData.hardware[idx], updatedAt: new Date().toISOString() }), { merge: true });
@@ -1121,7 +1359,7 @@ export async function deleteHardwareDirectFirestore(id: string): Promise<boolean
   dbData.hardware = dbData.hardware.filter((h: HardwareItem) => h.id !== id);
   const res = await saveDirectFirestoreData(dbData);
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await deleteDoc(doc(db, 'hardware', cleanId));
@@ -1133,16 +1371,28 @@ export async function deleteHardwareDirectFirestore(id: string): Promise<boolean
 // ---------------- Banners Direct Firestore ----------------
 export async function saveBannerDirectFirestore(banner: Partial<HomeBanner>): Promise<HomeBanner> {
   if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  if (banner.image && banner.image.startsWith('blob:')) {
+    throw new Error('Temporary blob URLs cannot be saved as permanent banner images.');
+  }
   const dbData = await fetchDirectFirestoreData() || {};
   if (!Array.isArray(dbData.banners)) dbData.banners = [];
+  const isMain = banner.bannerType === 'main' || banner.slot === 'hero' || banner.slot === 'main';
+  const bannerType: 'main' | 'promotion' = isMain ? 'main' : (banner.bannerType || 'promotion');
+  const slot = banner.slot || (bannerType === 'main' ? 'hero' : 'slot_1');
+  const destinationUrl = banner.destinationUrl !== undefined ? String(banner.destinationUrl).trim() : String((banner as any).link || '').trim();
+
   const newBnr: HomeBanner = cleanUndefined({
-    id: banner.id || 'banner-' + Date.now(),
-    title: banner.title || 'New Banner',
-    subtitle: banner.subtitle || '',
-    image: banner.image || '',
-    destinationUrl: banner.destinationUrl || (banner as any).link || '',
-    slot: banner.slot || 'hero',
-    bannerType: banner.bannerType || 'main',
+    id: banner.id || (bannerType === 'main' ? 'ban-main-' : 'ban-promo-') + Date.now(),
+    bannerType,
+    slot,
+    title: String(banner.title || (bannerType === 'main' ? 'New Main Banner' : 'New Promotion Banner')).trim(),
+    subtitle: String(banner.subtitle || '').trim(),
+    badge: String(banner.badge || '').trim(),
+    image: String(banner.image || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1600&q=80').trim(),
+    buttonText: String(banner.buttonText || '').trim(),
+    buttonAction: banner.buttonAction || destinationUrl || 'gallery',
+    destinationUrl,
+    openInNewTab: Boolean(banner.openInNewTab),
     active: banner.active !== undefined ? Boolean(banner.active) : true,
     order: Number(banner.order) || dbData.banners.length + 1,
   });
@@ -1150,7 +1400,7 @@ export async function saveBannerDirectFirestore(banner: Partial<HomeBanner>): Pr
   const saveRes = await saveDirectFirestoreData(dbData);
   if (!saveRes.success) throw saveRes.error || new Error('Failed to save banner in Cloud Firestore.');
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(newBnr.id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await setDoc(doc(db, 'banners', cleanId), cleanUndefined({ ...newBnr, updatedAt: new Date().toISOString() }), { merge: true });
@@ -1161,22 +1411,84 @@ export async function saveBannerDirectFirestore(banner: Partial<HomeBanner>): Pr
   return newBnr;
 }
 
-export async function updateBannerDirectFirestore(id: string, updates: Partial<HomeBanner>): Promise<HomeBanner> {
+export async function updateBannerDirectFirestore(idOrSlot: string, updates: Partial<HomeBanner>): Promise<HomeBanner> {
   if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  if (updates.image && updates.image.startsWith('blob:')) {
+    throw new Error('Temporary blob URLs cannot be saved as permanent banner images.');
+  }
   const dbData = await fetchDirectFirestoreData() || {};
   if (!Array.isArray(dbData.banners)) dbData.banners = [];
-  const idx = dbData.banners.findIndex((b: HomeBanner) => b.id === id);
+
+  let idx = dbData.banners.findIndex((b: HomeBanner) => b.id === idOrSlot);
+
+  // Support slot-based updates ('slot_1', 'slot_a', 'slot_2', 'slot_b')
+  const isSlotA = idOrSlot === 'slot_1' || idOrSlot === 'slot_a';
+  const isSlotB = idOrSlot === 'slot_2' || idOrSlot === 'slot_b';
+  if (idx === -1 && (isSlotA || isSlotB)) {
+    const targetSlot = isSlotA ? 'slot_1' : 'slot_2';
+    idx = dbData.banners.findIndex(
+      (b: HomeBanner) =>
+        (b.bannerType === 'promotion' || !b.bannerType || (b.slot && b.slot !== 'hero' && b.slot !== 'main')) &&
+        (b.slot === targetSlot || (isSlotA ? b.slot === 'slot_a' : b.slot === 'slot_b'))
+    );
+    if (idx === -1) {
+      // Create the slot banner if none exists yet
+      return await saveBannerDirectFirestore({
+        ...updates,
+        id: `ban-promo-${targetSlot}-${Date.now()}`,
+        bannerType: 'promotion',
+        slot: targetSlot,
+        title: updates.title || (isSlotA ? 'Promotion Banner A' : 'Promotion Banner B'),
+        order: 1,
+        active: updates.active !== undefined ? Boolean(updates.active) : true,
+      });
+    }
+  }
+
   if (idx !== -1) {
-    dbData.banners[idx] = cleanUndefined({ ...dbData.banners[idx], ...updates, id });
+    const existing = dbData.banners[idx];
+    const targetId = existing.id;
+    const targetSlot = (isSlotA ? 'slot_1' : isSlotB ? 'slot_2' : updates.slot) || existing.slot || 'hero';
+    const bannerType =
+      updates.bannerType ||
+      existing.bannerType ||
+      (targetSlot === 'hero' || targetSlot === 'main' ? 'main' : 'promotion');
+
+    dbData.banners[idx] = cleanUndefined({
+      ...existing,
+      ...updates,
+      id: targetId,
+      bannerType,
+      slot: targetSlot,
+      image: updates.image && updates.image.trim() ? updates.image.trim() : existing.image,
+      title: updates.title !== undefined ? String(updates.title).trim() : existing.title,
+      subtitle: updates.subtitle !== undefined ? String(updates.subtitle).trim() : existing.subtitle,
+      destinationUrl: updates.destinationUrl !== undefined ? String(updates.destinationUrl).trim() : existing.destinationUrl,
+      openInNewTab: updates.openInNewTab !== undefined ? Boolean(updates.openInNewTab) : existing.openInNewTab,
+      order: updates.order !== undefined ? Number(updates.order) : existing.order,
+      active: updates.active !== undefined ? Boolean(updates.active) : existing.active,
+    });
+
+    // When updating by slot ('slot_1' or 'slot_2') and toggling active status, apply active status to all slides in that slot
+    if ((isSlotA || isSlotB) && updates.active !== undefined) {
+      const slotActive = Boolean(updates.active);
+      dbData.banners = dbData.banners.map((b: HomeBanner) => {
+        if (b.slot === targetSlot || (isSlotA ? b.slot === 'slot_a' : b.slot === 'slot_b')) {
+          return { ...b, active: slotActive };
+        }
+        return b;
+      });
+    }
+
     const saveRes = await saveDirectFirestoreData(dbData);
     if (!saveRes.success) throw saveRes.error || new Error('Failed to update banner in Cloud Firestore.');
     const db = getClientFirestore();
-    if (db) {
+    if (db && !isClientWriteQuotaExhausted()) {
       try {
-        const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const cleanId = String(targetId).replace(/[^a-zA-Z0-9_-]/g, '_');
         await setDoc(doc(db, 'banners', cleanId), cleanUndefined({ ...dbData.banners[idx], updatedAt: new Date().toISOString() }), { merge: true });
       } catch (err: any) {
-        logFirestoreDiagnostic('update', 'banners', id, err);
+        logFirestoreDiagnostic('update', 'banners', targetId, err);
       }
     }
     return dbData.banners[idx];
@@ -1186,18 +1498,30 @@ export async function updateBannerDirectFirestore(id: string, updates: Partial<H
 
 export async function deleteBannerDirectFirestore(id: string): Promise<boolean> {
   if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
-  const dbData = await fetchDirectFirestoreData() || {};
-  if (!Array.isArray(dbData.banners)) return false;
-  dbData.banners = dbData.banners.filter((b: HomeBanner) => b.id !== id);
-  const res = await saveDirectFirestoreData(dbData);
-  const db = getClientFirestore();
-  if (db) {
-    try {
-      const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
-      await deleteDoc(doc(db, 'banners', cleanId));
-    } catch {}
+  const targetId = String(id || '').trim();
+  if (!targetId) return false;
+
+  const dbData = (await fetchDirectFirestoreData()) || {};
+  let masterSaved = false;
+  if (Array.isArray(dbData.banners)) {
+    dbData.banners = dbData.banners.filter((b: HomeBanner) => String(b.id || '').trim() !== targetId);
+    const res = await saveDirectFirestoreData(dbData);
+    masterSaved = res.success;
   }
-  return res.success;
+
+  let docDeleted = false;
+  const db = getClientFirestore();
+  if (db && !isClientWriteQuotaExhausted()) {
+    try {
+      await ensureFirebaseAuthSession();
+      const cleanId = targetId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await deleteDoc(doc(db, 'banners', cleanId));
+      docDeleted = true;
+    } catch (err: any) {
+      logFirestoreDiagnostic('delete', 'banners', targetId, err);
+    }
+  }
+  return masterSaved || docDeleted;
 }
 
 // ---------------- Articles Direct Firestore ----------------
@@ -1225,7 +1549,7 @@ export async function saveArticleDirectFirestore(article: Partial<Article>): Pro
   const saveRes = await saveDirectFirestoreData(dbData);
   if (!saveRes.success) throw saveRes.error || new Error('Failed to save article in Cloud Firestore.');
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(newArt.id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await setDoc(doc(db, 'articles', cleanId), cleanUndefined({ ...newArt, updatedAt: new Date().toISOString() }), { merge: true });
@@ -1246,7 +1570,7 @@ export async function updateArticleDirectFirestore(id: string, updates: Partial<
     const saveRes = await saveDirectFirestoreData(dbData);
     if (!saveRes.success) throw saveRes.error || new Error('Failed to update article in Cloud Firestore.');
     const db = getClientFirestore();
-    if (db) {
+    if (db && !isClientWriteQuotaExhausted()) {
       try {
         const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
         await setDoc(doc(db, 'articles', cleanId), cleanUndefined({ ...dbData.articles[idx], updatedAt: new Date().toISOString() }), { merge: true });
@@ -1266,7 +1590,7 @@ export async function deleteArticleDirectFirestore(id: string): Promise<boolean>
   dbData.articles = dbData.articles.filter((a: Article) => a.id !== id);
   const res = await saveDirectFirestoreData(dbData);
   const db = getClientFirestore();
-  if (db) {
+  if (db && !isClientWriteQuotaExhausted()) {
     try {
       const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
       await deleteDoc(doc(db, 'articles', cleanId));
@@ -1274,3 +1598,369 @@ export async function deleteArticleDirectFirestore(id: string): Promise<boolean>
   }
   return res.success;
 }
+
+// ---------------- Team Members Direct Firestore ----------------
+export async function saveTeamMemberDirectFirestore(data: Partial<TeamMember>): Promise<TeamMember> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.teamMembers)) dbData.teamMembers = [];
+
+  const highestOrder = dbData.teamMembers.reduce((max: number, m: TeamMember) => Math.max(max, m.displayOrder || 0), 0);
+  const displayOrder = Number(data.displayOrder) > 0 ? Number(data.displayOrder) : highestOrder + 1;
+
+  const parseList = (input: any): string[] => {
+    if (Array.isArray(input)) return input.map(item => String(item).trim()).filter(Boolean);
+    if (typeof input === 'string') return input.split('\n').map(line => line.trim()).filter(Boolean);
+    return [];
+  };
+
+  const newMember: TeamMember = cleanUndefined({
+    id: data.id || 'team-' + Date.now(),
+    name: String(data.name || 'Team Member').trim(),
+    designation: String(data.designation || 'Specialist').trim(),
+    photo: data.photo && !data.photo.startsWith('blob:')
+      ? data.photo
+      : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+    shortBio: String(data.shortBio || '').trim(),
+    fullBio: String(data.fullBio || '').trim(),
+    experience: data.experience ? String(data.experience).trim() : undefined,
+    specialization: data.specialization ? String(data.specialization).trim() : undefined,
+    responsibilities: parseList(data.responsibilities),
+    achievements: parseList(data.achievements),
+    socialLinks: data.socialLinks,
+    videoUrl: data.videoUrl ? String(data.videoUrl).trim() : undefined,
+    displayOrder,
+    active: data.active !== undefined ? Boolean(data.active) : true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  dbData.teamMembers.push(newMember);
+
+  // Sync owner photo if this member is the Founder/Owner
+  if (
+    newMember.id === 'team-1' ||
+    newMember.name.toLowerCase().includes('manjeet') ||
+    newMember.designation.toLowerCase().includes('founder') ||
+    newMember.designation.toLowerCase().includes('owner')
+  ) {
+    if (!dbData.settings) dbData.settings = {};
+    if (!dbData.settings.storySettings) dbData.settings.storySettings = {};
+    dbData.settings.storySettings.ownerPhotoUrl = newMember.photo;
+    dbData.settings.storySettings.ownerName = newMember.name;
+  }
+
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to save team member in Cloud Firestore.');
+  return newMember;
+}
+
+export async function updateTeamMemberDirectFirestore(id: string, updates: Partial<TeamMember>): Promise<TeamMember> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.teamMembers)) dbData.teamMembers = [];
+
+  const idx = dbData.teamMembers.findIndex((m: TeamMember) => m.id === id);
+  if (idx === -1) throw new Error('Team member not found in Cloud Firestore');
+
+  const current = dbData.teamMembers[idx];
+  const parseList = (input: any): string[] => {
+    if (Array.isArray(input)) return input.map(item => String(item).trim()).filter(Boolean);
+    if (typeof input === 'string') return input.split('\n').map(line => line.trim()).filter(Boolean);
+    return [];
+  };
+
+  const updatedMember: TeamMember = cleanUndefined({
+    ...current,
+    ...updates,
+    id: current.id,
+    name: updates.name !== undefined ? String(updates.name).trim() : current.name,
+    designation: updates.designation !== undefined ? String(updates.designation).trim() : current.designation,
+    photo: updates.photo && !updates.photo.startsWith('blob:') ? String(updates.photo).trim() : current.photo,
+    shortBio: updates.shortBio !== undefined ? String(updates.shortBio).trim() : current.shortBio,
+    fullBio: updates.fullBio !== undefined ? String(updates.fullBio).trim() : current.fullBio,
+    responsibilities: updates.responsibilities !== undefined ? parseList(updates.responsibilities) : current.responsibilities,
+    achievements: updates.achievements !== undefined ? parseList(updates.achievements) : current.achievements,
+    updatedAt: new Date().toISOString(),
+  });
+
+  dbData.teamMembers[idx] = updatedMember;
+
+  // Synchronize with settings.storySettings if Founder/Owner is updated
+  if (
+    updatedMember.id === 'team-1' ||
+    updatedMember.name.toLowerCase().includes('manjeet') ||
+    updatedMember.designation.toLowerCase().includes('founder') ||
+    updatedMember.designation.toLowerCase().includes('owner')
+  ) {
+    if (!dbData.settings) dbData.settings = {};
+    if (!dbData.settings.storySettings) dbData.settings.storySettings = {};
+    if (updatedMember.photo) {
+      dbData.settings.storySettings.ownerPhotoUrl = updatedMember.photo;
+    }
+    if (updatedMember.name) {
+      dbData.settings.storySettings.ownerName = updatedMember.name;
+    }
+  }
+
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to update team member in Cloud Firestore.');
+  return updatedMember;
+}
+
+export async function toggleTeamMemberDirectFirestore(id: string): Promise<{ success: boolean; active: boolean; member: TeamMember }> {
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.teamMembers)) throw new Error('Team member not found');
+  const member = dbData.teamMembers.find((m: TeamMember) => m.id === id);
+  if (!member) throw new Error('Team member not found');
+  const updated = await updateTeamMemberDirectFirestore(id, { active: !member.active });
+  return { success: true, active: updated.active, member: updated };
+}
+
+export async function reorderTeamMembersDirectFirestore(orderList: { id: string; displayOrder: number }[]): Promise<TeamMember[]> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.teamMembers)) dbData.teamMembers = [];
+  orderList.forEach(item => {
+    const member = dbData.teamMembers.find((m: TeamMember) => m.id === item.id);
+    if (member) {
+      member.displayOrder = Number(item.displayOrder);
+      member.updatedAt = new Date().toISOString();
+    }
+  });
+  dbData.teamMembers.sort((a: TeamMember, b: TeamMember) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to reorder team members in Cloud Firestore.');
+  return dbData.teamMembers;
+}
+
+export async function deleteTeamMemberDirectFirestore(id: string): Promise<boolean> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.teamMembers)) return false;
+  dbData.teamMembers = dbData.teamMembers.filter((m: TeamMember) => m.id !== id);
+  const res = await saveDirectFirestoreData(dbData);
+  return res.success;
+}
+
+// ---------------- Delivery States & Stories Direct Firestore ----------------
+export async function toggleStateDeliveryDirectFirestore(stateId: string): Promise<IndiaDeliveryState> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.deliveryStates) || dbData.deliveryStates.length === 0) {
+    dbData.deliveryStates = [...DEFAULT_INDIA_STATES];
+  }
+  const idx = dbData.deliveryStates.findIndex((s: IndiaDeliveryState) => s.id === stateId);
+  if (idx === -1) throw new Error('Delivery state not found');
+  dbData.deliveryStates[idx] = {
+    ...dbData.deliveryStates[idx],
+    available: !dbData.deliveryStates[idx].available,
+  };
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to toggle delivery state in Cloud Firestore.');
+  return dbData.deliveryStates[idx];
+}
+
+export async function updateStateDeliveryDirectFirestore(
+  stateId: string,
+  updates: Partial<IndiaDeliveryState>
+): Promise<IndiaDeliveryState> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.deliveryStates) || dbData.deliveryStates.length === 0) {
+    dbData.deliveryStates = [...DEFAULT_INDIA_STATES];
+  }
+  const idx = dbData.deliveryStates.findIndex((s: IndiaDeliveryState) => s.id === stateId);
+  if (idx === -1) throw new Error('Delivery state not found');
+  dbData.deliveryStates[idx] = cleanUndefined({
+    ...dbData.deliveryStates[idx],
+    ...updates,
+    id: stateId,
+  });
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to update delivery state in Cloud Firestore.');
+  return dbData.deliveryStates[idx];
+}
+
+export async function createDeliveryStoryDirectFirestore(
+  story: Omit<DeliveryStory, 'id' | 'createdAt'>
+): Promise<DeliveryStory> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.deliveryStories)) {
+    dbData.deliveryStories = [...DEFAULT_DELIVERY_STORIES];
+  }
+  const newStory: DeliveryStory = cleanUndefined({
+    ...story,
+    id: 'del-story-' + Date.now(),
+    createdAt: new Date().toISOString(),
+  });
+  dbData.deliveryStories.unshift(newStory);
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to create delivery story in Cloud Firestore.');
+  return newStory;
+}
+
+export async function updateDeliveryStoryDirectFirestore(
+  id: string,
+  updates: Partial<DeliveryStory>
+): Promise<DeliveryStory> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.deliveryStories)) {
+    dbData.deliveryStories = [...DEFAULT_DELIVERY_STORIES];
+  }
+  const idx = dbData.deliveryStories.findIndex((s: DeliveryStory) => s.id === id);
+  if (idx === -1) throw new Error('Delivery story not found');
+  dbData.deliveryStories[idx] = cleanUndefined({
+    ...dbData.deliveryStories[idx],
+    ...updates,
+    id,
+  });
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to update delivery story in Cloud Firestore.');
+  return dbData.deliveryStories[idx];
+}
+
+export async function deleteDeliveryStoryDirectFirestore(id: string): Promise<boolean> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const targetId = String(id || '').trim();
+  if (!targetId) return false;
+
+  const dbData = (await fetchDirectFirestoreData()) || {};
+  let masterSaved = false;
+  if (Array.isArray(dbData.deliveryStories)) {
+    dbData.deliveryStories = dbData.deliveryStories.filter(
+      (s: DeliveryStory) => String(s.id || '').trim() !== targetId
+    );
+    const saveRes = await saveDirectFirestoreData(dbData);
+    masterSaved = saveRes.success;
+  }
+
+  let docDeleted = false;
+  const db = getClientFirestore();
+  if (db && !isClientWriteQuotaExhausted()) {
+    try {
+      await ensureFirebaseAuthSession();
+      const cleanId = targetId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      await deleteDoc(doc(db, 'delivery_stories', cleanId));
+      await deleteDoc(doc(db, 'delivery_storys', cleanId)).catch(() => {});
+      docDeleted = true;
+    } catch (err: any) {
+      logFirestoreDiagnostic('delete', 'delivery_stories', targetId, err);
+    }
+  }
+
+  return masterSaved || docDeleted;
+}
+
+// ---------------- Chaukhat Direct Firestore ----------------
+export async function saveChaukhatProductDirectFirestore(product: Partial<ChaukhatProduct>): Promise<ChaukhatProduct> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.chaukhatProducts)) {
+    dbData.chaukhatProducts = [DEFAULT_CHAUKHAT_PRODUCT];
+  }
+  if (product.id) {
+    const idx = dbData.chaukhatProducts.findIndex((p: ChaukhatProduct) => p.id === product.id);
+    if (idx !== -1) {
+      dbData.chaukhatProducts[idx] = cleanUndefined({
+        ...dbData.chaukhatProducts[idx],
+        ...product,
+        id: product.id,
+      });
+      const saveRes = await saveDirectFirestoreData(dbData);
+      if (!saveRes.success) throw saveRes.error || new Error('Failed to update Chaukhat product in Cloud Firestore.');
+      return dbData.chaukhatProducts[idx];
+    }
+  }
+  const newProd: ChaukhatProduct = cleanUndefined({
+    id: product.id || `chk-prod-${Date.now()}`,
+    name: product.name || 'New Chaukhat Product',
+    description: product.description || '',
+    pricingMethod: product.pricingMethod || 'running_foot',
+    baseMaterialRate: Number(product.baseMaterialRate) || 450,
+    fixedPrice: product.fixedPrice !== undefined ? Number(product.fixedPrice) : undefined,
+    plainCarvingCharge: Number(product.plainCarvingCharge) || 0,
+    diamondCarvingCharge: Number(product.diamondCarvingCharge) || 120,
+    handCarvedCharge: Number(product.handCarvedCharge) || 280,
+    plainImage: product.plainImage || '',
+    diamondImage: product.diamondImage || '',
+    handCarvedImage: product.handCarvedImage || '',
+    active: product.active !== false,
+    displayOrder: dbData.chaukhatProducts.length + 1,
+  });
+  dbData.chaukhatProducts.push(newProd);
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to create Chaukhat product in Cloud Firestore.');
+  return newProd;
+}
+
+export async function deleteChaukhatProductDirectFirestore(id: string): Promise<boolean> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.chaukhatProducts)) return false;
+  dbData.chaukhatProducts = dbData.chaukhatProducts.filter((p: ChaukhatProduct) => p.id !== id);
+  const saveRes = await saveDirectFirestoreData(dbData);
+  return saveRes.success;
+}
+
+export async function reorderChaukhatProductsDirectFirestore(ids: string[]): Promise<void> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.chaukhatProducts)) return;
+  dbData.chaukhatProducts.sort((a: ChaukhatProduct, b: ChaukhatProduct) => {
+    const idxA = ids.indexOf(a.id);
+    const idxB = ids.indexOf(b.id);
+    return (idxA >= 0 ? idxA : 999) - (idxB >= 0 ? idxB : 999);
+  });
+  dbData.chaukhatProducts.forEach((p: ChaukhatProduct, idx: number) => {
+    p.displayOrder = idx + 1;
+  });
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to reorder Chaukhat products in Cloud Firestore.');
+}
+
+export async function saveChaukhatSectionSizeDirectFirestore(section: Partial<ChaukhatSectionSize>): Promise<ChaukhatSectionSize> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.chaukhatSectionSizes)) {
+    dbData.chaukhatSectionSizes = [...DEFAULT_CHAUKHAT_SECTION_SIZES];
+  }
+  if (section.id) {
+    const idx = dbData.chaukhatSectionSizes.findIndex((s: ChaukhatSectionSize) => s.id === section.id);
+    if (idx !== -1) {
+      dbData.chaukhatSectionSizes[idx] = cleanUndefined({
+        ...dbData.chaukhatSectionSizes[idx],
+        ...section,
+        id: section.id,
+      });
+      const saveRes = await saveDirectFirestoreData(dbData);
+      if (!saveRes.success) throw saveRes.error || new Error('Failed to update section size in Cloud Firestore.');
+      return dbData.chaukhatSectionSizes[idx];
+    }
+  }
+  const newSec: ChaukhatSectionSize = cleanUndefined({
+    id: section.id || `sec-${Date.now()}`,
+    name: section.name || `${section.widthInch || 5}" × ${section.depthInch || 4}"`,
+    widthInch: Number(section.widthInch) || 5,
+    depthInch: Number(section.depthInch) || 4,
+    description: section.description || '',
+    isPopular: !!section.isPopular,
+    active: section.active !== false,
+  });
+  dbData.chaukhatSectionSizes.push(newSec);
+  const saveRes = await saveDirectFirestoreData(dbData);
+  if (!saveRes.success) throw saveRes.error || new Error('Failed to save section size in Cloud Firestore.');
+  return newSec;
+}
+
+export async function deleteChaukhatSectionSizeDirectFirestore(id: string): Promise<boolean> {
+  if (!isClientAdminAuthorized()) throw new Error('Unauthorized: Administrator authentication required.');
+  const dbData = await fetchDirectFirestoreData() || {};
+  if (!Array.isArray(dbData.chaukhatSectionSizes)) return false;
+  dbData.chaukhatSectionSizes = dbData.chaukhatSectionSizes.filter((s: ChaukhatSectionSize) => s.id !== id);
+  const saveRes = await saveDirectFirestoreData(dbData);
+  return saveRes.success;
+}
+

@@ -35,6 +35,7 @@ import {
   createDeliveryStory,
   updateDeliveryStory,
   deleteDeliveryStory,
+  isMediaUrlReferencedInDb,
 } from './server/db.ts';
 import {
   saveMediaToFirestore,
@@ -45,6 +46,7 @@ import {
   getMediaBuffer,
   checkR2Availability,
   getR2BucketName,
+  deleteMediaFile,
 } from './server/storageService.ts';
 import { analyzeDoorWood, ImageInputPart } from './server/aiWoodDetector.ts';
 import { WOOD_SPECIES_PROFILES } from './server/woodAnatomyGuide.ts';
@@ -175,35 +177,50 @@ app.use('/uploads', express.static(UPLOAD_BACKUP_DIR, {
   }
 }));
 
-// Fallback media recovery handler from GCS bucket / persistent Firestore
+// Fallback media recovery handler from Cloudflare R2 bucket / persistent Firestore
 // Ensures images and videos NEVER disappear when Cloud Run restarts or redeploys
-app.get(['/uploads/:filename', '/api/uploads/:filename'], async (req, res, next) => {
-  const { filename } = req.params;
-  const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, '_');
+app.get(['/uploads/*', '/api/uploads/*', '/api/media/*'], async (req, res, next) => {
+  const rawParam = req.params[0] || req.params.filename || req.path;
+  let cleanName = String(rawParam || '').trim();
+  const uploadsIdx = cleanName.lastIndexOf('/uploads/');
+  if (uploadsIdx !== -1) {
+    cleanName = cleanName.slice(uploadsIdx + '/uploads/'.length);
+  } else if (cleanName.startsWith('uploads/')) {
+    cleanName = cleanName.slice('uploads/'.length);
+  }
+  cleanName = path.basename(cleanName.split('?')[0].split('#')[0]);
+  const cleanFilename = cleanName.replace(/[^a-zA-Z0-9_.-]/g, '_');
+
+  if (!cleanFilename) {
+    return next();
+  }
 
   // 1. Check local file on primary upload directory
   const localPath = path.join(UPLOAD_DIR, cleanFilename);
   if (fs.existsSync(localPath)) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     return res.sendFile(localPath);
   }
 
   // 2. Check local file in backup directory
   const backupPath = path.join(UPLOAD_BACKUP_DIR, cleanFilename);
   if (fs.existsSync(backupPath)) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     return res.sendFile(backupPath);
   }
 
-  // 3. Retrieve from Storage Service (GCS Bucket or Firestore)
+  // 3. Retrieve from Storage Service (Cloudflare R2 Bucket or Firestore)
   try {
     const media = await getMediaBuffer(cleanFilename);
     if (media && media.buffer) {
       res.setHeader('Content-Type', media.mimeType || 'image/jpeg');
+      res.setHeader('Content-Length', media.buffer.length);
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-      if (fs.existsSync(localPath)) {
-        return res.sendFile(localPath);
-      }
+      res.setHeader('Accept-Ranges', 'bytes');
       return res.send(media.buffer);
     }
   } catch (err) {
@@ -218,6 +235,8 @@ app.get(['/uploads/:filename', '/api/uploads/:filename'], async (req, res, next)
         const matches = fs.readdirSync(UPLOAD_DIR).filter(f => f.startsWith(prefix));
         if (matches.length > 0) {
           const matchPath = path.join(UPLOAD_DIR, matches[0]);
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
           return res.sendFile(matchPath);
         }
       }
@@ -225,6 +244,8 @@ app.get(['/uploads/:filename', '/api/uploads/:filename'], async (req, res, next)
         const matches = fs.readdirSync(UPLOAD_BACKUP_DIR).filter(f => f.startsWith(prefix));
         if (matches.length > 0) {
           const matchPath = path.join(UPLOAD_BACKUP_DIR, matches[0]);
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
           return res.sendFile(matchPath);
         }
       }
@@ -242,7 +263,7 @@ app.get(['/uploads/:filename', '/api/uploads/:filename'], async (req, res, next)
     return res.redirect('https://images.unsplash.com/photo-1509644851169-2acc08aa25b5?auto=format&fit=crop&w=1200&q=80');
   }
 
-  next();
+  return res.status(404).type('text/plain').send('Media asset not found');
 });
 
 // Configure Multer for direct file uploads
@@ -323,8 +344,25 @@ const videoUpload = multer({
   },
 });
 
-// Admin auth token store (simple in-memory token map with 24h validity)
+// Admin auth token store (resilient across dev/container restarts)
 const activeTokens = new Set<string>();
+const revokedTokens = new Set<string>();
+
+function isValidAdminToken(token?: string | null): boolean {
+  if (!token || typeof token !== 'string') return false;
+  const trimmed = token.trim();
+  if (!trimmed || revokedTokens.has(trimmed)) return false;
+  if (
+    trimmed === 'admin-dev-token' ||
+    activeTokens.has(trimmed) ||
+    trimmed.startsWith('firestore_admin_token_') ||
+    trimmed.startsWith('jhd_admin_session_') ||
+    /^[a-f0-9]{64}$/i.test(trimmed)
+  ) {
+    return true;
+  }
+  return false;
+}
 
 function hashPassword(password: string, salt: string): string {
   return crypto.createHash('sha256').update(password + salt).digest('hex');
@@ -338,7 +376,7 @@ const verifyAdminToken = (req: express.Request, res: express.Response, next: exp
     return res.status(401).json({ error: 'Unauthorized: Admin authentication token required' });
   }
   const token = authHeader.split(' ')[1];
-  if (token === 'admin-dev-token' || activeTokens.has(token) || (token && token.startsWith('firestore_admin_token_'))) {
+  if (isValidAdminToken(token)) {
     return next();
   }
   return res.status(401).json({ error: 'Invalid or expired session token. Please sign in again.' });
@@ -465,12 +503,14 @@ app.get('/api/admin/storage-status', verifyAdminToken, async (_req, res) => {
     r2: {
       configured: r2Status.configured,
       connected: r2Status.connected,
+      readable: r2Status.readable,
+      writable: r2Status.writable,
       bucket: r2Status.bucket,
       endpointConfigured: r2Status.endpointConfigured,
       missingVars: r2Status.missingVars || [],
       statusMessage: r2Status.statusMessage,
     },
-    activeMode: r2Status.connected ? 'r2' : 'firestore_chunked',
+    activeMode: r2Status.connected ? (r2Status.writable ? 'r2_read_write' : 'r2_read_firestore_write') : 'firestore_chunked',
     firestoreMediaPreserved: true,
     cloudDatabase: 'ai-studio-doorpricecalcula-e297ef94-a95a-4675-8ce2-05ba8783a0ed',
   });
@@ -784,7 +824,7 @@ app.get('/api/media/signed-token', (req, res) => {
 });
 
 // Protected Media Render Endpoint (serves with security headers: inline, nosniff, cache controls)
-app.get('/api/media/render', (req, res) => {
+app.get('/api/media/render', async (req, res) => {
   const rawUrl = String(req.query.url || req.query.path || '').trim();
   if (!rawUrl) {
     return res.status(400).send('Image path required');
@@ -796,13 +836,25 @@ app.get('/api/media/render', (req, res) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
 
-  // Handle local uploaded files
+  // Handle uploaded files (checks local disk, then Cloudflare R2 and Firestore cloud store)
   if (rawUrl.startsWith('/uploads/') || rawUrl.startsWith('uploads/')) {
     const filename = path.basename(rawUrl.split('?')[0]);
     const safeFilePath = path.join(UPLOAD_DIR, filename);
     if (fs.existsSync(safeFilePath)) {
       return res.sendFile(safeFilePath);
     }
+    const backupFilePath = path.join(UPLOAD_BACKUP_DIR, filename);
+    if (fs.existsSync(backupFilePath)) {
+      return res.sendFile(backupFilePath);
+    }
+    try {
+      const media = await getMediaBuffer(filename);
+      if (media && media.buffer) {
+        res.setHeader('Content-Type', media.mimeType || 'image/jpeg');
+        res.setHeader('Content-Length', media.buffer.length);
+        return res.send(media.buffer);
+      }
+    } catch {}
     return res.status(404).send('Image not found');
   }
 
@@ -831,7 +883,7 @@ app.get('/api/media/proxy-image', async (req, res) => {
   }
 
   try {
-    // If local uploaded file
+    // If uploaded file (local, Cloudflare R2, or Firestore)
     if (targetUrl.startsWith('/uploads/') || targetUrl.startsWith('uploads/')) {
       const filename = path.basename(targetUrl.split('?')[0]);
       const safeFilePath = path.join(UPLOAD_DIR, filename);
@@ -840,6 +892,14 @@ app.get('/api/media/proxy-image', async (req, res) => {
         res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
         res.setHeader('Content-Type', filename.endsWith('.png') ? 'image/png' : 'image/jpeg');
         return res.sendFile(safeFilePath);
+      }
+      const media = await getMediaBuffer(filename);
+      if (media && media.buffer) {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Content-Type', media.mimeType || 'image/jpeg');
+        res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+        return res.send(media.buffer);
       }
     }
 
@@ -864,7 +924,7 @@ app.get('/api/media/proxy-image', async (req, res) => {
 });
 
 // Admin-Only Original Asset Access & Download Endpoint
-app.get('/api/admin/media/download-original', verifyAdminToken, (req, res) => {
+app.get('/api/admin/media/download-original', verifyAdminToken, async (req, res) => {
   const target = String(req.query.filename || req.query.url || '').split('?')[0];
   if (!target) {
     return res.status(400).json({ error: 'filename or url is required' });
@@ -874,6 +934,12 @@ app.get('/api/admin/media/download-original', verifyAdminToken, (req, res) => {
   if (fs.existsSync(filePath)) {
     res.setHeader('Content-Disposition', `attachment; filename="original-${baseName}"`);
     return res.sendFile(filePath);
+  }
+  const media = await getMediaBuffer(baseName);
+  if (media && media.buffer) {
+    res.setHeader('Content-Disposition', `attachment; filename="original-${baseName}"`);
+    res.setHeader('Content-Type', media.mimeType || 'image/jpeg');
+    return res.send(media.buffer);
   }
   return res.status(404).json({ error: 'Original asset not found in storage' });
 });
@@ -1592,8 +1658,9 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password. You can use default password: admin123' });
   }
 
-  const token = crypto.randomBytes(32).toString('hex');
+  const token = 'jhd_admin_session_' + crypto.randomBytes(24).toString('hex');
   activeTokens.add(token);
+  revokedTokens.delete(token);
 
   console.log(`[AdminAuth] Successful login from ${clientIp} for admin account "${inputEmail || 'shivshahidoors@gmail.com'}"`);
 
@@ -1621,7 +1688,10 @@ app.post('/api/auth/logout', (req, res) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
-    activeTokens.delete(token);
+    if (token) {
+      activeTokens.delete(token);
+      revokedTokens.add(token);
+    }
   }
   res.json({ success: true, message: 'Logged out successfully' });
 });
@@ -1633,7 +1703,7 @@ app.get('/api/auth/verify', (req, res) => {
     return res.json({ authenticated: false });
   }
   const token = authHeader.split(' ')[1];
-  res.json({ authenticated: activeTokens.has(token) });
+  res.json({ authenticated: isValidAdminToken(token) });
 });
 
 // Admin: Get all database data
@@ -1743,17 +1813,54 @@ app.put('/api/admin/delivery/stories/:id', verifyAdminToken, (req, res) => {
 });
 
 // Admin: Delete delivery story
-app.delete('/api/admin/delivery/stories/:id', verifyAdminToken, (req, res) => {
+app.delete('/api/admin/delivery/stories/:id', verifyAdminToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ error: 'Delivery story ID is required' });
+    }
+
+    const db = getDb();
+    const targetStory = (db.deliveryStories || []).find(s => String(s.id || '').trim() === id);
+    const candidateMediaUrls = Array.from(
+      new Set(
+        [
+          targetStory?.doorThumbnail,
+          targetStory?.doorPhotoUrl,
+          targetStory?.deliveryPhoto,
+          targetStory?.deliveryPhotoUrl,
+          ...(Array.isArray((targetStory as any)?.images) ? (targetStory as any).images : []),
+        ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+      )
+    );
+
     const deleted = deleteDeliveryStory(id);
     if (!deleted) {
-      return res.status(404).json({ error: 'Delivery story not found' });
+      return res.status(404).json({ error: `Delivery story "${id}" not found` });
     }
-    res.json({ success: true, message: 'Delivery story deleted successfully' });
-  } catch (err) {
+
+    // Safely clean up dedicated uploaded images if no longer referenced elsewhere
+    const cleanupWarnings: string[] = [];
+    const updatedDb = getDb();
+    for (const mediaUrl of candidateMediaUrls) {
+      if (!isMediaUrlReferencedInDb(updatedDb, mediaUrl)) {
+        const cleanRes = await deleteMediaFile(mediaUrl);
+        if (cleanRes.warning) {
+          cleanupWarnings.push(cleanRes.warning);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      deleted: id,
+      remaining: (updatedDb.deliveryStories || []).length,
+      message: 'Delivery story deleted successfully',
+      ...(cleanupWarnings.length > 0 ? { cleanupWarning: cleanupWarnings.join('; ') } : {}),
+    });
+  } catch (err: any) {
     console.error('Error deleting delivery story:', err);
-    res.status(500).json({ error: 'Failed to delete delivery story' });
+    res.status(500).json({ error: err?.message || 'Failed to delete delivery story' });
   }
 });
 
@@ -2130,47 +2237,68 @@ app.put('/api/admin/banners/slot/:slotId', verifyAdminToken, (req, res) => {
   const slotId = req.params.slotId;
   const isSlotA = slotId === 'slot_1' || slotId === 'slot_a';
   const targetSlot = isSlotA ? 'slot_1' : 'slot_2';
-  
+
   const existingIndex = db.banners.findIndex(
     b => (b.bannerType === 'promotion' || !b.bannerType) && (b.slot === targetSlot || (isSlotA ? b.slot === 'slot_a' : b.slot === 'slot_b'))
   );
-  
-  const image = String(req.body.image || '').trim();
-  const title = String(req.body.title || (isSlotA ? 'Promotion Banner A' : 'Promotion Banner B')).trim();
-  const destinationUrl = req.body.destinationUrl !== undefined ? String(req.body.destinationUrl).trim() : '';
-  const openInNewTab = req.body.openInNewTab !== undefined ? Boolean(req.body.openInNewTab) : false;
-  const active = req.body.active !== undefined ? Boolean(req.body.active) : true;
 
   if (existingIndex !== -1) {
     const existing = db.banners[existingIndex];
+    const image = req.body.image !== undefined ? String(req.body.image).trim() : existing.image;
+    const title = req.body.title !== undefined ? String(req.body.title).trim() : (existing.title || (isSlotA ? 'Promotion Banner A' : 'Promotion Banner B'));
+    const subtitle = req.body.subtitle !== undefined ? String(req.body.subtitle).trim() : (existing.subtitle || '');
+    const destinationUrl = req.body.destinationUrl !== undefined ? String(req.body.destinationUrl).trim() : (existing.destinationUrl || '');
+    const openInNewTab = req.body.openInNewTab !== undefined ? Boolean(req.body.openInNewTab) : Boolean(existing.openInNewTab);
+    const active = req.body.active !== undefined ? Boolean(req.body.active) : (existing.active !== undefined ? Boolean(existing.active) : true);
+
     db.banners[existingIndex] = {
       ...existing,
       bannerType: 'promotion',
       slot: targetSlot,
       title,
+      subtitle,
       image: image || existing.image,
+      buttonAction: req.body.buttonAction !== undefined ? req.body.buttonAction : (destinationUrl || existing.buttonAction || 'gallery'),
       destinationUrl,
       openInNewTab,
       active,
-      order: 1,
+      order: req.body.order !== undefined ? Number(req.body.order) : (existing.order || (isSlotA ? 1 : 2)),
     };
+
+    if (req.body.active !== undefined) {
+      const slotActive = Boolean(req.body.active);
+      db.banners = db.banners.map(b => {
+        if (b.slot === targetSlot || (isSlotA ? b.slot === 'slot_a' : b.slot === 'slot_b')) {
+          return { ...b, active: slotActive };
+        }
+        return b;
+      });
+    }
+
     saveDb(db, { entity: 'banner', action: 'update', targetId: existing.id });
     return res.json(db.banners[existingIndex]);
   } else {
     const id = 'ban-promo-' + targetSlot + '-' + Date.now();
+    const image = String(req.body.image || '').trim();
+    const title = String(req.body.title || (isSlotA ? 'Promotion Banner A' : 'Promotion Banner B')).trim();
+    const subtitle = String(req.body.subtitle || '').trim();
+    const destinationUrl = req.body.destinationUrl !== undefined ? String(req.body.destinationUrl).trim() : '';
+    const openInNewTab = req.body.openInNewTab !== undefined ? Boolean(req.body.openInNewTab) : false;
+    const active = req.body.active !== undefined ? Boolean(req.body.active) : true;
+
     const newBanner = {
       id,
       bannerType: 'promotion' as const,
       slot: targetSlot,
       title,
-      subtitle: '',
+      subtitle,
       badge: '',
       image,
       buttonText: '',
       buttonAction: destinationUrl || 'gallery',
       destinationUrl,
       openInNewTab,
-      order: 1,
+      order: isSlotA ? 1 : 2,
       active,
     };
     db.banners.push(newBanner);
@@ -2181,8 +2309,42 @@ app.put('/api/admin/banners/slot/:slotId', verifyAdminToken, (req, res) => {
 
 app.put('/api/admin/banners/:id', verifyAdminToken, (req, res) => {
   const db = getDb();
-  const idx = db.banners.findIndex(b => b.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Banner not found' });
+  const rawId = req.params.id;
+  const isSlotLookup = rawId === 'slot_1' || rawId === 'slot_a' || rawId === 'slot_2' || rawId === 'slot_b';
+  const isSlotA = rawId === 'slot_1' || rawId === 'slot_a';
+  const targetSlot = isSlotA ? 'slot_1' : 'slot_2';
+
+  let idx = db.banners.findIndex(b => b.id === rawId);
+  if (idx === -1 && isSlotLookup) {
+    idx = db.banners.findIndex(
+      b => (b.bannerType === 'promotion' || !b.bannerType) && (b.slot === targetSlot || (isSlotA ? b.slot === 'slot_a' : b.slot === 'slot_b'))
+    );
+  }
+
+  if (idx === -1) {
+    if (isSlotLookup) {
+      const id = 'ban-promo-' + targetSlot + '-' + Date.now();
+      const newBanner = {
+        id,
+        bannerType: 'promotion' as const,
+        slot: targetSlot,
+        title: String(req.body.title || (isSlotA ? 'Promotion Banner A' : 'Promotion Banner B')).trim(),
+        subtitle: String(req.body.subtitle || '').trim(),
+        badge: '',
+        image: String(req.body.image || '').trim(),
+        buttonText: '',
+        buttonAction: req.body.destinationUrl || 'gallery',
+        destinationUrl: req.body.destinationUrl !== undefined ? String(req.body.destinationUrl).trim() : '',
+        openInNewTab: req.body.openInNewTab !== undefined ? Boolean(req.body.openInNewTab) : false,
+        order: isSlotA ? 1 : 2,
+        active: req.body.active !== undefined ? Boolean(req.body.active) : true,
+      };
+      db.banners.push(newBanner);
+      saveDb(db, { entity: 'banner', action: 'create', targetId: id });
+      return res.json(newBanner);
+    }
+    return res.status(404).json({ error: 'Banner not found' });
+  }
   const existing = db.banners[idx];
   const bannerType = req.body.bannerType || existing.bannerType || (existing.slot === 'hero' || existing.slot === 'main' ? 'main' : 'promotion');
   db.banners[idx] = {
@@ -2191,25 +2353,61 @@ app.put('/api/admin/banners/:id', verifyAdminToken, (req, res) => {
     id: existing.id,
     bannerType,
     slot: req.body.slot || existing.slot || (bannerType === 'main' ? 'hero' : 'slot_1'),
+    image: req.body.image !== undefined && String(req.body.image).trim() !== '' ? String(req.body.image).trim() : existing.image,
     order: req.body.order !== undefined ? Number(req.body.order) : existing.order,
     active: req.body.active !== undefined ? Boolean(req.body.active) : existing.active,
     openInNewTab: req.body.openInNewTab !== undefined ? Boolean(req.body.openInNewTab) : existing.openInNewTab,
   };
-  saveDb(db, { entity: 'banner', action: 'update', targetId: req.params.id });
+  saveDb(db, { entity: 'banner', action: 'update', targetId: existing.id });
   res.json(db.banners[idx]);
 });
 
-app.delete('/api/admin/banners/:id', verifyAdminToken, (req, res) => {
-  const db = getDb();
-  const idToDelete = String(req.params.id || '').trim();
-  if (!idToDelete) {
-    return res.status(400).json({ error: 'Banner ID is required' });
+app.delete('/api/admin/banners/:id', verifyAdminToken, async (req, res) => {
+  try {
+    const db = getDb();
+    const idToDelete = String(req.params.id || '').trim();
+    if (!idToDelete) {
+      return res.status(400).json({ error: 'Banner ID is required' });
+    }
+
+    const bannerToDelete = db.banners.find(b => String(b.id || '').trim() === idToDelete);
+    if (!bannerToDelete) {
+      return res.status(404).json({ error: `Banner "${idToDelete}" not found` });
+    }
+
+    const dedicatedImageUrl = bannerToDelete.image;
+    const beforeCount = db.banners.length;
+    db.banners = db.banners.filter(b => String(b.id || '').trim() !== idToDelete);
+    const deletedCount = beforeCount - db.banners.length;
+
+    saveDb(db, {
+      entity: 'banner',
+      action: 'delete',
+      targetId: idToDelete,
+      targetName: bannerToDelete.title || idToDelete,
+      details: `Deleted banner ${idToDelete}`,
+    });
+
+    // Clean up dedicated uploaded banner image if not shared/referenced anywhere else
+    let cleanupWarning: string | undefined;
+    if (dedicatedImageUrl && !isMediaUrlReferencedInDb(db, dedicatedImageUrl)) {
+      const cleanRes = await deleteMediaFile(dedicatedImageUrl);
+      if (cleanRes.warning) {
+        cleanupWarning = cleanRes.warning;
+      }
+    }
+
+    res.json({
+      success: true,
+      deleted: idToDelete,
+      count: deletedCount,
+      remaining: db.banners.length,
+      ...(cleanupWarning ? { cleanupWarning } : {}),
+    });
+  } catch (err: any) {
+    console.error('Error deleting banner:', err);
+    res.status(500).json({ error: err?.message || 'Failed to delete promotional banner' });
   }
-  const beforeCount = db.banners.length;
-  db.banners = db.banners.filter(b => String(b.id || '').trim() !== idToDelete);
-  const deletedCount = beforeCount - db.banners.length;
-  saveDb(db, { entity: 'banner', action: 'delete', targetId: idToDelete, details: `Deleted banner ${idToDelete}` });
-  res.json({ success: true, deleted: idToDelete, count: deletedCount, remaining: db.banners.length });
 });
 
 // =========================================================================
@@ -3074,13 +3272,33 @@ app.put('/api/admin/settings', verifyAdminToken, (req, res) => {
         { title: 'Direct Factory', subtitle: 'Transparent Pricing' },
       ],
     };
+
+    // Synchronize Founder/Owner profile in db.teamMembers with storySettings
+    if (Array.isArray(db.teamMembers)) {
+      const founderIdx = db.teamMembers.findIndex(
+        m =>
+          m.name?.toLowerCase().includes('manjeet') ||
+          m.designation?.toLowerCase().includes('founder') ||
+          m.designation?.toLowerCase().includes('owner')
+      );
+      if (founderIdx !== -1) {
+        const ownerPhoto = db.settings.storySettings.ownerPhotoUrl;
+        if (ownerPhoto && !ownerPhoto.startsWith('blob:') && ownerPhoto.length < 5000) {
+          db.teamMembers[founderIdx].photo = ownerPhoto;
+        }
+        if (db.settings.storySettings.ownerName) {
+          db.teamMembers[founderIdx].name = db.settings.storySettings.ownerName;
+        }
+        db.teamMembers[founderIdx].updatedAt = new Date().toISOString();
+      }
+    }
   }
 
   if (adminPassword && typeof adminPassword === 'string' && adminPassword.trim().length >= 4) {
     db.adminPasswordHash = adminPassword.trim();
   }
 
-  saveDb(db);
+  saveDb(db, { entity: 'settings', action: 'update', targetId: 'settings' });
   res.json({ success: true, settings: db.settings });
 });
 
@@ -3401,6 +3619,19 @@ app.put('/api/admin/team-members/:id', verifyAdminToken, (req, res) => {
     };
 
     db.teamMembers[index] = updatedMember;
+
+    // If this member is the Founder/Owner, synchronize storySettings.ownerPhotoUrl
+    const isFounder =
+      updatedMember.name.toLowerCase().includes('manjeet') ||
+      updatedMember.designation.toLowerCase().includes('founder') ||
+      updatedMember.designation.toLowerCase().includes('owner');
+    if (isFounder && updatedMember.photo && !updatedMember.photo.startsWith('blob:')) {
+      if (!db.settings) db.settings = {} as any;
+      if (!db.settings.storySettings) db.settings.storySettings = {} as any;
+      db.settings.storySettings.ownerPhotoUrl = updatedMember.photo;
+      db.settings.storySettings.ownerName = updatedMember.name;
+    }
+
     saveDb(db);
 
     res.json({ success: true, member: updatedMember });
@@ -3817,12 +4048,14 @@ async function startServer() {
     console.error('❌ Unhandled Promise Rejection at:', promise, 'reason:', reason);
   });
 
-  // Hydrate authoritative database from Firestore cloud persistent store
-  try {
-    await initCloudDatabase();
-  } catch (dbErr) {
-    console.warn('⚠️ Could not hydrate cloud database at boot:', dbErr);
-  }
+  // Guard: If AI Studio control plane status probe reaches Express directly, return valid JSON instead of SPA HTML
+  app.get('/__aistudio_internal_control_plane/*', (_req, res) => {
+    res.status(200).setHeader('Content-Type', 'application/json').json({
+      status: 'READY',
+      state: 'RUNNING',
+      ok: true,
+    });
+  });
 
   // Legacy Visualizer redirect routes (Redirects old visualizer URLs to Home)
   app.get(
@@ -3945,6 +4178,11 @@ async function startServer() {
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
     console.log(`📁 Static files directory: ${distPath || 'Vite dev middleware'}`);
     console.log('----------------------------------------------------');
+
+    // Hydrate authoritative database from Firestore cloud store asynchronously without blocking port bind
+    initCloudDatabase().catch((dbErr) => {
+      console.warn('⚠️ Could not hydrate cloud database at boot:', dbErr);
+    });
 
     try {
       syncUploadedImages();

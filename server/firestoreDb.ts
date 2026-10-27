@@ -17,6 +17,8 @@ import {
   getDoc,
   setDoc,
   deleteDoc,
+  setLogLevel,
+  disableNetwork,
   Firestore,
 } from 'firebase/firestore';
 import {
@@ -27,14 +29,55 @@ import {
 } from 'firebase/auth';
 import type { DatabaseSchema } from './db.ts';
 
+// Silence internal @firebase/firestore gRPC stream console.error spam when free-tier daily quota is reached
+try {
+  setLogLevel('silent');
+} catch {}
+
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
 let serverAuth: Auth | null = null;
 let isInitialized = false;
 let authPromise: Promise<boolean> | null = null;
+let serverWriteQuotaExhaustedUntil = 0;
+let hasLoggedQuotaNotice = false;
+
+export function isServerFirestoreWriteQuotaExhausted(): boolean {
+  return Date.now() < serverWriteQuotaExhaustedUntil;
+}
+
+function isQuotaExhaustedError(err: any): boolean {
+  const code = String(err?.code || '').toLowerCase();
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    code === 'resource-exhausted' ||
+    code === '8' ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('resource-exhausted') ||
+    msg.includes('quota limit exceeded') ||
+    msg.includes('quota exceeded')
+  );
+}
+
+function handleServerQuotaExhausted(context: string): void {
+  serverWriteQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000; // 1 hour cooldown
+  if (firestoreDb) {
+    disableNetwork(firestoreDb).catch(() => {});
+  }
+  if (!hasLoggedQuotaNotice) {
+    hasLoggedQuotaNotice = true;
+    console.info(
+      `ℹ️ [Firestore] Free daily write quota reached during ${context}. Pausing cloud writes and persisting all updates to local authoritative disk storage.`
+    );
+  }
+}
 
 export function getFirestoreInstance(): Firestore | null {
   if (firestoreDb) return firestoreDb;
+
+  try {
+    setLogLevel('silent');
+  } catch {}
 
   try {
     const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
@@ -70,7 +113,7 @@ export function getFirestoreInstance(): Firestore | null {
     console.log(`✅ [Firestore] Connected to persistent database (Project: ${config.projectId}, DatabaseId: ${dbId})`);
     return firestoreDb;
   } catch (err: any) {
-    console.error('❌ [Firestore] Connection error:', err.message);
+    console.warn('⚠️ [Firestore] Connection warning:', err.message);
     return null;
   }
 }
@@ -147,9 +190,26 @@ export async function fetchAuthoritativeFirestoreDb(): Promise<DatabaseSchema | 
     if (snapshot.exists()) {
       const data = snapshot.data();
       if (data && data.dataJson) {
-        const parsed = JSON.parse(data.dataJson) as DatabaseSchema;
+        let fullJson = String(data.dataJson);
+        const chunkCount = Number(data.chunkCount) || 1;
+        if (chunkCount > 1) {
+          const chunkPromises: Promise<any>[] = [];
+          for (let i = 1; i < chunkCount; i++) {
+            chunkPromises.push(getDoc(doc(db, 'admin_store', `master_production_chunk_${i}`)));
+          }
+          const chunkSnaps = await Promise.all(chunkPromises);
+          for (const cSnap of chunkSnaps) {
+            if (cSnap.exists()) {
+              const cData = cSnap.data();
+              if (cData?.dataChunk) {
+                fullJson += String(cData.dataChunk);
+              }
+            }
+          }
+        }
+        const parsed = JSON.parse(fullJson) as DatabaseSchema;
         if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
-          console.log(`🛡️ [Firestore] Successfully loaded authoritative database from cloud store (Version: ${parsed.version}, Doors: ${parsed.doors.length})`);
+          console.log(`🛡️ [Firestore] Successfully loaded authoritative database from cloud store (Version: ${parsed.version}, Doors: ${parsed.doors.length}, Chunks: ${chunkCount})`);
           return parsed;
         }
       }
@@ -162,26 +222,62 @@ export async function fetchAuthoritativeFirestoreDb(): Promise<DatabaseSchema | 
 
 /**
  * Persists the authoritative database to Firestore.
- * Also synchronizes individual entity collections for granular traceability.
+ * Automatically chunks payloads exceeding 750KB across /admin_store/master_production_chunk_{i}
+ * so Firestore's 1MB single-document limit is never exceeded.
  */
 export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promise<boolean> {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
   try {
     await ensureServerFirebaseAuth();
     const masterDocRef = doc(db, 'admin_store', 'master_production_data');
+    const sanitized = cleanUndefined(data);
+
+    if (Array.isArray(sanitized.auditLogs) && sanitized.auditLogs.length > 25) {
+      sanitized.auditLogs = sanitized.auditLogs.slice(0, 25);
+    }
+
+    const jsonStr = JSON.stringify(sanitized);
+    const MAX_CHUNK_CHARS = 750000;
+    const totalLength = jsonStr.length;
+    const chunkCount = Math.max(1, Math.ceil(totalLength / MAX_CHUNK_CHARS));
+    const firstChunk = chunkCount === 1 ? jsonStr : jsonStr.slice(0, MAX_CHUNK_CHARS);
+
     await setDoc(masterDocRef, {
       version: Number(data.version) || 1,
       lastModified: data.lastModified || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       doorsCount: data.doors?.length || 0,
-      dataJson: JSON.stringify(data),
+      chunkCount,
+      dataJson: firstChunk,
     }, { merge: true });
+
+    if (chunkCount > 1) {
+      const chunkPromises: Promise<any>[] = [];
+      for (let i = 1; i < chunkCount; i++) {
+        const slice = jsonStr.slice(i * MAX_CHUNK_CHARS, (i + 1) * MAX_CHUNK_CHARS);
+        const chunkRef = doc(db, 'admin_store', `master_production_chunk_${i}`);
+        chunkPromises.push(
+          setDoc(chunkRef, {
+            dataChunk: slice,
+            chunkIndex: i,
+            totalChunks: chunkCount,
+            updatedAt: new Date().toISOString(),
+          }, { merge: true })
+        );
+      }
+      await Promise.all(chunkPromises);
+    }
 
     return true;
   } catch (err: any) {
-    console.error('❌ [Firestore] Failed to save master database:', err.message);
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted('saveAuthoritativeFirestoreDb');
+      return false;
+    }
+    console.warn('⚠️ [Firestore] Could not sync master database to cloud:', err.message);
     return false;
   }
 }
@@ -206,6 +302,7 @@ export async function saveEntityToFirestore(
   id: string,
   data: any
 ): Promise<boolean> {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
@@ -221,6 +318,10 @@ export async function saveEntityToFirestore(
     }, { merge: true });
     return true;
   } catch (err: any) {
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted(`saveEntityToFirestore(${collectionName}/${id})`);
+      return false;
+    }
     console.warn(`⚠️ [Firestore] Failed to write entity to ${collectionName}/${id}:`, err.message);
     return false;
   }
@@ -233,6 +334,7 @@ export async function deleteEntityFromFirestore(
   collectionName: string,
   id: string
 ): Promise<boolean> {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
@@ -243,6 +345,10 @@ export async function deleteEntityFromFirestore(
     await deleteDoc(entityRef);
     return true;
   } catch (err: any) {
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted(`deleteEntityFromFirestore(${collectionName}/${id})`);
+      return false;
+    }
     console.warn(`⚠️ [Firestore] Failed to delete entity ${collectionName}/${id}:`, err.message);
     return false;
   }
@@ -263,6 +369,7 @@ export async function saveMediaToFirestore(
   mimeType: string,
   buffer: Buffer
 ): Promise<boolean> {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
@@ -322,7 +429,11 @@ export async function saveMediaToFirestore(
     console.log(`✅ [Firestore Media] Persisted media ${cleanFilename} (${totalSize} bytes, chunked: ${totalSize > MAX_SINGLE_DOC_SIZE}) to cloud store`);
     return true;
   } catch (err: any) {
-    console.error(`❌ [Firestore Media] Failed to save media ${filename}:`, err.message);
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted(`saveMediaToFirestore(${filename})`);
+      return false;
+    }
+    console.warn(`⚠️ [Firestore Media] Could not sync media ${filename} to cloud:`, err.message);
     return false;
   }
 }
@@ -387,10 +498,12 @@ export async function fetchMediaFromFirestore(
  * Deletes media and its chunks from Firestore
  */
 export async function deleteMediaFromFirestore(filename: string): Promise<boolean> {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
   try {
+    await ensureServerFirebaseAuth();
     const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, '_');
     const mediaRef = doc(db, 'uploaded_media', cleanFilename);
     const snap = await getDoc(mediaRef);
@@ -406,6 +519,10 @@ export async function deleteMediaFromFirestore(filename: string): Promise<boolea
     }
     return true;
   } catch (err: any) {
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted(`deleteMediaFromFirestore(${filename})`);
+      return false;
+    }
     console.warn(`⚠️ [Firestore Media] Delete failed for ${filename}:`, err.message);
     return false;
   }

@@ -1074,6 +1074,37 @@ interface CandidateSnapshot {
 }
 
 /**
+ * Keeps backup directories compact by retaining only the newest maxFiles snapshots.
+ * Prevents disk bloat and slow container provisioning during deployment.
+ */
+export function pruneExcessBackups(maxFiles: number = 6): void {
+  [BACKUPS_DIR, SERVER_BACKUPS_DIR].forEach(dir => {
+    try {
+      if (!fs.existsSync(dir)) return;
+      const files = fs.readdirSync(dir)
+        .filter(f => f.endsWith('.json'))
+        .map(f => {
+          const full = path.join(dir, f);
+          let mtimeMs = 0;
+          try { mtimeMs = fs.statSync(full).mtimeMs; } catch {}
+          return { f, full, mtimeMs };
+        })
+        .sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+      if (files.length > maxFiles) {
+        const toRemove = files.slice(0, files.length - maxFiles);
+        for (const item of toRemove) {
+          try { fs.unlinkSync(item.full); } catch {}
+        }
+      }
+    } catch {}
+  });
+}
+
+// Prune accumulated historical snapshots once on module load
+pruneExcessBackups(6);
+
+/**
  * Scans multi-tier persistent storage across primary, server store, mirror, and rolling backups:
  * Always loads the genuinely NEWEST and most complete dataset.
  * NEVER overwrites customized data with older snapshots or defaults.
@@ -1091,12 +1122,15 @@ function findBestAvailableData(): DatabaseSchema | null {
     candidateFilePaths.add(path.join(process.env.PERSISTENT_DATA_DIR, 'admin_store.json'));
   }
 
-  // Backup directories
+  // Inspect only the 3 newest backup files per backup directory for fast O(1) startup
   [BACKUPS_DIR, SERVER_BACKUPS_DIR, PERMANENT_BACKUPS_DIR].forEach(bDir => {
     if (fs.existsSync(bDir)) {
       try {
-        const files = fs.readdirSync(bDir).filter(f => f.endsWith('.json'));
-        files.forEach(f => candidateFilePaths.add(path.join(bDir, f)));
+        const recentFiles = fs.readdirSync(bDir)
+          .filter(f => f.endsWith('.json'))
+          .sort()
+          .slice(-3);
+        recentFiles.forEach(f => candidateFilePaths.add(path.join(bDir, f)));
       } catch {}
     }
   });
@@ -1258,20 +1292,36 @@ function normalizeDatabaseSchema(existingData: DatabaseSchema): DatabaseSchema {
 
 /**
  * Asynchronously initializes authoritative database from persistent Firestore.
- * Ensures Cloud Run container restarts NEVER reset to old image build defaults.
+ * Ensures Cloud Run container restarts NEVER reset to old image build defaults,
+ * while preserving newer local disk state if local saves occurred during cloud quota limits.
  */
 export async function initCloudDatabase(): Promise<DatabaseSchema> {
+  const localDiskExisted = fs.existsSync(DB_FILE) || fs.existsSync(ADMIN_STORE_FILE);
+  const localCandidate = findBestAvailableData();
+
   try {
     const cloudData = await fetchAuthoritativeFirestoreDb();
     if (cloudData && Array.isArray(cloudData.doors) && cloudData.doors.length > 0) {
-      console.log(`🛡️ [PERSISTENCE] Successfully hydrated application state from Firestore cloud store (Doors: ${cloudData.doors.length}, Version: ${cloudData.version})`);
+      const cloudVersion = Number(cloudData.version) || 0;
+      const localVersion = Number(localCandidate?.version) || 0;
+      const cloudModMs = cloudData.lastModified ? new Date(cloudData.lastModified).getTime() : 0;
+      const localModMs = localCandidate?.lastModified ? new Date(localCandidate.lastModified).getTime() : 0;
+
+      // If local disk has a newer version (e.g., saved while cloud write quota was reached), keep local
+      if (localCandidate && (localVersion > cloudVersion || localModMs > cloudModMs + 2000)) {
+        console.log(`🛡️ [PERSISTENCE] Using newer local authoritative database (Local v${localVersion} > Cloud v${cloudVersion})`);
+        inMemoryDb = normalizeDatabaseSchema(localCandidate);
+        lastLoadedMtime = Date.now();
+        return inMemoryDb;
+      }
+
+      console.log(`🛡️ [PERSISTENCE] Hydrated application state from Firestore cloud store (Doors: ${cloudData.doors.length}, Version: ${cloudData.version})`);
       inMemoryDb = normalizeDatabaseSchema(cloudData);
       lastLoadedMtime = Date.now();
 
       if (!inMemoryDb.settings?.productionApiUrl && process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL') {
         inMemoryDb.settings = inMemoryDb.settings || {} as any;
         inMemoryDb.settings.productionApiUrl = process.env.APP_URL.trim().replace(/\/$/, '');
-        saveAuthoritativeFirestoreDb(inMemoryDb).catch(() => {});
       }
 
       // Mirror to local disk cache synchronously for instant cold reads
@@ -1284,16 +1334,14 @@ export async function initCloudDatabase(): Promise<DatabaseSchema> {
       return inMemoryDb;
     }
   } catch (err: any) {
-    console.warn('⚠️ [PERSISTENCE] Firestore initialization check error:', err.message);
+    console.warn('⚠️ [PERSISTENCE] Firestore initialization check warning:', err.message);
   }
 
-  // If Firestore is empty or not yet seeded, use local authoritative data and seed Firestore
   const localData = getDb();
-  try {
-    await saveAuthoritativeFirestoreDb(localData);
-    console.log(`📦 [PERSISTENCE] Seeded Firestore with current authoritative local data (${localData.doors.length} doors)`);
-  } catch (err: any) {
-    console.warn('⚠️ [PERSISTENCE] Could not seed Firestore:', err.message);
+  if (!localDiskExisted) {
+    try {
+      await saveAuthoritativeFirestoreDb(localData);
+    } catch {}
   }
 
   return localData;
@@ -1333,9 +1381,6 @@ export function getDb(): DatabaseSchema {
       if (!fs.existsSync(ADMIN_STORE_FILE)) writeAtomicJson(ADMIN_STORE_FILE, inMemoryDb);
       if (!fs.existsSync(MIRROR_FILE)) writeAtomicJson(MIRROR_FILE, inMemoryDb);
     } catch {}
-
-    // Asynchronously ensure Firestore has this authoritative data as well
-    saveAuthoritativeFirestoreDb(inMemoryDb).catch(() => {});
 
     return inMemoryDb;
   }
@@ -1425,16 +1470,28 @@ export function saveDb(data: DatabaseSchema, auditContext?: SaveAuditContext): v
     throw new Error(`CRITICAL: Failed to write database to any persistent location! ${lastError.message}`);
   }
 
-  // 3. Persist to Firestore cloud database (permanent across Cloud Run container instances)
-  saveAuthoritativeFirestoreDb(data).catch(err => {
-    console.error('❌ Error updating Firestore cloud database:', err);
-  });
+  // 3. Persist to Firestore cloud database (non-blocking, quota-aware)
+  saveAuthoritativeFirestoreDb(data).catch(() => {});
 
   // 4. Granular atomic update for specific entity in Firestore
   if (auditContext?.entity && auditContext?.targetId) {
     const { entity, targetId, action } = auditContext;
+    const collectionName =
+      entity === 'delivery_story'
+        ? 'delivery_stories'
+        : entity === 'category'
+        ? 'categories'
+        : entity === 'finish'
+        ? 'finishes'
+        : entity === 'settings'
+        ? 'settings'
+        : entity + 's';
+
     if (action === 'delete') {
-      deleteEntityFromFirestore(entity + 's', targetId).catch(() => {});
+      deleteEntityFromFirestore(collectionName, targetId).catch(() => {});
+      if (entity === 'delivery_story') {
+        deleteEntityFromFirestore('delivery_storys', targetId).catch(() => {});
+      }
     } else {
       let entityData: any = null;
       if (entity === 'door') entityData = data.doors.find(d => d.id === targetId);
@@ -1450,7 +1507,7 @@ export function saveDb(data: DatabaseSchema, auditContext?: SaveAuditContext): v
       else if (entity === 'delivery_story') entityData = (data.deliveryStories || []).find(s => s.id === targetId);
 
       if (entityData) {
-        saveEntityToFirestore(entity + 's', targetId, entityData).catch(() => {});
+        saveEntityToFirestore(collectionName, targetId, entityData).catch(() => {});
       }
     }
   }
@@ -1466,20 +1523,8 @@ export function saveDb(data: DatabaseSchema, auditContext?: SaveAuditContext): v
     try { writeAtomicJson(backupFile, data); } catch {}
     try { writeAtomicJson(serverBackupFile, data); } catch {}
 
-    // Rotate backups: retain newest 40 in each directory
-    [BACKUPS_DIR, SERVER_BACKUPS_DIR].forEach(dir => {
-      try {
-        const files = fs.readdirSync(dir)
-          .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
-          .sort();
-        if (files.length > 40) {
-          const toRemove = files.slice(0, files.length - 40);
-          for (const f of toRemove) {
-            try { fs.unlinkSync(path.join(dir, f)); } catch {}
-          }
-        }
-      } catch {}
-    });
+    // Rotate backups: retain newest 6 snapshots in each directory
+    pruneExcessBackups(6);
   }
 }
 
@@ -1925,4 +1970,97 @@ export function deleteDeliveryStory(id: string): boolean {
   }
   return false;
 }
+
+/**
+ * Checks whether an uploaded media URL (e.g. /uploads/photo-123.jpg) is still referenced
+ * anywhere in the current database across banners, doors, delivery stories, articles,
+ * team members, wood references, or business settings.
+ * Returns true if referenced (shared) or if not a dedicated local /uploads/ path.
+ */
+export function isMediaUrlReferencedInDb(db: DatabaseSchema, candidateUrl?: string | null): boolean {
+  if (!candidateUrl || typeof candidateUrl !== 'string') return true;
+  const trimmed = candidateUrl.trim();
+  const uploadsIdx = trimmed.lastIndexOf('/uploads/');
+  if (uploadsIdx === -1) {
+    // External URL (e.g. Unsplash) or data URL — never treat as dedicated storage file to delete
+    return true;
+  }
+  const filename = trimmed.slice(uploadsIdx + '/uploads/'.length).split('?')[0].split('#')[0];
+  if (!filename) return true;
+
+  const needle = `/uploads/${filename}`;
+  const matchesUrl = (val?: string | null) => typeof val === 'string' && val.includes(needle);
+
+  // 1. Check banners
+  if (Array.isArray(db.banners) && db.banners.some(b => matchesUrl(b.image))) return true;
+
+  // 2. Check doors
+  if (
+    Array.isArray(db.doors) &&
+    db.doors.some((d: any) =>
+      matchesUrl(d.image) ||
+      matchesUrl(d.transparentPngUrl) ||
+      matchesUrl(d.videoUrl) ||
+      matchesUrl(d.model3d?.modelUrl) ||
+      matchesUrl(d.model3d?.glbUrl) ||
+      matchesUrl(d.model3d?.textureUrl) ||
+      matchesUrl(d.model3d?.frontTextureUrl) ||
+      matchesUrl(d.model3d?.backTextureUrl) ||
+      matchesUrl(d.model3d?.sideEdgeTextureUrl) ||
+      (Array.isArray(d.images) && d.images.some((img: string) => matchesUrl(img)))
+    )
+  ) {
+    return true;
+  }
+
+  // 3. Check delivery stories
+  if (
+    Array.isArray(db.deliveryStories) &&
+    db.deliveryStories.some(
+      (s: any) =>
+        matchesUrl(s.doorThumbnail) ||
+        matchesUrl(s.doorPhotoUrl) ||
+        matchesUrl(s.deliveryPhoto) ||
+        matchesUrl(s.deliveryPhotoUrl) ||
+        (Array.isArray(s.images) && s.images.some((img: string) => matchesUrl(img)))
+    )
+  ) {
+    return true;
+  }
+
+  // 4. Check articles
+  if (
+    Array.isArray(db.articles) &&
+    db.articles.some((a: any) =>
+      matchesUrl(a.image) ||
+      matchesUrl(a.featuredImage) ||
+      matchesUrl(a.coverImage) ||
+      matchesUrl(a.videoUrl) ||
+      (Array.isArray(a.galleryImages) && a.galleryImages.some((g: string) => matchesUrl(g)))
+    )
+  ) {
+    return true;
+  }
+
+  // 5. Check team members & settings
+  if (Array.isArray(db.teamMembers) && db.teamMembers.some(tm => matchesUrl(tm.photo))) return true;
+  const storySettings = db.settings?.storySettings as any;
+  if (matchesUrl(storySettings?.founderPhoto) || matchesUrl(storySettings?.ownerPhotoUrl)) return true;
+  if (
+    Array.isArray(storySettings?.workshopGallery) &&
+    storySettings.workshopGallery.some((g: any) => matchesUrl(typeof g === 'string' ? g : g?.url))
+  ) {
+    return true;
+  }
+
+  // 6. Check wood references, materials, finishes, frames, hardware
+  if (Array.isArray(db.woodReferences) && db.woodReferences.some(w => matchesUrl(w.imageUrl))) return true;
+  if (Array.isArray(db.materials) && db.materials.some(m => matchesUrl(m.image))) return true;
+  if (Array.isArray(db.finishes) && db.finishes.some(f => matchesUrl(f.image))) return true;
+  if (Array.isArray(db.frames) && db.frames.some(fr => matchesUrl(fr.image))) return true;
+  if (Array.isArray(db.hardware) && db.hardware.some(h => matchesUrl(h.image))) return true;
+
+  return false;
+}
+
 
