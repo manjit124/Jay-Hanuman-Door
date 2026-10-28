@@ -48,6 +48,7 @@ import {
   DEFAULT_FINISHES,
   DEFAULT_FRAMES,
   DEFAULT_HARDWARE,
+  resolveImageUrl,
 } from '../lib/api.ts';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 import { adMobService } from '../lib/admob/admobService.ts';
@@ -1199,8 +1200,14 @@ Please provide official factory dispatch schedule and installation assistance.`;
                       title="Tap to preview full image"
                     >
                       <img
-                        src={selectedDoor.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80'}
+                        src={resolveImageUrl(selectedDoor.image || selectedDoor.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80')}
                         alt={selectedDoor.name}
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80') {
+                            target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80';
+                          }
+                        }}
                         className="w-full h-full object-cover transition-transform group-hover:scale-105"
                       />
                       <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">

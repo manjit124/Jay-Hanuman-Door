@@ -2,6 +2,7 @@ import React from 'react';
 import { Award, Sparkles, CheckCircle2 } from 'lucide-react';
 import { TeamMember, BusinessSettings } from '../types.ts';
 import { DEFAULT_STORY_SETTINGS } from './AdminBrandStoryTab.tsx';
+import { resolveImageUrl } from '../lib/api.ts';
 
 interface OurStorySectionProps {
   teamMembers?: TeamMember[];
@@ -30,7 +31,7 @@ export const OurStorySection: React.FC<OurStorySectionProps> = ({ teamMembers, s
   const storyPhoto = story?.ownerPhotoUrl?.trim();
   const memberPhoto = (ownerMember?.photo || (ownerMember as any)?.imageUrl || '').trim();
 
-  // If storyPhoto iscustomized (or memberPhoto is not customized), use storyPhoto; if storyPhoto is still default Unsplash while memberPhoto was customized in Team tab, prefer memberPhoto
+  // If storyPhoto is customized (or memberPhoto is not customized), use storyPhoto; if storyPhoto is still default Unsplash while memberPhoto was customized in Team tab, prefer memberPhoto
   const resolvedOwnerPhoto =
     storyPhoto && storyPhoto !== defaultOwnerUnsplash
       ? storyPhoto
@@ -40,7 +41,7 @@ export const OurStorySection: React.FC<OurStorySectionProps> = ({ teamMembers, s
 
   const ownerName = story?.ownerName || ownerMember?.name || DEFAULT_STORY_SETTINGS.ownerName!;
   const ownerRole = story?.ownerDesignation || ownerMember?.designation || (ownerMember as any)?.role || DEFAULT_STORY_SETTINGS.ownerDesignation!;
-  const ownerPhoto = resolvedOwnerPhoto;
+  const ownerPhoto = resolveImageUrl(resolvedOwnerPhoto, DEFAULT_STORY_SETTINGS.ownerPhotoUrl);
   const ownerBio = story?.ownerDescription || ownerMember?.shortBio || (ownerMember as any)?.bio || DEFAULT_STORY_SETTINGS.ownerDescription!;
 
   const highlights = story?.highlights && story.highlights.length === 3

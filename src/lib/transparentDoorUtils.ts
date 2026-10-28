@@ -8,6 +8,7 @@
  */
 
 import { Door } from '../types.ts';
+import { resolveImageUrl } from './api.ts';
 
 const CACHE_PREFIX = 'jh_transparent_door_v3_';
 const memoryCache = new Map<string, string>();
@@ -527,12 +528,12 @@ export async function resolveTransparentDoorCutout(
 ): Promise<string> {
   // 1. Explicit transparent PNG attached by Admin
   if (door.transparentPngUrl && door.transparentPngUrl.trim()) {
-    return door.transparentPngUrl;
+    return resolveImageUrl(door.transparentPngUrl);
   }
 
   // 2. Attached in 3D model config
   if (door.model3d?.transparentPngUrl && door.model3d.transparentPngUrl.trim()) {
-    return door.model3d.transparentPngUrl;
+    return resolveImageUrl(door.model3d.transparentPngUrl);
   }
 
   // 3. Cache check
@@ -553,7 +554,10 @@ export async function resolveTransparentDoorCutout(
   }
 
   // 5. Automatic extraction from catalogue photo
-  const rawImage = door.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80';
+  const rawImage = resolveImageUrl(
+    (door as any).image || (door.images && door.images[0]),
+    'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80'
+  );
 
   try {
     const processedPng = await removeBackgroundFromImage(rawImage, { cropToDoor: true });

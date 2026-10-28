@@ -15,7 +15,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { BusinessSettings, CompanyStorySettings } from '../types.ts';
-import { uploadImage, updateSettings } from '../lib/api.ts';
+import { uploadImage, updateSettings, resolveImageUrl } from '../lib/api.ts';
 
 export const DEFAULT_STORY_SETTINGS: CompanyStorySettings = {
   sectionTitle: 'Our Story & Heritage',
@@ -293,7 +293,7 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
             <div className="bg-white border border-[#E8E8E8] rounded-xl p-4 flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left max-w-xl mx-auto">
               <div className="w-16 h-16 rounded-full p-1 bg-gradient-to-tr from-[#C89211] via-[#E2B755] to-[#FFF7E3] shrink-0 shadow-xs">
                 <img
-                  src={formData.ownerPhotoUrl || DEFAULT_STORY_SETTINGS.ownerPhotoUrl}
+                  src={resolveImageUrl(formData.ownerPhotoUrl || DEFAULT_STORY_SETTINGS.ownerPhotoUrl)}
                   alt={formData.ownerName}
                   className="w-full h-full object-cover rounded-full bg-[#FAF9F5]"
                 />
@@ -468,7 +468,7 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
                 <div className="relative shrink-0">
                   <div className="w-20 h-20 sm:w-22 sm:h-22 rounded-full p-1 bg-gradient-to-tr from-[#C89211] via-[#E2B755] to-[#FFF7E3] shadow-md">
                     <img
-                      src={formData.ownerPhotoUrl || DEFAULT_STORY_SETTINGS.ownerPhotoUrl}
+                      src={resolveImageUrl(formData.ownerPhotoUrl || DEFAULT_STORY_SETTINGS.ownerPhotoUrl)}
                       alt={formData.ownerName}
                       className="w-full h-full object-cover rounded-full bg-[#FAF9F5]"
                       onError={(e) => {

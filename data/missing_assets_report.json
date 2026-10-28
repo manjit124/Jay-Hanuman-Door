@@ -1,0 +1,166 @@
+{
+  "generatedAt": "2026-10-27T14:12:57.563Z",
+  "missingCount": 20,
+  "missingAssets": [
+    {
+      "entity": "doors",
+      "recordId": "door-1793092028241",
+      "recordTitle": "Singal Dimond Sagwan Door",
+      "field": "image",
+      "missingPath": "/uploads/5271-1793092001660-747395.jpg",
+      "filename": "5271-1793092001660-747395.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-1793092028241",
+      "recordTitle": "Singal Dimond Sagwan Door",
+      "field": "images[0]",
+      "missingPath": "/uploads/5271-1793092001660-747395.jpg",
+      "filename": "5271-1793092001660-747395.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-1793087317691",
+      "recordTitle": "Sagwan Door",
+      "field": "image",
+      "missingPath": "/uploads/5260-1793087307744-61669.jpg",
+      "filename": "5260-1793087307744-61669.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-1793087317691",
+      "recordTitle": "Sagwan Door",
+      "field": "images[0]",
+      "missingPath": "/uploads/5260-1793087307744-61669.jpg",
+      "filename": "5260-1793087307744-61669.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-1793087273452",
+      "recordTitle": "Royal Sagwan Door",
+      "field": "image",
+      "missingPath": "/uploads/4746-1793087264386-493057.jpg",
+      "filename": "4746-1793087264386-493057.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-1793087273452",
+      "recordTitle": "Royal Sagwan Door",
+      "field": "images[0]",
+      "missingPath": "/uploads/4746-1793087264386-493057.jpg",
+      "filename": "4746-1793087264386-493057.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-5",
+      "recordTitle": "Designer CNC Geometric Grooved Door",
+      "field": "image",
+      "missingPath": "/uploads/4744-1793091828180-112378.jpg",
+      "filename": "4744-1793091828180-112378.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-5",
+      "recordTitle": "Designer CNC Geometric Grooved Door",
+      "field": "images[0]",
+      "missingPath": "/uploads/4744-1793091828180-112378.jpg",
+      "filename": "4744-1793091828180-112378.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-6",
+      "recordTitle": "Solid Sagwan Wood Heavy Duty Door",
+      "field": "image",
+      "missingPath": "/uploads/4747-1793091870834-452466.jpg",
+      "filename": "4747-1793091870834-452466.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-6",
+      "recordTitle": "Solid Sagwan Wood Heavy Duty Door",
+      "field": "images[0]",
+      "missingPath": "/uploads/4747-1793091870834-452466.jpg",
+      "filename": "4747-1793091870834-452466.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-7",
+      "recordTitle": "Grand Arch Double Entrance Door",
+      "field": "image",
+      "missingPath": "/uploads/2479-1793091918062-157762.jpg",
+      "filename": "2479-1793091918062-157762.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-7",
+      "recordTitle": "Grand Arch Double Entrance Door",
+      "field": "images[0]",
+      "missingPath": "/uploads/2479-1793091918062-157762.jpg",
+      "filename": "2479-1793091918062-157762.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-8",
+      "recordTitle": "Royal Hand Carving Sagwan",
+      "field": "image",
+      "missingPath": "/uploads/4748-1793091964569-680435.jpg",
+      "filename": "4748-1793091964569-680435.jpg"
+    },
+    {
+      "entity": "doors",
+      "recordId": "door-8",
+      "recordTitle": "Royal Hand Carving Sagwan",
+      "field": "images[0]",
+      "missingPath": "/uploads/4748-1793091964569-680435.jpg",
+      "filename": "4748-1793091964569-680435.jpg"
+    },
+    {
+      "entity": "banners",
+      "recordId": "ban-1",
+      "recordTitle": "Direct From Manufacturer: Premium Sagwan Wood Doors",
+      "field": "image",
+      "missingPath": "/uploads/184809-1792324353484-424213.png",
+      "filename": "184809-1792324353484-424213.png"
+    },
+    {
+      "entity": "banners",
+      "recordId": "ban-2",
+      "recordTitle": "Diwali Teak Door Mega Deal - Flat 30% Off",
+      "field": "image",
+      "missingPath": "/uploads/184853-1792327641084-964640.png",
+      "filename": "184853-1792327641084-964640.png"
+    },
+    {
+      "entity": "banners",
+      "recordId": "ban-1792325537344",
+      "recordTitle": "Pure CP Sagwan Teak Door Collection",
+      "field": "image",
+      "missingPath": "/uploads/184853-1792327641084-964640.png",
+      "filename": "184853-1792327641084-964640.png"
+    },
+    {
+      "entity": "banners",
+      "recordId": "ban-main-1792399519395",
+      "recordTitle": "UPDATED Royal Sagwan Carved Entrance Doors",
+      "field": "image",
+      "missingPath": "/uploads/184809-1792324353484-424213.png",
+      "filename": "184809-1792324353484-424213.png"
+    },
+    {
+      "entity": "banners",
+      "recordId": "ban-promo-1792399519453",
+      "recordTitle": "UPDATED Diwali Teak Door Mega Deal - Flat 30% Off",
+      "field": "image",
+      "missingPath": "/uploads/184853-1792327641084-964640.png",
+      "filename": "184853-1792327641084-964640.png"
+    },
+    {
+      "entity": "banners",
+      "recordId": "ban-1793086553624",
+      "recordTitle": "E2E Test Banner",
+      "field": "image",
+      "missingPath": "/uploads/r2_e2e_verify-1793086553236-713225.png",
+      "filename": "r2_e2e_verify-1793086553236-713225.png"
+    }
+  ]
+}

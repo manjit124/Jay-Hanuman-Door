@@ -10,6 +10,7 @@ import {
   DoorMaterial,
   CustomDoorFittingState,
 } from '../../types.ts';
+import { resolveImageUrl } from '../../lib/api.ts';
 
 interface DoorCustomizationStudioProps {
   door: Door;
@@ -103,8 +104,14 @@ export const DoorCustomizationStudio: React.FC<DoorCustomizationStudioProps> = (
         </div>
         <div className="flex items-center gap-3">
           <img
-            src={door.images?.[0] || ''}
+            src={resolveImageUrl(door.image || door.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80')}
             alt={door.name}
+            onError={(e) => {
+              const target = e.currentTarget;
+              if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80') {
+                target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80';
+              }
+            }}
             className="w-12 h-16 object-cover rounded-lg bg-white border border-[#E5E5E5] shrink-0"
           />
           <div>

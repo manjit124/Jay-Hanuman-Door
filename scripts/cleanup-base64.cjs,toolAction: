@@ -1,0 +1,64 @@
+const fs = require('fs');
+const path = require('path');
+
+const dbPath = path.join(process.cwd(), 'data', 'database.json');
+if (!fs.existsSync(dbPath)) {
+  console.log('No database.json found');
+  process.exit(0);
+}
+
+const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+const uploadDir = path.join(process.cwd(), 'data', 'uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+function convertBase64ToFile(base64Str, prefix) {
+  if (!base64Str || !base64Str.startsWith('data:image/')) return base64Str;
+  try {
+    const match = base64Str.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+    if (!match) return base64Str;
+    const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+    const dataBuffer = Buffer.from(match[2], 'base64');
+    const filename = `${prefix}_${Date.now()}_${Math.floor(Math.random() * 10000)}.${ext}`;
+    const filePath = path.join(uploadDir, filename);
+    fs.writeFileSync(filePath, dataBuffer);
+    console.log(`Converted Base64 (${base64Str.length} chars) -> /uploads/${filename}`);
+    return `/uploads/${filename}`;
+  } catch (err) {
+    console.error('Failed to convert base64:', err.message);
+    return base64Str;
+  }
+}
+
+// Convert door images
+if (Array.isArray(db.doors)) {
+  for (const d of db.doors) {
+    if (d.image && d.image.startsWith('data:image/')) {
+      d.image = convertBase64ToFile(d.image, `door_${d.id}`);
+    }
+    if (Array.isArray(d.images)) {
+      d.images = d.images.map((img, idx) => {
+        if (img && img.startsWith('data:image/')) {
+          return convertBase64ToFile(img, `door_${d.id}_${idx}`);
+        }
+        return img;
+      });
+    }
+  }
+}
+
+// Convert owner photo
+if (db.settings?.storySettings?.ownerPhotoUrl && db.settings.storySettings.ownerPhotoUrl.startsWith('data:image/')) {
+  db.settings.storySettings.ownerPhotoUrl = convertBase64ToFile(
+    db.settings.storySettings.ownerPhotoUrl,
+    'owner_photo'
+  );
+}
+
+// Save updated database
+fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
+
+// Mirror to production_data_store.json if exists
+const mirrorPath = path.join(process.cwd(), 'data', 'production_data_store.json');
+fs.writeFileSync(mirrorPath, JSON.stringify(db, null, 2), 'utf8');
+
+console.log('Database Base64 cleanup completed successfully!');

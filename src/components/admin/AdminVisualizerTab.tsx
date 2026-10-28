@@ -18,7 +18,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Door, DoorModel3DConfig, WoodColorTone, DoorDesignStyle } from '../../types.ts';
-import { upload3DModel, updateDoor3DConfig, uploadImage, updateDoor } from '../../lib/api.ts';
+import { upload3DModel, updateDoor3DConfig, uploadImage, updateDoor, resolveImageUrl } from '../../lib/api.ts';
 import { removeBackgroundFromImage } from '../../lib/transparentDoorUtils.ts';
 import { Door3DScene } from '../visualizer/Door3DScene.tsx';
 
@@ -259,8 +259,14 @@ export const AdminVisualizerTab: React.FC<AdminVisualizerTabProps> = ({
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
                         <img
-                          src={d.images?.[0] || ''}
+                          src={resolveImageUrl(d.image || d.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80')}
                           alt={d.name}
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80') {
+                              target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80';
+                            }
+                          }}
                           className="w-10 h-14 object-cover rounded-lg bg-[#F8F8F6] border border-[#E5E5E5] shrink-0"
                         />
                         <div>
@@ -421,8 +427,14 @@ export const AdminVisualizerTab: React.FC<AdminVisualizerTabProps> = ({
 
                     <div className="flex items-center gap-3">
                       <img
-                        src={editingConfig.textureUrl || selectedDoor.images?.[0] || ''}
+                        src={resolveImageUrl(editingConfig.textureUrl || selectedDoor.image || selectedDoor.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80')}
                         alt="Preview"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80') {
+                            target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80';
+                          }
+                        }}
                         className="w-12 h-16 object-cover rounded-lg bg-[#F8F8F6] border border-[#E5E5E5]"
                       />
                       <button
@@ -463,8 +475,12 @@ export const AdminVisualizerTab: React.FC<AdminVisualizerTabProps> = ({
                         <div className="flex items-center gap-3 overflow-hidden">
                           <div className="w-10 h-14 rounded bg-[repeating-conic-gradient(#262626_0_25%,#1c1c1c_0_50%)] bg-[size:8px_8px] p-1 flex items-center justify-center border border-[#E5E5E5] shrink-0">
                             <img
-                              src={editingConfig.transparentPngUrl}
+                              src={resolveImageUrl(editingConfig.transparentPngUrl)}
                               alt="Transparent Cutout"
+                              onError={(e) => {
+                                const target = e.currentTarget;
+                                target.style.display = 'none';
+                              }}
                               className="w-full h-full object-contain"
                             />
                           </div>

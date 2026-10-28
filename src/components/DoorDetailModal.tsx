@@ -40,7 +40,11 @@ export const DoorDetailModal: React.FC<DoorDetailModalProps> = ({
     .filter(d => d.id !== door.id && (d.category === door.category || d.material === door.material))
     .slice(0, 3);
 
-  const images = door.images && door.images.length > 0 ? door.images : ['https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80'];
+  const rawImages = Array.isArray(door.images) ? door.images.filter(Boolean) : [];
+  const orderedImages = door.image
+    ? [door.image, ...rawImages.filter(img => img !== door.image)]
+    : rawImages;
+  const images = orderedImages.length > 0 ? orderedImages : ['https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80'];
   const currentImage = images[activeImageIndex] || images[0];
 
   const whatsappMessage = `Hello ${settings?.businessName || 'Jai Hanuman Door'}, I am interested in the "${door.name}" (${door.category}) starting at ₹${door.startingPrice.toLocaleString('en-IN')}. Please share available customization options and delivery details.`;

@@ -117,10 +117,14 @@ import {
   uploadImage,
   uploadVideo,
   upload3DModel,
+  resolveImageUrl,
   resetAdminDefaultPassword,
   getApiBaseUrl,
   getCustomApiBaseUrl,
   setCustomApiBaseUrl,
+  previewDriveOrExternalImage,
+  importDriveOrExternalImageToR2,
+  type DriveImagePreviewResult,
 } from '../lib/api.ts';
 import { signInAdminWithGoogle, getClientAuth, ensureFirebaseAuthSession } from '../lib/firestoreClient.ts';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
@@ -256,6 +260,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isGeneratingPng, setIsGeneratingPng] = useState(false);
   const [isSavingDoor, setIsSavingDoor] = useState(false);
 
+  // Google Drive / Direct Image URL Import state for Door Designs
+  const [doorImageSourceMode, setDoorImageSourceMode] = useState<'upload' | 'drive_url'>('upload');
+  const [driveImageUrlInput, setDriveImageUrlInput] = useState('');
+  const [isPreviewingDriveImage, setIsPreviewingDriveImage] = useState(false);
+  const [isImportingDriveImage, setIsImportingDriveImage] = useState(false);
+  const [driveImagePreview, setDriveImagePreview] = useState<DriveImagePreviewResult | null>(null);
+  const [driveImageError, setDriveImageError] = useState<string | null>(null);
+  const [driveImportSuccessMsg, setDriveImportSuccessMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDriveImageUrlInput('');
+    setDriveImagePreview(null);
+    setDriveImageError(null);
+    setDriveImportSuccessMsg(null);
+  }, [editingDoor?.id]);
+
   // Quick inline price & details editing states
   const [quickEditMaterialId, setQuickEditMaterialId] = useState<string | null>(null);
   const [quickEditMaterialRate, setQuickEditMaterialRate] = useState<number>(0);
@@ -364,7 +384,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const loadData = async () => {
     try {
       setLoading(true);
-      await ensureActiveAuthSession();
       const data = await fetchAdminAllData();
       setDoors(data.doors || []);
       setCategories(data.categories || []);
@@ -1920,66 +1939,316 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             />
                           </div>
 
-                          {/* Direct Image Upload (Section 14 requirement) */}
-                          <div className="sm:col-span-2">
-                            <label className="block font-semibold text-[#1A1A1A] mb-1">
-                              Door Image (Direct File Upload)
-                            </label>
-                            <div className="flex items-center gap-3">
-                              <label className={`px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 transition-colors ${uploadingImage ? 'bg-stone-400 cursor-wait' : 'cursor-pointer bg-[#C89211] hover:bg-[#A0700B]'}`}>
-                                {uploadingImage ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Upload className="w-3.5 h-3.5" />
-                                )}
-                                {uploadingImage
-                                  ? `Uploading${uploadProgress !== null ? ` ${uploadProgress}%` : ''}...`
-                                  : 'Choose File(s) to Upload'}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  disabled={uploadingImage}
-                                  onChange={e =>
-                                    handleFileUploadHelper(e, url => {
-                                      setEditingDoor(prev => {
-                                        if (!prev) return prev;
-                                        const current = prev.images || [];
-                                        if (current.includes(url)) return prev;
-                                        return {
-                                          ...prev,
-                                          image: current.length === 0 ? url : (prev.image || url),
-                                          images: [url, ...current],
-                                        };
-                                      });
-                                    })
-                                  }
-                                  className="hidden"
-                                />
+                          {/* Product Image Section: Direct File Upload + Google Drive / Paste Image URL Import */}
+                          <div className="sm:col-span-2 p-3.5 bg-white rounded-xl border border-[#E5E5E5] space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <label className="block font-semibold text-[#1A1A1A] text-xs flex items-center gap-1.5">
+                                <ImageIcon className="w-4 h-4 text-[#C89211]" />
+                                <span>Product Image (Upload Image or Google Drive / Paste Image URL)</span>
                               </label>
-                              <span className="text-[11px] text-[#666666]">
-                                Auto-optimizes camera photos (1680px HD) for fast upload
-                              </span>
+                              <div className="inline-flex rounded-lg bg-[#F8F8F6] p-0.5 border border-[#E5E5E5]">
+                                <button
+                                  type="button"
+                                  onClick={() => setDoorImageSourceMode('upload')}
+                                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                                    doorImageSourceMode === 'upload'
+                                      ? 'bg-[#C89211] text-white shadow-xs'
+                                      : 'text-[#666666] hover:text-[#1A1A1A]'
+                                  }`}
+                                >
+                                  Upload Image
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDoorImageSourceMode('drive_url')}
+                                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                                    doorImageSourceMode === 'drive_url'
+                                      ? 'bg-[#C89211] text-white shadow-xs'
+                                      : 'text-[#666666] hover:text-[#1A1A1A]'
+                                  }`}
+                                >
+                                  Google Drive / Paste Image URL
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Option 1: Direct File Upload */}
+                            <div className={doorImageSourceMode === 'upload' ? 'space-y-2' : 'space-y-2 pt-1 border-t border-[#F0F0EE]'}>
+                              <div className="flex flex-wrap items-center gap-3">
+                                <label className={`px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 transition-colors ${uploadingImage ? 'bg-stone-400 cursor-wait' : 'cursor-pointer bg-[#C89211] hover:bg-[#A0700B]'}`}>
+                                  {uploadingImage ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Upload className="w-3.5 h-3.5" />
+                                  )}
+                                  {uploadingImage
+                                    ? `Uploading${uploadProgress !== null ? ` ${uploadProgress}%` : ''}...`
+                                    : 'Upload Image File(s)'}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    disabled={uploadingImage}
+                                    onChange={e =>
+                                      handleFileUploadHelper(e, url => {
+                                        setEditingDoor(prev => {
+                                          if (!prev) return prev;
+                                          const current = prev.images || [];
+                                          if (current.includes(url)) return prev;
+                                          return {
+                                            ...prev,
+                                            image: current.length === 0 ? url : (prev.image || url),
+                                            images: [url, ...current],
+                                          };
+                                        });
+                                      })
+                                    }
+                                    className="hidden"
+                                  />
+                                </label>
+                                <span className="text-[11px] text-[#666666]">
+                                  Auto-optimizes camera photos (1680px HD) and saves to Cloudflare R2
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Option 2: Google Drive Image URL / Direct Image URL Import to R2 */}
+                            <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-2.5">
+                              <div className="flex flex-wrap items-center justify-between gap-1">
+                                <label className="text-xs font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                                  <HardDrive className="w-3.5 h-3.5 text-[#C89211]" />
+                                  <span>Google Drive Image URL</span>
+                                </label>
+                                <span className="text-[10px] text-[#666666]">
+                                  Supports Google Drive sharing links (/file/d/FILE_ID/view) &amp; direct HTTPS image URLs
+                                </span>
+                              </div>
+
+                              <div className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                  type="url"
+                                  value={driveImageUrlInput}
+                                  onChange={e => {
+                                    setDriveImageUrlInput(e.target.value);
+                                    setDriveImageError(null);
+                                    setDriveImportSuccessMsg(null);
+                                  }}
+                                  placeholder="https://drive.google.com/file/d/FILE_ID/view?usp=sharing"
+                                  className="flex-1 px-3 py-2 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:ring-2 focus:ring-[#C89211]"
+                                />
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    disabled={isPreviewingDriveImage || isImportingDriveImage || !driveImageUrlInput.trim()}
+                                    onClick={async () => {
+                                      const raw = driveImageUrlInput.trim();
+                                      if (!raw) return;
+                                      setIsPreviewingDriveImage(true);
+                                      setDriveImageError(null);
+                                      setDriveImportSuccessMsg(null);
+                                      try {
+                                        const preview = await previewDriveOrExternalImage(raw);
+                                        setDriveImagePreview(preview);
+                                      } catch (err: any) {
+                                        setDriveImagePreview(null);
+                                        const rawMsg = String(err?.message || err || '').trim();
+                                        const cleanMsg =
+                                          !rawMsg || rawMsg === 'Failed to fetch' || rawMsg === 'Load failed' || rawMsg === 'NetworkError'
+                                            ? '[NETWORK_ERROR] Could not connect to the backend server. Please verify your connection, or upload the door image directly from your device.'
+                                            : rawMsg;
+                                        setDriveImageError(cleanMsg);
+                                      } finally {
+                                        setIsPreviewingDriveImage(false);
+                                      }
+                                    }}
+                                    className="px-3.5 py-2 rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-[#D5D5D0] font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer"
+                                  >
+                                    {isPreviewingDriveImage ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C89211]" />
+                                    ) : (
+                                      <Eye className="w-3.5 h-3.5 text-[#C89211]" />
+                                    )}
+                                    <span>{isPreviewingDriveImage ? 'Checking...' : 'Preview Image'}</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isImportingDriveImage || isPreviewingDriveImage || !driveImageUrlInput.trim()}
+                                    onClick={async () => {
+                                      const raw = driveImageUrlInput.trim();
+                                      if (!raw) return;
+                                      setIsImportingDriveImage(true);
+                                      setDriveImageError(null);
+                                      setDriveImportSuccessMsg(null);
+                                      try {
+                                        const imported = await importDriveOrExternalImageToR2(raw);
+                                        const r2Url = imported.url;
+                                        setEditingDoor(prev => {
+                                          if (!prev) return prev;
+                                          const current = Array.isArray(prev.images) ? prev.images.filter(Boolean) : [];
+                                          const nextImages = current.includes(r2Url)
+                                            ? [r2Url, ...current.filter(u => u !== r2Url)]
+                                            : [r2Url, ...current];
+                                          return {
+                                            ...prev,
+                                            image: r2Url,
+                                            images: nextImages,
+                                          };
+                                        });
+                                        setDriveImageUrlInput('');
+                                        setDriveImagePreview(null);
+                                        setDriveImportSuccessMsg(
+                                          `Imported to Cloudflare R2 (${imported.width}×${imported.height}px, ${Math.max(1, Math.round(imported.size / 1024))} KB) and set as Primary Product Photo.`
+                                        );
+                                        showToast('Image imported to Cloudflare R2 and attached to product!');
+                                      } catch (err: any) {
+                                        const rawMsg = String(err?.message || err || '').trim();
+                                        const cleanMsg =
+                                          !rawMsg || rawMsg === 'Failed to fetch' || rawMsg === 'Load failed' || rawMsg === 'NetworkError'
+                                            ? '[NETWORK_ERROR] Could not connect to backend storage service. Please check your network connection or upload the door image directly from your device.'
+                                            : rawMsg;
+                                        setDriveImageError(cleanMsg);
+                                      } finally {
+                                        setIsImportingDriveImage(false);
+                                      }
+                                    }}
+                                    className="px-4 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer shadow-xs"
+                                  >
+                                    {isImportingDriveImage ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>{isImportingDriveImage ? 'Importing to R2...' : 'Import to R2'}</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Error message if URL / Google Drive file is restricted or not an image */}
+                              {driveImageError && (
+                                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                                  <div className="space-y-0.5">
+                                    <p className="font-bold">Image Import / Preview Failed</p>
+                                    <p className="text-[11px] leading-relaxed">{driveImageError}</p>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Success message after R2 import */}
+                              {driveImportSuccessMsg && (
+                                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    <span className="font-semibold">{driveImportSuccessMsg}</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDriveImportSuccessMsg(null)}
+                                    className="text-emerald-700 hover:text-emerald-900 p-0.5"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Verified Preview Card */}
+                              {driveImagePreview && (
+                                <div className="p-2.5 rounded-lg bg-white border border-[#C89211]/40 flex items-center justify-between gap-3">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <img
+                                      src={driveImagePreview.previewDataUrl}
+                                      alt="Verified Drive Preview"
+                                      className="w-14 h-16 object-cover rounded-lg border border-[#E5E5E5] bg-[#F8F8F6] shrink-0"
+                                    />
+                                    <div className="text-[11px] space-y-0.5 min-w-0">
+                                      <p className="font-bold text-emerald-700 flex items-center gap-1">
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>Verified Real Image Bytes</span>
+                                      </p>
+                                      <p className="text-[#444444]">
+                                        {driveImagePreview.width} × {driveImagePreview.height} px • {driveImagePreview.mimeType} •{' '}
+                                        {Math.max(1, Math.round(driveImagePreview.size / 1024))} KB
+                                      </p>
+                                      {driveImagePreview.fileId && (
+                                        <p className="text-[10px] text-[#666666] font-mono truncate">
+                                          Google Drive File ID: {driveImagePreview.fileId}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDriveImagePreview(null)}
+                                    className="text-[#666666] hover:text-[#1A1A1A] p-1"
+                                    title="Dismiss preview"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
 
                             {/* Images preview list */}
                             {editingDoor.images && editingDoor.images.length > 0 && (
                               <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
-                                {editingDoor.images.map((img, idx) => (
-                                  <div key={idx} className="relative w-16 h-20 rounded border border-[#E5E5E5] overflow-hidden group">
-                                    <img src={img} alt="" className="w-full h-full object-cover" />
-                                    <button
-                                      type="button"
+                                {editingDoor.images.map((img, idx) => {
+                                  const isPrimary = editingDoor.image === img || (idx === 0 && !editingDoor.image);
+                                  return (
+                                    <div
+                                      key={`${img}-${idx}`}
+                                      className={`relative w-16 h-20 rounded border overflow-hidden group shrink-0 transition-all ${
+                                        isPrimary ? 'border-[#C89211] ring-2 ring-[#C89211]/40' : 'border-[#E5E5E5]'
+                                      }`}
+                                      title={isPrimary ? 'Primary Catalogue Photo' : 'Click thumbnail to set as primary photo'}
                                       onClick={() => {
-                                        const updated = editingDoor.images?.filter((_, i) => i !== idx);
-                                        setEditingDoor({ ...editingDoor, images: updated });
+                                        if (editingDoor.image !== img) {
+                                          setEditingDoor(prev => prev ? ({ ...prev, image: img }) : null);
+                                        }
                                       }}
-                                      className="absolute top-1 right-1 bg-red-600 text-white rounded p-0.5 opacity-80 hover:opacity-100"
                                     >
-                                      <X className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                ))}
+                                      <img
+                                        src={resolveImageUrl(img, 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80')}
+                                        alt={`Door photo ${idx + 1}`}
+                                        className="w-full h-full object-cover cursor-pointer"
+                                      />
+                                      {isPrimary && (
+                                        <span className="absolute bottom-0 inset-x-0 bg-[#C89211]/90 text-white text-[9px] font-bold text-center py-0.5 uppercase tracking-tight">
+                                          Primary
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        aria-label={`Remove photo ${idx + 1}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const removedUrl = img;
+                                          if (typeof removedUrl === 'string' && removedUrl.startsWith('blob:')) {
+                                            try {
+                                              URL.revokeObjectURL(removedUrl);
+                                            } catch {}
+                                          }
+                                          setEditingDoor(prev => {
+                                            if (!prev || !Array.isArray(prev.images)) return prev;
+                                            const updatedImages = prev.images.filter((_, i) => i !== idx);
+                                            let newPrimary = prev.image;
+                                            if (removedUrl === prev.image || !updatedImages.includes(prev.image || '')) {
+                                              newPrimary = updatedImages.length > 0 ? updatedImages[0] : '';
+                                            }
+                                            return {
+                                              ...prev,
+                                              images: updatedImages,
+                                              image: newPrimary,
+                                            };
+                                          });
+                                        }}
+                                        className="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full p-1 opacity-90 hover:opacity-100 shadow-sm transition cursor-pointer"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -2340,24 +2609,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 return;
                               }
                               setIsSavingDoor(true);
+                              const saveStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
                               try {
-                                const isAuthActive = await ensureActiveAuthSession();
-                                if (!isAuthActive) {
-                                  alert('Database Authorization Required: Please click "Sign In with Google (shivshahidoors@gmail.com)" in the header banner above to authorize Cloud Firestore writes.');
-                                  return;
-                                }
+                                let savedDoor: Door;
                                 if (editingDoor.id) {
-                                  await updateDoor(editingDoor.id, editingDoor);
+                                  savedDoor = await updateDoor(editingDoor.id, editingDoor);
+                                  setDoors(prev => prev.map(d => d.id === savedDoor.id ? savedDoor : d));
                                 } else {
-                                  await createDoor(editingDoor);
+                                  savedDoor = await createDoor(editingDoor);
+                                  setDoors(prev => [savedDoor, ...prev.filter(d => d.id !== savedDoor.id)]);
                                 }
+                                const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - saveStart);
+                                console.info(`[AdminPanel] Door design saved in ${elapsed}ms | ID: ${savedDoor.id}`);
                                 setEditingDoor(null);
-                                await loadData();
                                 onDataUpdated();
-                                showToast('Door design saved successfully');
+                                showToast(`Door design saved successfully (${elapsed}ms)`);
                               } catch (err: any) {
                                 console.error('Save door error:', err);
-                                alert(err.message || 'Save failed');
+                                alert(err.message || 'Failed to save door design. Please retry.');
                               } finally {
                                 setIsSavingDoor(false);
                               }
@@ -2381,8 +2650,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <div>
                             <div className="flex gap-3">
                               <img
-                                src={door.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80'}
-                                alt=""
+                                src={resolveImageUrl(door.image || door.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80')}
+                                alt={door.name}
+                                onError={(e) => {
+                                  const target = e.currentTarget;
+                                  if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80') {
+                                    target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80';
+                                  }
+                                }}
                                 className="w-16 h-20 object-cover rounded-xl bg-white border border-[#E5E5E5] flex-shrink-0"
                               />
                               <div className="overflow-hidden flex-1">
@@ -4282,7 +4557,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 #{b.order || idx + 1}
                               </span>
                               <div className="w-32 sm:w-44 h-16 sm:h-20 rounded-xl overflow-hidden bg-stone-900 border border-[#E5E5E5] shrink-0 flex items-center justify-center p-1">
-                                <img src={b.image} alt={b.title || 'Main Banner'} className="max-w-full max-h-full object-contain block" />
+                                <img src={resolveImageUrl(b.image, 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1500&q=80')} alt={b.title || 'Main Banner'} onError={(e) => { (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1500&q=80'; }} className="max-w-full max-h-full object-contain block" />
                               </div>
                               <div className="min-w-0 flex-1">
                                 <span className="font-bold text-[#1A1A1A] text-sm block truncate">{b.title || `Main Banner #${b.order || idx + 1}`}</span>
@@ -5051,7 +5326,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <div key={b.id || idx} className="p-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex items-center justify-between gap-3 text-xs">
                                   <div className="flex items-center gap-2.5 min-w-0">
                                     <span className="font-mono font-bold text-[#C89211]">#{idx + 1}</span>
-                                    <img src={b.image} alt="" className="w-16 h-8 object-cover rounded border border-[#E5E5E5]" />
+                                    <img src={resolveImageUrl(b.image, 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=400&q=80')} alt="" onError={(e) => { (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=400&q=80'; }} className="w-16 h-8 object-cover rounded border border-[#E5E5E5]" />
                                     <span className="font-semibold text-[#1A1A1A] truncate">{b.title || `Slide #${idx + 1}`}</span>
                                     <span className="text-[11px] text-[#666666] hidden sm:inline">🔗 {b.destinationUrl || 'None'}</span>
                                   </div>
@@ -5467,7 +5742,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {otherPromoBanners.map((b, idx) => (
                               <div key={b.id || idx} className="p-3 rounded-xl bg-white border border-[#E5E5E5] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
                                 <div className="flex items-center gap-3 min-w-0">
-                                  <img src={b.image} alt="" className="w-20 h-10 object-cover rounded border border-[#E5E5E5] shrink-0" />
+                                  <img src={resolveImageUrl(b.image, 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=400&q=80')} alt="" onError={(e) => { (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=400&q=80'; }} className="w-20 h-10 object-cover rounded border border-[#E5E5E5] shrink-0" />
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                       <span className="font-semibold text-[#1A1A1A] truncate">{b.title || 'Untitled Banner'}</span>

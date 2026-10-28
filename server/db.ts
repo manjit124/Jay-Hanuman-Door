@@ -1182,13 +1182,43 @@ function findBestAvailableData(): DatabaseSchema | null {
   return best.data;
 }
 
+function sanitizeMediaUrl(raw: any): string {
+  if (!raw || typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  const uploadsIdx = trimmed.lastIndexOf('/uploads/');
+  if (uploadsIdx !== -1) {
+    return '/uploads/' + trimmed.slice(uploadsIdx + '/uploads/'.length).split('?')[0].split('#')[0];
+  }
+  if (trimmed.startsWith('uploads/')) {
+    return '/uploads/' + trimmed.slice('uploads/'.length).split('?')[0].split('#')[0];
+  }
+  if (trimmed.includes('r2.cloudflarestorage.com') || trimmed.includes('jai-hanuman-door-media')) {
+    const filename = trimmed.split('/').pop()?.split('?')[0].split('#')[0];
+    return filename ? '/uploads/' + filename : '';
+  }
+  if (trimmed.includes('ais-dev-')) {
+    try {
+      const u = new URL(trimmed);
+      return u.pathname;
+    } catch {
+      return '';
+    }
+  }
+  return trimmed;
+}
+
 function normalizeDatabaseSchema(existingData: DatabaseSchema): DatabaseSchema {
   return {
     ...existingData,
     version: Number(existingData.version) || 1,
     lastModified: existingData.lastModified || new Date().toISOString(),
     auditLogs: Array.isArray(existingData.auditLogs) ? existingData.auditLogs : [],
-    doors: (Array.isArray(existingData.doors) ? existingData.doors : INITIAL_DATA.doors).map(d => ({
+    doors: (Array.isArray(existingData.doors) ? existingData.doors : INITIAL_DATA.doors).map(d => {
+      const primary = sanitizeMediaUrl((d as any).image) || (Array.isArray(d.images) && d.images[0] ? sanitizeMediaUrl(d.images[0]) : '');
+      const rawImages = Array.isArray(d.images) ? d.images.map(sanitizeMediaUrl).filter(Boolean) : [];
+      const images = rawImages.length > 0 ? rawImages : (primary ? [primary] : ['https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80']);
+      const finalImage = primary || images[0];
+      return {
       ...d,
       pricingType: d.pricingType || (d.id === 'door-7' || d.id === 'door-8' ? 'fixed' : 'sqft'),
       basePrice: d.basePrice !== undefined ? Number(d.basePrice) : (d.pricingType === 'fixed' || d.id === 'door-7' || d.id === 'door-8' ? d.startingPrice : Math.round(d.startingPrice / 19.5)),
@@ -1205,7 +1235,11 @@ function normalizeDatabaseSchema(existingData: DatabaseSchema): DatabaseSchema {
       framePrices: d.framePrices && typeof d.framePrices === 'object' ? d.framePrices : undefined,
       availableHardwareIds: Array.isArray(d.availableHardwareIds) ? d.availableHardwareIds : undefined,
       hardwarePrices: d.hardwarePrices && typeof d.hardwarePrices === 'object' ? d.hardwarePrices : undefined,
-    })),
+      image: finalImage,
+      images,
+      transparentPngUrl: d.transparentPngUrl ? sanitizeMediaUrl(d.transparentPngUrl) : undefined,
+    };
+    }),
     categories: Array.isArray(existingData.categories) ? existingData.categories : INITIAL_DATA.categories,
     materials: (Array.isArray(existingData.materials) ? existingData.materials : INITIAL_DATA.materials).map(m => {
       const def = INITIAL_DATA.materials.find(dm => dm.id === m.id || dm.name.toLowerCase() === m.name.toLowerCase());
@@ -1319,7 +1353,7 @@ export async function initCloudDatabase(): Promise<DatabaseSchema> {
       inMemoryDb = normalizeDatabaseSchema(cloudData);
       lastLoadedMtime = Date.now();
 
-      if (!inMemoryDb.settings?.productionApiUrl && process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL') {
+      if (!inMemoryDb.settings?.productionApiUrl && process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL' && !process.env.APP_URL.includes('ais-dev-')) {
         inMemoryDb.settings = inMemoryDb.settings || {} as any;
         inMemoryDb.settings.productionApiUrl = process.env.APP_URL.trim().replace(/\/$/, '');
       }
@@ -2053,12 +2087,34 @@ export function isMediaUrlReferencedInDb(db: DatabaseSchema, candidateUrl?: stri
     return true;
   }
 
-  // 6. Check wood references, materials, finishes, frames, hardware
+  // 6. Check wood references, materials, finishes, frames, hardware, chaukhat products & tracking orders
   if (Array.isArray(db.woodReferences) && db.woodReferences.some(w => matchesUrl(w.imageUrl))) return true;
   if (Array.isArray(db.materials) && db.materials.some(m => matchesUrl(m.image))) return true;
   if (Array.isArray(db.finishes) && db.finishes.some(f => matchesUrl(f.image))) return true;
   if (Array.isArray(db.frames) && db.frames.some(fr => matchesUrl(fr.image))) return true;
   if (Array.isArray(db.hardware) && db.hardware.some(h => matchesUrl(h.image))) return true;
+  if (
+    Array.isArray(db.chaukhatProducts) &&
+    db.chaukhatProducts.some((c: any) =>
+      matchesUrl(c.image) ||
+      matchesUrl(c.primaryImage) ||
+      matchesUrl(c.plainImage) ||
+      matchesUrl(c.diamondImage) ||
+      matchesUrl(c.handCarvedImage) ||
+      (Array.isArray(c.images) && c.images.some((img: string) => matchesUrl(img)))
+    )
+  ) {
+    return true;
+  }
+  if (
+    Array.isArray(db.trackingOrders) &&
+    db.trackingOrders.some((to: any) =>
+      matchesUrl(to.productImage) ||
+      (Array.isArray(to.media) && to.media.some((m: any) => matchesUrl(m.url)))
+    )
+  ) {
+    return true;
+  }
 
   return false;
 }

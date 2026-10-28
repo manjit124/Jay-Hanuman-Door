@@ -329,7 +329,7 @@ export const DoorGallery: React.FC<DoorGalleryProps> = ({
                   onClick={() => onSelectDoor(door)}
                 >
                   <ProtectedImage
-                    src={door.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80'}
+                    src={door.image || door.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80'}
                     alt={door.name}
                     watermarkSettings={settings.contentProtection}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"

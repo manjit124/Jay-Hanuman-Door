@@ -35,6 +35,7 @@ import {
   saveAdminChaukhatSectionSize,
   deleteAdminChaukhatSectionSize,
   uploadImage,
+  resolveImageUrl,
 } from '../../lib/api.ts';
 
 interface AdminChaukhatTabProps {
@@ -384,10 +385,10 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                     {prod.plainImage && (
                       <button
                         type="button"
-                        onClick={() => setPreviewZoomUrl(prod.plainImage || null)}
+                        onClick={() => setPreviewZoomUrl(prod.plainImage ? resolveImageUrl(prod.plainImage) : null)}
                         className="w-8 h-8 rounded-lg overflow-hidden border border-[#E5E5E5] shrink-0"
                       >
-                        <img src={prod.plainImage} alt="Plain" className="w-full h-full object-cover" />
+                        <img src={resolveImageUrl(prod.plainImage)} alt="Plain" className="w-full h-full object-cover" />
                       </button>
                     )}
                   </div>
@@ -402,10 +403,10 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                     {prod.diamondImage && (
                       <button
                         type="button"
-                        onClick={() => setPreviewZoomUrl(prod.diamondImage || null)}
+                        onClick={() => setPreviewZoomUrl(prod.diamondImage ? resolveImageUrl(prod.diamondImage) : null)}
                         className="w-8 h-8 rounded-lg overflow-hidden border border-[#E5E5E5] shrink-0"
                       >
-                        <img src={prod.diamondImage} alt="Diamond" className="w-full h-full object-cover" />
+                        <img src={resolveImageUrl(prod.diamondImage)} alt="Diamond" className="w-full h-full object-cover" />
                       </button>
                     )}
                   </div>
@@ -420,10 +421,10 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                     {prod.handCarvedImage && (
                       <button
                         type="button"
-                        onClick={() => setPreviewZoomUrl(prod.handCarvedImage || null)}
+                        onClick={() => setPreviewZoomUrl(prod.handCarvedImage ? resolveImageUrl(prod.handCarvedImage) : null)}
                         className="w-8 h-8 rounded-lg overflow-hidden border border-[#E5E5E5] shrink-0"
                       >
-                        <img src={prod.handCarvedImage} alt="Hand-Carved" className="w-full h-full object-cover" />
+                        <img src={resolveImageUrl(prod.handCarvedImage)} alt="Hand-Carved" className="w-full h-full object-cover" />
                       </button>
                     )}
                   </div>
@@ -548,7 +549,7 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                 <div className="flex items-start gap-3">
                   {frm.image ? (
                     <div className="w-12 h-12 rounded-lg overflow-hidden border border-[#E5E5E5] shrink-0">
-                      <img src={frm.image} alt={frm.name} className="w-full h-full object-cover" />
+                      <img src={resolveImageUrl(frm.image)} alt={frm.name} className="w-full h-full object-cover" />
                     </div>
                   ) : (
                     <div className="w-12 h-12 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
@@ -778,10 +779,10 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
 
                   {editingProduct.plainImage && (
                     <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-[#C89211] shrink-0">
-                      <img src={editingProduct.plainImage} alt="Plain preview" className="w-full h-full object-cover" />
+                      <img src={resolveImageUrl(editingProduct.plainImage)} alt="Plain preview" className="w-full h-full object-cover" />
                       <button
                         type="button"
-                        onClick={() => setPreviewZoomUrl(editingProduct.plainImage || null)}
+                        onClick={() => setPreviewZoomUrl(editingProduct.plainImage ? resolveImageUrl(editingProduct.plainImage) : null)}
                         className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
                       >
                         <Eye className="w-3.5 h-3.5" />
@@ -824,10 +825,10 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
 
                   {editingProduct.diamondImage && (
                     <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-[#C89211] shrink-0">
-                      <img src={editingProduct.diamondImage} alt="Diamond preview" className="w-full h-full object-cover" />
+                      <img src={resolveImageUrl(editingProduct.diamondImage)} alt="Diamond preview" className="w-full h-full object-cover" />
                       <button
                         type="button"
-                        onClick={() => setPreviewZoomUrl(editingProduct.diamondImage || null)}
+                        onClick={() => setPreviewZoomUrl(editingProduct.diamondImage ? resolveImageUrl(editingProduct.diamondImage) : null)}
                         className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
                       >
                         <Eye className="w-3.5 h-3.5" />
@@ -870,10 +871,10 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
 
                   {editingProduct.handCarvedImage && (
                     <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-[#C89211] shrink-0">
-                      <img src={editingProduct.handCarvedImage} alt="Hand carved preview" className="w-full h-full object-cover" />
+                      <img src={resolveImageUrl(editingProduct.handCarvedImage)} alt="Hand carved preview" className="w-full h-full object-cover" />
                       <button
                         type="button"
-                        onClick={() => setPreviewZoomUrl(editingProduct.handCarvedImage || null)}
+                        onClick={() => setPreviewZoomUrl(editingProduct.handCarvedImage ? resolveImageUrl(editingProduct.handCarvedImage) : null)}
                         className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
                       >
                         <Eye className="w-3.5 h-3.5" />
@@ -1156,7 +1157,7 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
             </div>
             <div className="p-2 bg-stone-950 flex items-center justify-center">
               <img
-                src={previewZoomUrl}
+                src={resolveImageUrl(previewZoomUrl)}
                 alt="Product zoom"
                 referrerPolicy="no-referrer"
                 className="max-h-[75vh] w-auto object-contain rounded-lg"

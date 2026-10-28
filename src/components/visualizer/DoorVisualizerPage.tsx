@@ -43,6 +43,7 @@ import { EntrancePhotoFitting } from './EntrancePhotoFitting.tsx';
 import { LiveARCamera } from './LiveARCamera.tsx';
 import { DoorCustomizationStudio } from './DoorCustomizationStudio.tsx';
 import { DesignCaptureModal } from './DesignCaptureModal.tsx';
+import { resolveImageUrl } from '../../lib/api.ts';
 import { getWhatsAppUrl } from '../../lib/contactUtils.ts';
 import { AdMobBannerSlot } from '../admob/AdMobBannerSlot.tsx';
 
@@ -439,8 +440,14 @@ Please share final pricing, delivery schedule, and site measurement assistance f
                     }`}
                   >
                     <img
-                      src={d.images?.[0] || ''}
+                      src={resolveImageUrl(d.image || d.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80')}
                       alt={d.name}
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80') {
+                          target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80';
+                        }
+                      }}
                       className="w-10 h-14 object-cover rounded-lg bg-[#F8F8F6] shrink-0 border border-[#E5E5E5]"
                     />
                     <div className="overflow-hidden">
@@ -662,8 +669,14 @@ Please share final pricing, delivery schedule, and site measurement assistance f
             {/* Currently Active in 3D Studio Indicator */}
             <div className="flex items-center gap-3 bg-white border border-[#C89211]/40 rounded-2xl p-2.5 px-3.5 self-start md:self-auto shrink-0 shadow-sm">
               <img
-                src={selectedDoor.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80'}
+                src={resolveImageUrl(selectedDoor.image || selectedDoor.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80')}
                 alt={selectedDoor.name}
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80') {
+                    target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=300&q=80';
+                  }
+                }}
                 className="w-9 h-12 object-cover rounded-lg bg-[#F8F8F6] shrink-0 border border-[#C89211]/40"
               />
               <div className="text-left">
@@ -884,7 +897,7 @@ Please share final pricing, delivery schedule, and site measurement assistance f
                       <div>
                         <div className="aspect-[3/4] relative overflow-hidden bg-[#F8F8F6] rounded-xl mb-2.5 border border-[#E5E5E5]">
                           <img
-                            src={door.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=600&q=80'}
+                            src={resolveImageUrl(door.image || door.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=600&q=80')}
                             alt={door.name}
                             loading="lazy"
                             draggable={false}

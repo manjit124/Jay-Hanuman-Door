@@ -48,6 +48,10 @@ import {
   getR2BucketName,
   deleteMediaFile,
 } from './server/storageService.ts';
+import {
+  fetchAndValidateExternalImage,
+  extractGoogleDriveFileId,
+} from './server/driveImageImport.ts';
 import { analyzeDoorWood, ImageInputPart } from './server/aiWoodDetector.ts';
 import { WOOD_SPECIES_PROFILES } from './server/woodAnatomyGuide.ts';
 import { runWoodBenchmarkEvaluation } from './server/woodBenchmark.ts';
@@ -138,7 +142,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control'
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, x-admin-token'
   );
   res.setHeader('Access-Control-Max-Age', '86400');
   res.setHeader('Permissions-Policy', 'camera=*, microphone=*');
@@ -195,11 +199,26 @@ app.get(['/uploads/*', '/api/uploads/*', '/api/media/*'], async (req, res, next)
     return next();
   }
 
+  const getMimeTypeFromFilename = (filename: string): string => {
+    const ext = path.extname(filename).toLowerCase();
+    if (['.jpg', '.jpeg'].includes(ext)) return 'image/jpeg';
+    if (ext === '.png') return 'image/png';
+    if (ext === '.webp') return 'image/webp';
+    if (ext === '.svg') return 'image/svg+xml';
+    if (ext === '.gif') return 'image/gif';
+    if (ext === '.glb') return 'model/gltf-binary';
+    if (ext === '.gltf') return 'model/gltf+json';
+    if (ext === '.mp4') return 'video/mp4';
+    if (ext === '.webm') return 'video/webm';
+    return 'image/jpeg';
+  };
+
   // 1. Check local file on primary upload directory
   const localPath = path.join(UPLOAD_DIR, cleanFilename);
   if (fs.existsSync(localPath)) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Content-Type', getMimeTypeFromFilename(cleanFilename));
     return res.sendFile(localPath);
   }
 
@@ -208,6 +227,7 @@ app.get(['/uploads/*', '/api/uploads/*', '/api/media/*'], async (req, res, next)
   if (fs.existsSync(backupPath)) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Content-Type', getMimeTypeFromFilename(cleanFilename));
     return res.sendFile(backupPath);
   }
 
@@ -252,18 +272,11 @@ app.get(['/uploads/*', '/api/uploads/*', '/api/media/*'], async (req, res, next)
     }
   } catch {}
 
-  // 5. Fallback for legacy door uploads
-  if (cleanFilename.includes('5273') || cleanFilename.includes('door_1') || cleanFilename.includes('door-1')) {
-    return res.redirect('https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80');
-  }
-  if (cleanFilename.includes('5262') || cleanFilename.includes('door_2') || cleanFilename.includes('door-2')) {
-    return res.redirect('https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=1200&q=80');
-  }
-  if (cleanFilename.includes('4759') || cleanFilename.includes('4762') || cleanFilename.includes('door_3') || cleanFilename.includes('door-3')) {
-    return res.redirect('https://images.unsplash.com/photo-1509644851169-2acc08aa25b5?auto=format&fit=crop&w=1200&q=80');
-  }
-
-  return res.status(404).type('text/plain').send('Media asset not found');
+  return res.status(404).json({
+    error: `Media asset "${cleanFilename}" not found in local disk cache, Cloudflare R2 bucket, or Firestore cloud store.`,
+    filename: cleanFilename,
+    missing: true,
+  });
 });
 
 // Configure Multer for direct file uploads
@@ -372,14 +385,26 @@ const getAuthenticatedUserId = (_req: express.Request): string | null => null;
 
 const verifyAdminToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: Admin authentication token required' });
+  const headerToken = typeof req.headers['x-admin-token'] === 'string' ? req.headers['x-admin-token'] : '';
+  const queryToken = typeof req.query?.token === 'string' ? req.query.token : '';
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : '';
+  const token = (bearerToken || headerToken || queryToken || '').trim();
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      errorCode: 'ADMIN_TOKEN_MISSING',
+      error: 'Unauthorized: Admin authentication token required. Please sign in to the Admin Panel.',
+    });
   }
-  const token = authHeader.split(' ')[1];
   if (isValidAdminToken(token)) {
     return next();
   }
-  return res.status(401).json({ error: 'Invalid or expired session token. Please sign in again.' });
+  return res.status(401).json({
+    success: false,
+    errorCode: 'ADMIN_TOKEN_INVALID',
+    error: 'Invalid or expired session token. Please sign in again.',
+  });
 };
 
 // Initialize Customer & Admin Order Tracking Routes
@@ -396,6 +421,15 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
     const fileBuf = fs.readFileSync(req.file.path);
     const result = await saveMedia(req.file.filename, req.file.mimetype, fileBuf);
+
+    if (!result.success) {
+      return res.status(502).json({
+        success: false,
+        error: result.error || 'Failed to durably persist uploaded image to Cloudflare R2 or Firestore cloud store.',
+        storageType: result.storageType,
+      });
+    }
+
     return res.json({
       success: true,
       url: result.url,
@@ -418,18 +452,32 @@ app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => 
 
   const multerFiles = req.files as Express.Multer.File[];
   const urls: string[] = [];
+  const errors: string[] = [];
 
   for (const f of multerFiles) {
     try {
       const fileBuf = fs.readFileSync(f.path);
       const resVal = await saveMedia(f.filename, f.mimetype, fileBuf);
-      urls.push(resVal.url);
-    } catch (err) {
+      if (resVal.success) {
+        urls.push(resVal.url);
+      } else {
+        errors.push(`${f.originalname}: ${resVal.error || 'Durable upload failed'}`);
+      }
+    } catch (err: any) {
       console.warn(`Failed uploading ${f.filename}:`, err);
+      errors.push(`${f.originalname}: ${err.message || 'Upload exception'}`);
     }
   }
 
-  res.json({ success: true, urls });
+  if (urls.length === 0 && errors.length > 0) {
+    return res.status(502).json({
+      success: false,
+      error: `Failed to durably store any of the uploaded images: ${errors.join('; ')}`,
+      errors,
+    });
+  }
+
+  res.json({ success: true, urls, ...(errors.length > 0 ? { warnings: errors } : {}) });
 });
 
 // Upload Product Video endpoint (MP4, WebM, MOV, max 50 MB)
@@ -445,6 +493,15 @@ app.post(['/api/upload-video', '/api/admin/upload-video'], (req, res) => {
     try {
       const fileBuf = fs.readFileSync(req.file.path);
       const result = await saveMedia(req.file.filename, req.file.mimetype || 'video/mp4', fileBuf);
+
+      if (!result.success) {
+        return res.status(502).json({
+          success: false,
+          error: result.error || 'Failed to durably persist video file to Cloudflare R2 or Firestore cloud store.',
+          storageType: result.storageType,
+        });
+      }
+
       res.json({
         success: true,
         url: result.url,
@@ -481,6 +538,14 @@ app.post('/api/admin/upload-model', verifyAdminToken, (req, res) => {
         fileBuf
       );
 
+      if (!result.success) {
+        return res.status(502).json({
+          success: false,
+          error: result.error || 'Failed to durably persist 3D model/texture to Cloudflare R2 or Firestore cloud store.',
+          storageType: result.storageType,
+        });
+      }
+
       res.json({
         success: true,
         url: result.url,
@@ -495,6 +560,114 @@ app.post('/api/admin/upload-model', verifyAdminToken, (req, res) => {
     }
   });
 });
+
+// Admin: Preview & Validate Google Drive or Direct Image URL (supports POST and GET)
+const handleDriveImagePreview: express.RequestHandler = async (req, res) => {
+  const rawUrl = String(req.body?.url || req.query?.url || '').trim();
+  if (!rawUrl) {
+    return res.status(400).json({
+      success: false,
+      errorCode: 'EMPTY_URL',
+      error: 'Please enter a Google Drive sharing link or direct image URL.',
+    });
+  }
+
+  try {
+    const validated = await fetchAndValidateExternalImage(rawUrl);
+    return res.json({
+      success: true,
+      fileId: validated.fileId || null,
+      isGoogleDrive: Boolean(validated.fileId),
+      mimeType: validated.mimeType,
+      extension: validated.extension,
+      size: validated.size,
+      width: validated.width,
+      height: validated.height,
+      previewDataUrl: `data:${validated.mimeType};base64,${validated.buffer.toString('base64')}`,
+    });
+  } catch (err: any) {
+    const statusCode = Number(err?.statusCode) || 422;
+    const errorCode = String(err?.errorCode || 'DRIVE_PREVIEW_FAILED');
+    return res.status(statusCode).json({
+      success: false,
+      errorCode,
+      fileId: err?.fileId ?? extractGoogleDriveFileId(rawUrl),
+      error: err?.message || 'Failed to validate or preview image from the provided URL.',
+    });
+  }
+};
+app.post('/api/admin/drive-image/preview', verifyAdminToken, handleDriveImagePreview);
+app.get('/api/admin/drive-image/preview', verifyAdminToken, handleDriveImagePreview);
+
+// Admin: Import Validated Google Drive or Direct Image into Cloudflare R2 Bucket (supports POST and GET)
+const handleDriveImageImport: express.RequestHandler = async (req, res) => {
+  const rawUrl = String(req.body?.url || req.query?.url || '').trim();
+  if (!rawUrl) {
+    return res.status(400).json({
+      success: false,
+      errorCode: 'EMPTY_URL',
+      error: 'Please enter a Google Drive sharing link or direct image URL.',
+    });
+  }
+
+  try {
+    const validated = await fetchAndValidateExternalImage(rawUrl);
+    const safePrefix = validated.fileId
+      ? `gdrive-${validated.fileId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)}`
+      : 'url-door';
+    const filename = `${safePrefix}-${Date.now()}-${Math.round(Math.random() * 1e5)}${validated.extension}`;
+
+    // Save validated binary image to Cloudflare R2 (and local cache) via storageService
+    const saveRes = await saveMedia(filename, validated.mimeType, validated.buffer);
+    if (!saveRes.success) {
+      return res.status(502).json({
+        success: false,
+        errorCode: 'R2_STORAGE_WRITE_FAILED',
+        error:
+          saveRes.error ||
+          'Failed to persist imported image into Cloudflare R2 bucket. Please check storage credentials.',
+        storageType: saveRes.storageType,
+      });
+    }
+
+    // Verify the saved object can be retrieved from storageService
+    const verifiedObj = await getMediaBuffer(filename);
+    if (!verifiedObj || !verifiedObj.buffer || verifiedObj.buffer.length !== validated.size) {
+      return res.status(502).json({
+        success: false,
+        errorCode: 'R2_STORAGE_VERIFY_FAILED',
+        error: 'Imported image could not be verified after R2 upload.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      url: saveRes.url,
+      filename,
+      fileId: validated.fileId || null,
+      isGoogleDrive: Boolean(validated.fileId),
+      mimeType: validated.mimeType,
+      size: validated.size,
+      width: validated.width,
+      height: validated.height,
+      storageType: saveRes.storageType,
+      r2Bucket: saveRes.metadata?.r2Bucket || getR2BucketName(),
+      r2Key: saveRes.metadata?.r2Key || `uploads/${filename}`,
+      metadata: saveRes.metadata,
+    });
+  } catch (err: any) {
+    const statusCode = Number(err?.statusCode) || 422;
+    const errorCode = String(err?.errorCode || 'DRIVE_IMPORT_FAILED');
+    return res.status(statusCode).json({
+      success: false,
+      errorCode,
+      fileId: err?.fileId ?? extractGoogleDriveFileId(rawUrl),
+      error: err?.message || 'Failed to import image into Cloudflare R2.',
+    });
+  }
+};
+app.post('/api/admin/drive-image/import', verifyAdminToken, handleDriveImageImport);
+app.get('/api/admin/drive-image/import', verifyAdminToken, handleDriveImageImport);
 
 // Storage Management APIs for Admin Panel
 app.get('/api/admin/storage-status', verifyAdminToken, async (_req, res) => {
@@ -1872,6 +2045,20 @@ app.post('/api/admin/doors', verifyAdminToken, (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid door payload' });
     }
 
+    const validImages = Array.isArray(req.body.images)
+      ? req.body.images.filter((img: any) => typeof img === 'string' && img.trim().length > 0).map((s: string) => s.trim())
+      : [];
+    const reqPrimary = typeof req.body.image === 'string' && req.body.image.trim().length > 0
+      ? req.body.image.trim()
+      : '';
+    const mergedImages = reqPrimary
+      ? [reqPrimary, ...validImages.filter((u: string) => u !== reqPrimary)]
+      : validImages;
+    const finalImages = mergedImages.length > 0
+      ? mergedImages
+      : ['https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80'];
+    const finalPrimaryImage = reqPrimary || finalImages[0];
+
     const newDoor: Door = {
       id: 'door-' + Date.now(),
       name: req.body.name || 'New Door Design',
@@ -1879,7 +2066,8 @@ app.post('/api/admin/doors', verifyAdminToken, (req, res) => {
       description: req.body.description || '',
       material: req.body.material || 'Sagwan',
       startingPrice: Number(req.body.startingPrice) || 12000,
-      images: Array.isArray(req.body.images) && req.body.images.length > 0 ? req.body.images : ['https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80'],
+      image: finalPrimaryImage,
+      images: finalImages,
       availableSizes: Array.isArray(req.body.availableSizes) && req.body.availableSizes.length > 0 ? req.body.availableSizes : ['30 × 78 inch', '32 × 78 inch', '34 × 78 inch', '36 × 78 inch', 'Custom Size'],
       featured: Boolean(req.body.featured),
       popular: Boolean(req.body.popular),
@@ -1915,33 +2103,145 @@ app.post('/api/admin/doors', verifyAdminToken, (req, res) => {
   }
 });
 
-app.put('/api/admin/doors/:id', verifyAdminToken, (req, res) => {
+app.put('/api/admin/doors/:id', verifyAdminToken, async (req, res) => {
   try {
     const db = getDb();
     const idx = db.doors.findIndex(d => d.id === req.params.id);
     if (idx === -1) return res.status(404).json({ success: false, error: 'Door not found' });
 
+    const oldDoor = db.doors[idx];
+    const oldImages = Array.isArray(oldDoor.images) ? oldDoor.images : (oldDoor.image ? [oldDoor.image] : []);
+    const oldMedia = [
+      ...oldImages,
+      oldDoor.transparentPngUrl,
+      oldDoor.videoUrl,
+      oldDoor.model3d?.modelUrl,
+    ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0);
+
     const updatedAt = new Date().toISOString();
-    db.doors[idx] = { ...db.doors[idx], ...req.body, id: db.doors[idx].id, updatedAt };
+    const sanitizedBody = { ...req.body };
+    if (Array.isArray(sanitizedBody.images)) {
+      sanitizedBody.images = sanitizedBody.images.filter((img: any) => typeof img === 'string' && img.trim().length > 0);
+      if (sanitizedBody.images.length > 0) {
+        if (!sanitizedBody.image || !sanitizedBody.images.includes(sanitizedBody.image)) {
+          sanitizedBody.image = sanitizedBody.images[0];
+        }
+      } else {
+        sanitizedBody.image = '';
+      }
+    }
+
+    db.doors[idx] = { ...db.doors[idx], ...sanitizedBody, id: db.doors[idx].id, updatedAt };
     saveDb(db, { entity: 'door', action: 'update', targetId: req.params.id });
+
+    // Safely clean up removed media assets from Cloudflare R2 if no longer referenced anywhere in DB
+    const updatedDb = getDb();
+    const newDoor = updatedDb.doors[idx];
+    const newImages = Array.isArray(newDoor.images) ? newDoor.images : (newDoor.image ? [newDoor.image] : []);
+    const newMedia = new Set(
+      [
+        ...newImages,
+        newDoor.transparentPngUrl,
+        newDoor.videoUrl,
+        newDoor.model3d?.modelUrl,
+      ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+    );
+
+    const removedMedia = oldMedia.filter(m => !newMedia.has(m));
+    const cleanupWarnings: string[] = [];
+    for (const mediaUrl of removedMedia) {
+      if (!isMediaUrlReferencedInDb(updatedDb, mediaUrl)) {
+        const cleanRes = await deleteMediaFile(mediaUrl);
+        if (cleanRes.warning) {
+          cleanupWarnings.push(cleanRes.warning);
+        }
+      }
+    }
+
     res.setHeader('Content-Type', 'application/json');
-    res.json({ ...db.doors[idx], success: true, updated: true, id: db.doors[idx].id, updatedAt });
+    res.json({
+      ...db.doors[idx],
+      success: true,
+      updated: true,
+      id: db.doors[idx].id,
+      updatedAt,
+      ...(cleanupWarnings.length > 0 ? { cleanupWarning: cleanupWarnings.join('; ') } : {}),
+    });
   } catch (err: any) {
     console.error('Error updating door design:', err);
     res.status(500).json({ success: false, error: err.message || 'Failed to update door design' });
   }
 });
 
-app.delete('/api/admin/doors/:id', verifyAdminToken, (req, res) => {
+app.delete('/api/admin/doors/:id', verifyAdminToken, async (req, res) => {
   try {
     const db = getDb();
+    const targetDoor = db.doors.find(d => d.id === req.params.id);
+    const candidateMediaUrls = Array.from(
+      new Set(
+        [
+          targetDoor?.image,
+          ...(Array.isArray(targetDoor?.images) ? targetDoor!.images : []),
+          targetDoor?.transparentPngUrl,
+          targetDoor?.videoUrl,
+          targetDoor?.model3d?.modelUrl,
+        ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+      )
+    );
+
     db.doors = db.doors.filter(d => d.id !== req.params.id);
     saveDb(db, { entity: 'door', action: 'delete', targetId: req.params.id });
+
+    const updatedDb = getDb();
+    const cleanupWarnings: string[] = [];
+    for (const mediaUrl of candidateMediaUrls) {
+      if (!isMediaUrlReferencedInDb(updatedDb, mediaUrl)) {
+        const cleanRes = await deleteMediaFile(mediaUrl);
+        if (cleanRes.warning) {
+          cleanupWarnings.push(cleanRes.warning);
+        }
+      }
+    }
+
     res.setHeader('Content-Type', 'application/json');
-    res.json({ success: true, updated: true, id: req.params.id, message: 'Door design deleted' });
+    res.json({
+      success: true,
+      updated: true,
+      id: req.params.id,
+      message: 'Door design deleted',
+      ...(cleanupWarnings.length > 0 ? { cleanupWarning: cleanupWarnings.join('; ') } : {}),
+    });
   } catch (err: any) {
     console.error('Error deleting door design:', err);
     res.status(500).json({ success: false, error: err.message || 'Failed to delete door design' });
+  }
+});
+
+// Admin: Explicit Media Asset Delete Route
+app.post('/api/admin/media/delete', verifyAdminToken, async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ success: false, error: 'Media URL is required' });
+    }
+
+    const db = getDb();
+    if (isMediaUrlReferencedInDb(db, url)) {
+      return res.status(409).json({
+        success: false,
+        referenced: true,
+        error: 'Media asset is currently referenced elsewhere in the database. Remove database references first.',
+      });
+    }
+
+    const cleanRes = await deleteMediaFile(url);
+    res.json({
+      success: cleanRes.deleted,
+      deleted: cleanRes.deleted,
+      warning: cleanRes.warning,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to delete media file' });
   }
 });
 
@@ -3283,7 +3583,7 @@ app.put('/api/admin/settings', verifyAdminToken, (req, res) => {
       );
       if (founderIdx !== -1) {
         const ownerPhoto = db.settings.storySettings.ownerPhotoUrl;
-        if (ownerPhoto && !ownerPhoto.startsWith('blob:') && ownerPhoto.length < 5000) {
+        if (ownerPhoto && !ownerPhoto.startsWith('blob:')) {
           db.teamMembers[founderIdx].photo = ownerPhoto;
         }
         if (db.settings.storySettings.ownerName) {

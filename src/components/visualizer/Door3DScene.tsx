@@ -17,6 +17,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { Door, CustomDoorFittingState, WoodColorTone, DoorDesignStyle } from '../../types.ts';
+import { resolveImageUrl } from '../../lib/api.ts';
 
 export interface Door3DSceneHandle {
   captureCanvasImage: () => string | null;
@@ -347,7 +348,7 @@ export const Door3DScene = forwardRef<Door3DSceneHandle, Door3DSceneProps>(({
       setModelType('cad');
       const loader = new GLTFLoader();
       loader.load(
-        customModelUrl,
+        resolveImageUrl(customModelUrl),
         gltf => {
           setLoadingModel(false);
           const model = gltf.scene;
@@ -478,7 +479,8 @@ export const Door3DScene = forwardRef<Door3DSceneHandle, Door3DSceneProps>(({
     }
 
     // Front Face Material with Exact Selected Catalogue Door Image
-    const textureUrl = door.model3d?.textureUrl || (door.images && door.images[0]) || '';
+    const rawTexture = door.model3d?.textureUrl || door.image || (door.images && door.images[0]) || '';
+    const textureUrl = rawTexture ? resolveImageUrl(rawTexture) : '';
     const woodToneTint = getWoodToneTint(fittingState.colorTone, fittingState.customHexColor);
 
     const frontMat = new THREE.MeshStandardMaterial({
@@ -950,8 +952,14 @@ export const Door3DScene = forwardRef<Door3DSceneHandle, Door3DSceneProps>(({
         <div className="w-full h-full min-h-[420px] flex items-center justify-center bg-white p-6">
           <div className="max-w-xs text-center space-y-4">
             <img
-              src={door.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80'}
+              src={resolveImageUrl(door.image || door.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80')}
               alt={door.name}
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80') {
+                  target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80';
+                }
+              }}
               className="w-full max-h-[360px] object-contain rounded-xl shadow-md border border-[#E5E5E5] mx-auto"
             />
             <p className="text-xs text-[#666666]">
@@ -970,8 +978,14 @@ export const Door3DScene = forwardRef<Door3DSceneHandle, Door3DSceneProps>(({
             {webGLError} Showing high-resolution catalog preview instead.
           </p>
           <img
-            src={door.images?.[0] || ''}
+            src={resolveImageUrl(door.image || door.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80')}
             alt={door.name}
+            onError={(e) => {
+              const target = e.currentTarget;
+              if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80') {
+                target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80';
+              }
+            }}
             className="w-48 h-64 object-contain rounded-lg shadow-md border border-[#E5E5E5]"
           />
         </div>

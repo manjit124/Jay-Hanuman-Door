@@ -36,7 +36,7 @@ import {
   DEFAULT_CHAUKHAT_DESIGNS,
   DEFAULT_CHAUKHAT_PRODUCT,
 } from '../data/chaukhatDefaults.ts';
-import { fetchChaukhatConfig } from '../lib/api.ts';
+import { fetchChaukhatConfig, resolveImageUrl } from '../lib/api.ts';
 import { generateChaukhatQuotationPDF, generateCombinedQuotationPDF } from '../lib/pdfGenerator.ts';
 import { getWhatsAppUrl, formatWhatsAppDisplay } from '../lib/contactUtils.ts';
 
@@ -755,11 +755,12 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
                 {DEFAULT_CHAUKHAT_DESIGNS.map(design => {
                   const isSelected = selectedDesignId === design.id;
                   const priceQuote = computePriceForDesign(design.id);
-                  const displayImg = design.id === 'diamond'
+                  const rawImg = design.id === 'diamond'
                     ? (activeProduct.diamondImage || design.image)
                     : design.id === 'hand_carved'
                     ? (activeProduct.handCarvedImage || design.image)
                     : (activeProduct.plainImage || design.image);
+                  const displayImg = resolveImageUrl(rawImg);
 
                   return (
                     <div
@@ -1051,7 +1052,7 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
             </div>
             <div className="p-2 bg-stone-950 flex items-center justify-center">
               <img
-                src={previewImage}
+                src={resolveImageUrl(previewImage)}
                 alt="Chaukhat frame zoom"
                 referrerPolicy="no-referrer"
                 className="max-h-[75vh] w-auto object-contain rounded-lg"

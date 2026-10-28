@@ -8,6 +8,7 @@ export interface Door {
   material: string;
   startingPrice: number;
   images: string[];
+  image?: string;
   videoUrl?: string; // Product Video (MP4/WebM)
   availableSizes: string[];
   featured: boolean;

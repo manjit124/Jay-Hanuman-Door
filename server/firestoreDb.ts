@@ -55,7 +55,8 @@ function isQuotaExhaustedError(err: any): boolean {
     msg.includes('resource_exhausted') ||
     msg.includes('resource-exhausted') ||
     msg.includes('quota limit exceeded') ||
-    msg.includes('quota exceeded')
+    msg.includes('quota exceeded') ||
+    msg.includes('firestore_write_timeout')
   );
 }
 
@@ -69,6 +70,26 @@ function handleServerQuotaExhausted(context: string): void {
     console.info(
       `ℹ️ [Firestore] Free daily write quota reached during ${context}. Pausing cloud writes and persisting all updates to local authoritative disk storage.`
     );
+  }
+}
+
+async function withFirestoreWriteTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  context: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`FIRESTORE_WRITE_TIMEOUT (${timeoutMs}ms) during ${context}`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -245,14 +266,18 @@ export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promis
     const chunkCount = Math.max(1, Math.ceil(totalLength / MAX_CHUNK_CHARS));
     const firstChunk = chunkCount === 1 ? jsonStr : jsonStr.slice(0, MAX_CHUNK_CHARS);
 
-    await setDoc(masterDocRef, {
-      version: Number(data.version) || 1,
-      lastModified: data.lastModified || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      doorsCount: data.doors?.length || 0,
-      chunkCount,
-      dataJson: firstChunk,
-    }, { merge: true });
+    await withFirestoreWriteTimeout(
+      setDoc(masterDocRef, {
+        version: Number(data.version) || 1,
+        lastModified: data.lastModified || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        doorsCount: data.doors?.length || 0,
+        chunkCount,
+        dataJson: firstChunk,
+      }, { merge: true }),
+      2500,
+      'saveAuthoritativeFirestoreDb'
+    );
 
     if (chunkCount > 1) {
       const chunkPromises: Promise<any>[] = [];
@@ -268,7 +293,7 @@ export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promis
           }, { merge: true })
         );
       }
-      await Promise.all(chunkPromises);
+      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 3500, 'saveAuthoritativeFirestoreDb(chunks)');
     }
 
     return true;
@@ -311,11 +336,15 @@ export async function saveEntityToFirestore(
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
     const entityRef = doc(db, collectionName, cleanId);
     const sanitizedData = cleanUndefined(data);
-    await setDoc(entityRef, {
-      ...sanitizedData,
-      id: cleanId,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    await withFirestoreWriteTimeout(
+      setDoc(entityRef, {
+        ...sanitizedData,
+        id: cleanId,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true }),
+      2500,
+      `saveEntityToFirestore(${collectionName}/${id})`
+    );
     return true;
   } catch (err: any) {
     if (isQuotaExhaustedError(err)) {
@@ -342,7 +371,11 @@ export async function deleteEntityFromFirestore(
     await ensureServerFirebaseAuth();
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
     const entityRef = doc(db, collectionName, cleanId);
-    await deleteDoc(entityRef);
+    await withFirestoreWriteTimeout(
+      deleteDoc(entityRef),
+      2500,
+      `deleteEntityFromFirestore(${collectionName}/${id})`
+    );
     return true;
   } catch (err: any) {
     if (isQuotaExhaustedError(err)) {
@@ -382,30 +415,38 @@ export async function saveMediaToFirestore(
     if (totalSize <= MAX_SINGLE_DOC_SIZE) {
       // Small/medium files: store directly in a single document for maximum retrieval speed
       const base64Data = buffer.toString('base64');
-      await setDoc(mediaRef, {
-        filename: cleanFilename,
-        mimeType: mimeType || 'image/jpeg',
-        base64: `data:${mimeType};base64,${base64Data}`,
-        size: totalSize,
-        chunkCount: 1,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      await withFirestoreWriteTimeout(
+        setDoc(mediaRef, {
+          filename: cleanFilename,
+          mimeType: mimeType || 'image/jpeg',
+          base64: `data:${mimeType};base64,${base64Data}`,
+          size: totalSize,
+          chunkCount: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }, { merge: true }),
+        2500,
+        `saveMediaToFirestore(${cleanFilename})`
+      );
     } else {
       // Large files / videos / 3D models: chunk into sub-documents
       const chunkCount = Math.ceil(totalSize / CHUNK_SIZE);
       
       // Save metadata header first
-      await setDoc(mediaRef, {
-        filename: cleanFilename,
-        mimeType: mimeType || 'application/octet-stream',
-        size: totalSize,
-        chunkCount,
-        chunkSize: CHUNK_SIZE,
-        base64: null, // intentionally null for chunked files
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      await withFirestoreWriteTimeout(
+        setDoc(mediaRef, {
+          filename: cleanFilename,
+          mimeType: mimeType || 'application/octet-stream',
+          size: totalSize,
+          chunkCount,
+          chunkSize: CHUNK_SIZE,
+          base64: null, // intentionally null for chunked files
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }, { merge: true }),
+        2500,
+        `saveMediaToFirestore(${cleanFilename})`
+      );
 
       // Save each chunk in parallel batches
       const chunkPromises: Promise<any>[] = [];
@@ -423,7 +464,7 @@ export async function saveMediaToFirestore(
           }, { merge: true })
         );
       }
-      await Promise.all(chunkPromises);
+      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 4000, `saveMediaToFirestore(${cleanFilename}:chunks)`);
     }
 
     console.log(`✅ [Firestore Media] Persisted media ${cleanFilename} (${totalSize} bytes, chunked: ${totalSize > MAX_SINGLE_DOC_SIZE}) to cloud store`);

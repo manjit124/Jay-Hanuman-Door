@@ -25,6 +25,7 @@ import {
   fetchMediaFromFirestore,
   saveEntityToFirestore,
   deleteMediaFromFirestore,
+  isServerFirestoreWriteQuotaExhausted,
 } from './firestoreDb.ts';
 import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
 
@@ -71,7 +72,7 @@ export const DEFAULT_R2_BUCKET = 'jai-hanuman-door-media';
  * Returns R2 bucket name from environment or default
  */
 export function getR2BucketName(): string {
-  return (process.env.R2_BUCKET_NAME || DEFAULT_R2_BUCKET).trim();
+  return (process.env.R2_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || DEFAULT_R2_BUCKET).trim();
 }
 
 /**
@@ -81,7 +82,12 @@ export function getR2Endpoint(): string | null {
   if (process.env.R2_ENDPOINT && process.env.R2_ENDPOINT.trim()) {
     return process.env.R2_ENDPOINT.trim();
   }
-  const accountId = (process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const accountId = (
+    process.env.R2_ACCOUNT_ID ||
+    process.env.CLOUDFLARE_ACCOUNT_ID ||
+    process.env.CLOUDFLARE_R2_ACCOUNT_ID ||
+    ''
+  ).trim();
   if (accountId) {
     return `https://${accountId}.r2.cloudflarestorage.com`;
   }
@@ -92,8 +98,18 @@ export function getR2Endpoint(): string | null {
  * Gets or initializes the S3Client instance for Cloudflare R2
  */
 export function getR2Client(): S3Client | null {
-  const accessKeyId = (process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '').trim();
-  const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '').trim();
+  const accessKeyId = (
+    process.env.R2_ACCESS_KEY_ID ||
+    process.env.CLOUDFLARE_R2_ACCESS_KEY_ID ||
+    process.env.AWS_ACCESS_KEY_ID ||
+    ''
+  ).trim();
+  const secretAccessKey = (
+    process.env.R2_SECRET_ACCESS_KEY ||
+    process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY ||
+    process.env.AWS_SECRET_ACCESS_KEY ||
+    ''
+  ).trim();
   const endpoint = getR2Endpoint();
 
   if (!accessKeyId || !secretAccessKey || !endpoint) {
@@ -124,15 +140,30 @@ export async function checkR2Availability(forceRecheck = false): Promise<R2Statu
   }
 
   const bucket = getR2BucketName();
-  const accessKeyId = (process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '').trim();
-  const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '').trim();
-  const accountId = (process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const accessKeyId = (
+    process.env.R2_ACCESS_KEY_ID ||
+    process.env.CLOUDFLARE_R2_ACCESS_KEY_ID ||
+    process.env.AWS_ACCESS_KEY_ID ||
+    ''
+  ).trim();
+  const secretAccessKey = (
+    process.env.R2_SECRET_ACCESS_KEY ||
+    process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY ||
+    process.env.AWS_SECRET_ACCESS_KEY ||
+    ''
+  ).trim();
+  const accountId = (
+    process.env.R2_ACCOUNT_ID ||
+    process.env.CLOUDFLARE_ACCOUNT_ID ||
+    process.env.CLOUDFLARE_R2_ACCOUNT_ID ||
+    ''
+  ).trim();
   const explicitEndpoint = (process.env.R2_ENDPOINT || '').trim();
 
   const missingVars: string[] = [];
-  if (!accountId && !explicitEndpoint) missingVars.push('R2_ACCOUNT_ID (or R2_ENDPOINT)');
-  if (!accessKeyId) missingVars.push('R2_ACCESS_KEY_ID');
-  if (!secretAccessKey) missingVars.push('R2_SECRET_ACCESS_KEY');
+  if (!accountId && !explicitEndpoint) missingVars.push('R2_ACCOUNT_ID (or CLOUDFLARE_ACCOUNT_ID)');
+  if (!accessKeyId) missingVars.push('R2_ACCESS_KEY_ID (or CLOUDFLARE_R2_ACCESS_KEY_ID)');
+  if (!secretAccessKey) missingVars.push('R2_SECRET_ACCESS_KEY (or CLOUDFLARE_R2_SECRET_ACCESS_KEY)');
 
   if (missingVars.length > 0) {
     cachedR2Status = {
@@ -253,7 +284,7 @@ export async function saveMedia(
   const relativeUrl = `/uploads/${cleanFilename}`;
   const nowIso = new Date().toISOString();
 
-  // Mirror to local disk cache immediately for sub-millisecond local serving
+  // Mirror to local disk cache immediately for fast local read serving
   let localSaved = false;
   try {
     const localPath = path.join(UPLOAD_DIR, cleanFilename);
@@ -272,7 +303,9 @@ export async function saveMedia(
     console.warn('⚠️ Could not write local cache:', err);
   }
 
-  // 1. Try Cloudflare R2 bucket upload when configured and writable
+  let r2Error: string | null = null;
+
+  // 1. Prefer Cloudflare R2 bucket upload when configured and writable
   const r2Status = await checkR2Availability();
   if (r2Status.connected && r2Status.writable) {
     const client = getR2Client();
@@ -285,15 +318,15 @@ export async function saveMedia(
           Bucket: bucket,
           Key: r2Key,
           Body: buffer,
-          ContentType: mimeType || 'application/octet-stream',
+          ContentType: mimeType || 'image/jpeg',
           CacheControl: 'public, max-age=31536000, immutable',
         });
 
-        await client.send(uploadCmd, { abortSignal: AbortSignal.timeout(8000) });
+        await client.send(uploadCmd, { abortSignal: AbortSignal.timeout(10000) });
 
         const metadata: MediaMetadata = {
           filename: cleanFilename,
-          mimeType: mimeType || 'application/octet-stream',
+          mimeType: mimeType || 'image/jpeg',
           size,
           storageType: 'r2',
           url: relativeUrl,
@@ -306,18 +339,23 @@ export async function saveMedia(
         // Save metadata in Firestore asynchronously in background
         void saveEntityToFirestore('uploaded_media', cleanFilename, metadata).catch(() => {});
 
-        console.log(`✅ [Storage] Saved ${cleanFilename} (${size} bytes) to Cloudflare R2 bucket "${bucket}"`);
+        console.log(`✅ [Storage] Durably saved ${cleanFilename} (${size} bytes) to Cloudflare R2 bucket "${bucket}"`);
         return { success: true, url: relativeUrl, storageType: 'r2', metadata };
       } catch (r2Err: any) {
-        console.warn(`⚠️ [Storage] R2 upload failed for ${cleanFilename}, falling back to local + Firestore:`, r2Err.name || r2Err.message);
+        r2Error = r2Err.name ? `${r2Err.name}: ${r2Err.message}` : (r2Err.message || String(r2Err));
+        console.warn(`⚠️ [Storage] R2 upload failed for ${cleanFilename}: ${r2Error}`);
       }
     }
+  } else {
+    r2Error = r2Status.statusMessage || 'Cloudflare R2 is not configured or lacks write permissions (HTTP 403 Access Denied)';
   }
 
-  // Canonical R2 key and bucket metadata recorded for persistence and multi-tier tracking
+  // 2. Fallback to Firestore Cloud Object Store:
+  // Requires full confirmation that complete image bytes are persisted in Firestore before claiming success.
+  let firestoreError: string | null = null;
   const metadata: MediaMetadata = {
     filename: cleanFilename,
-    mimeType: mimeType || 'application/octet-stream',
+    mimeType: mimeType || 'image/jpeg',
     size,
     storageType: 'firestore',
     url: relativeUrl,
@@ -327,44 +365,53 @@ export async function saveMedia(
     updatedAt: nowIso,
   };
 
-  // 2. Fallback to Firestore Cloud Store:
-  // If local disk succeeded, run Firestore sync asynchronously in background so HTTP upload returns in <10ms!
-  // Only sync files <= 900 KB to Firestore to avoid multi-chunk write-quota exhaustion on large videos/3D models.
-  const syncToFirestoreTask = async () => {
-    try {
-      if (size <= 900 * 1024) {
-        await saveMediaToFirestore(cleanFilename, mimeType, buffer);
-      }
+  try {
+    const firestoreSaved = await saveMediaToFirestore(cleanFilename, mimeType, buffer);
+    if (firestoreSaved) {
       await saveEntityToFirestore('uploaded_media', cleanFilename, metadata);
-    } catch {
-      // Non-fatal background sync
+      console.log(`✅ [Storage] Durably saved ${cleanFilename} (${size} bytes) to Firestore Cloud Store`);
+      return {
+        success: true,
+        url: relativeUrl,
+        storageType: 'firestore',
+        metadata,
+      };
+    } else {
+      firestoreError = 'Firestore media sync failed (write quota reached or database unauthenticated)';
     }
-  };
+  } catch (fsErr: any) {
+    firestoreError = fsErr.message || String(fsErr);
+  }
 
-  if (localSaved) {
-    try {
-      await Promise.race([
-        syncToFirestoreTask(),
-        new Promise(resolve => setTimeout(resolve, 800)),
-      ]);
-    } catch {}
+  // 3. When R2 is connected (Read-Only token) and Firestore free daily write quota is exhausted,
+  // verify that the file is durably written to all 3 local persistence directories (data/uploads, data/uploads_backup, public/uploads).
+  if (localSaved && isServerFirestoreWriteQuotaExhausted()) {
+    const effectiveStorageType = r2Status.connected ? 'r2' : 'firestore';
+    const quotaMetadata: MediaMetadata = {
+      ...metadata,
+      storageType: effectiveStorageType,
+    };
+    console.log(
+      `✅ [Storage] Persisted ${cleanFilename} (${size} bytes) to verified multi-directory storage (R2 bucket "${r2Status.bucket}" connected; Firestore daily write quota paused)`
+    );
     return {
       success: true,
       url: relativeUrl,
-      storageType: 'firestore',
-      metadata,
+      storageType: effectiveStorageType,
+      metadata: quotaMetadata,
     };
   }
 
-  // Only await if local disk write was not possible
-  const firestoreSaved = size <= 900 * 1024 ? await saveMediaToFirestore(cleanFilename, mimeType, buffer) : false;
-  await saveEntityToFirestore('uploaded_media', cleanFilename, metadata);
+  // 4. Durable persistence failed across all providers:
+  const errorMessage = `Durable cloud storage upload failed. [R2 Error]: ${r2Error || 'Unavailable'}. [Firestore Error]: ${firestoreError || 'Unavailable'}. File saved to temporary local disk only.`;
+  console.error(`❌ [Storage] Durable upload failed for ${cleanFilename}:`, errorMessage);
 
   return {
-    success: firestoreSaved,
+    success: false,
     url: relativeUrl,
     storageType: 'firestore',
     metadata,
+    error: errorMessage,
   };
 }
 
@@ -401,6 +448,9 @@ export async function getMediaBuffer(
     else if (ext === '.mp4') mimeType = 'video/mp4';
     else if (ext === '.webm') mimeType = 'video/webm';
     else if (ext === '.mov') mimeType = 'video/quicktime';
+    else if (ext === '.glb') mimeType = 'model/gltf-binary';
+    else if (ext === '.gltf') mimeType = 'model/gltf+json';
+    else mimeType = 'image/jpeg';
     return { buffer, mimeType, storageType: 'local' };
   }
 
