@@ -76,16 +76,32 @@ export const AboutUsPage: React.FC<AboutUsPageProps> = ({
         <div className="rounded-3xl bg-[#F8F8F6] border border-[#E5E5E5] p-6 sm:p-10 shadow-sm relative overflow-hidden mb-10">
           <div className="absolute top-0 right-0 -mt-10 -mr-10 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
           
-          <div className="flex items-center gap-2.5 text-[#C89211] text-xs font-bold tracking-widest uppercase mb-3">
-            <TreePine className="w-4 h-4" />
-            <span>Artisanal Woodcraft & Digital Engineering</span>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-5 sm:gap-6 mb-6">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-2 border-[#C89211]/60 shadow-md bg-[#0C0A09] shrink-0">
+              <img
+                src={settings?.logoUrl || '/assets/logo.png'}
+                alt="Jai Hanuman Door Official Brand Logo"
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = '/assets/logo.png';
+                }}
+              />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 text-[#C89211] text-xs font-bold tracking-widest uppercase mb-1.5">
+                <TreePine className="w-4 h-4" />
+                <span>Artisanal Woodcraft &amp; Digital Engineering</span>
+              </div>
+              <h1 className="font-serif text-3xl sm:text-4xl font-extrabold text-[#1A1A1A] tracking-tight leading-tight">
+                About {settings?.businessName || 'Jai Hanuman Door'}
+              </h1>
+              <p className="text-xs text-[#C89211] font-medium tracking-wide uppercase mt-1">
+                Wooden Door • Sagwan Door • Door Frame
+              </p>
+            </div>
           </div>
 
-          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#1A1A1A] tracking-tight leading-tight">
-            About Jai Hanuman Door
-          </h1>
-
-          <p className="text-[#666666] text-sm sm:text-base mt-4 leading-relaxed max-w-2xl">
+          <p className="text-[#666666] text-sm sm:text-base leading-relaxed max-w-2xl">
             Where traditional woodcraft heritage meets modern digital entrance engineering. We build 100% seasoned timber doors directly in our workshop and provide homeowners and architects with transparent calculation tools.
           </p>
 

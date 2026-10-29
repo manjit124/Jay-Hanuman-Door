@@ -46,6 +46,8 @@ import { DesignCaptureModal } from './DesignCaptureModal.tsx';
 import { resolveImageUrl } from '../../lib/api.ts';
 import { getWhatsAppUrl } from '../../lib/contactUtils.ts';
 import { AdMobBannerSlot } from '../admob/AdMobBannerSlot.tsx';
+import { AdMobCatalogNativeCard } from '../admob/AdMobCatalogNativeCard.tsx';
+import { adMobService } from '../../lib/admob/admobService.ts';
 
 interface DoorVisualizerPageProps {
   doors: Door[];
@@ -145,6 +147,31 @@ export const DoorVisualizerPage: React.FC<DoorVisualizerPageProps> = ({
   const [onlyHas3D, setOnlyHas3D] = useState(false);
   const [visibleCount, setVisibleCount] = useState(12);
   const [showScrollUp, setShowScrollUp] = useState(false);
+  const [studioLightingUnlocked, setStudioLightingUnlocked] = useState(() => adMobService.isVisualizerStudioLightingUnlocked());
+  const [watchingStudioAd, setWatchingStudioAd] = useState(false);
+  const [lightingToast, setLightingToast] = useState<string | null>(null);
+
+  const handleUnlockStudioLighting = async () => {
+    setWatchingStudioAd(true);
+    try {
+      const res = await adMobService.showRewardedAd(
+        () => {
+          adMobService.unlockVisualizerStudioLighting(120);
+          setStudioLightingUnlocked(true);
+          setFittingState(prev => ({ ...prev, lightingIntensity: 1.35 }));
+          setLightingToast('🎉 4K Ultra-HD Studio Lighting unlocked for 2 hours!');
+          setTimeout(() => setLightingToast(null), 4500);
+        },
+        () => setWatchingStudioAd(false),
+        settings?.adSettings
+      );
+      if (!res.shown) {
+        setWatchingStudioAd(false);
+      }
+    } catch {
+      setWatchingStudioAd(false);
+    }
+  };
 
   // Show "Back to 3D Viewer" button when user scrolls down into catalogue
   useEffect(() => {
@@ -587,6 +614,55 @@ Please share final pricing, delivery schedule, and site measurement assistance f
               </button>
             </div>
 
+            {/* Rewarded Feature Unlock: 4K Ultra-HD Studio Lighting */}
+            {settings?.adSettings?.enableVisualizerRewardedBonus !== false && (
+              <div className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-50 to-stone-50 border border-amber-300/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[#C89211] text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-stone-900">4K Ultra-HD Studio Lighting</span>
+                      {studioLightingUnlocked ? (
+                        <span className="px-2 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          ✓ Unlocked
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#C89211] text-white uppercase">
+                          Bonus
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-stone-600 mt-0.5">
+                      {studioLightingUnlocked
+                        ? 'High-dynamic range architectural lighting active with real specular wood reflection.'
+                        : 'Watch a short sponsor video to unlock enhanced studio reflections & lighting (Free for 2 Hours).'}
+                    </p>
+                  </div>
+                </div>
+
+                {!studioLightingUnlocked && (
+                  <button
+                    type="button"
+                    onClick={handleUnlockStudioLighting}
+                    disabled={watchingStudioAd}
+                    className="px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white text-xs font-bold shrink-0 transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95 disabled:opacity-60"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{watchingStudioAd ? 'Loading Video...' : 'Watch Video to Unlock'}</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {lightingToast && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold flex items-center gap-2 animate-fade-in">
+                <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
+                <span>{lightingToast}</span>
+              </div>
+            )}
+
             {/* Quick Explore Anchor Bar */}
             <div className="flex items-center justify-between px-3.5 py-2.5 bg-[#F8F8F6] border border-[#E5E5E5] rounded-2xl text-xs text-[#666666]">
               <div className="flex items-center gap-2 truncate">
@@ -879,15 +955,17 @@ Please share final pricing, delivery schedule, and site measurement assistance f
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
-                {filteredCatalogueDoors.slice(0, visibleCount).map(door => {
+                {filteredCatalogueDoors.slice(0, visibleCount).map((door, idx) => {
                   const isCurrent = door.id === selectedDoor.id;
                   const hasGlb = Boolean(door.model3d?.modelUrl);
+                  const nativeAdFreq = settings?.adSettings?.catalogNativeAdFrequency || 6;
+                  const showNative = (idx + 1) % nativeAdFreq === 0;
 
                   return (
-                    <div
-                      key={door.id}
-                      onClick={() => handleSelectCatalogueDoor(door, true)}
-                      className={`group relative rounded-2xl border p-2.5 sm:p-3 flex flex-col justify-between transition-all duration-200 cursor-pointer ${
+                    <React.Fragment key={door.id}>
+                      <div
+                        onClick={() => handleSelectCatalogueDoor(door, true)}
+                        className={`group relative rounded-2xl border p-2.5 sm:p-3 flex flex-col justify-between transition-all duration-200 cursor-pointer ${
                         isCurrent
                           ? 'bg-[#FFF7E3] border-[#C89211] ring-2 ring-[#C89211]/50 shadow-md'
                           : 'bg-white border-[#E5E5E5] hover:border-[#C89211]/40 hover:shadow-md'
@@ -983,6 +1061,17 @@ Please share final pricing, delivery schedule, and site measurement assistance f
                         </button>
                       </div>
                     </div>
+
+                    {/* Policy-Compliant Native Ad Card in Visualizer Drawer */}
+                    {showNative && (
+                        <AdMobCatalogNativeCard
+                          key={`admob-vis-native-${idx}`}
+                          index={Math.floor((idx + 1) / nativeAdFreq) - 1}
+                          settings={settings}
+                          variant="visualizer"
+                        />
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </div>

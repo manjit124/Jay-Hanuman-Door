@@ -139,6 +139,11 @@ export function getFirestoreInstance(): Firestore | null {
   }
 }
 
+export function getFirebaseApp(): FirebaseApp | null {
+  getFirestoreInstance();
+  return firebaseApp;
+}
+
 /**
  * Ensures the server-side Firebase client SDK instance holds an authenticated
  * administrator session so Firestore security rules allow writes.
@@ -219,19 +224,40 @@ export async function fetchAuthoritativeFirestoreDb(): Promise<DatabaseSchema | 
             chunkPromises.push(getDoc(doc(db, 'admin_store', `master_production_chunk_${i}`)));
           }
           const chunkSnaps = await Promise.all(chunkPromises);
-          for (const cSnap of chunkSnaps) {
-            if (cSnap.exists()) {
-              const cData = cSnap.data();
-              if (cData?.dataChunk) {
-                fullJson += String(cData.dataChunk);
-              }
+          for (let i = 0; i < chunkSnaps.length; i++) {
+            const cSnap = chunkSnaps[i];
+            const chunkIndex = i + 1;
+            if (!cSnap.exists()) {
+              console.warn(
+                `⚠️ [Firestore] Missing chunk ${chunkIndex} of ${chunkCount} in admin_store. Aborting parse to prevent corruption.`
+              );
+              return null;
             }
+            const cData = cSnap.data();
+            if (!cData || typeof cData.dataChunk !== 'string' || cData.dataChunk.length === 0) {
+              console.warn(
+                `⚠️ [Firestore] Chunk ${chunkIndex} of ${chunkCount} has empty or invalid dataChunk. Aborting parse.`
+              );
+              return null;
+            }
+            fullJson += cData.dataChunk;
           }
         }
-        const parsed = JSON.parse(fullJson) as DatabaseSchema;
-        if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
-          console.log(`🛡️ [Firestore] Successfully loaded authoritative database from cloud store (Version: ${parsed.version}, Doors: ${parsed.doors.length}, Chunks: ${chunkCount})`);
-          return parsed;
+
+        try {
+          const parsed = JSON.parse(fullJson) as DatabaseSchema;
+          if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
+            console.log(
+              `🛡️ [Firestore] Successfully loaded authoritative database from cloud store (Version: ${parsed.version}, Doors: ${parsed.doors.length}, Chunks: ${chunkCount})`
+            );
+            return parsed;
+          } else {
+            console.warn('⚠️ [Firestore] Parsed database object missing valid doors array.');
+            return null;
+          }
+        } catch (jsonErr: any) {
+          console.warn('⚠️ [Firestore] JSON parse error on concatenated chunks:', jsonErr.message);
+          return null;
         }
       }
     }
@@ -266,19 +292,9 @@ export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promis
     const chunkCount = Math.max(1, Math.ceil(totalLength / MAX_CHUNK_CHARS));
     const firstChunk = chunkCount === 1 ? jsonStr : jsonStr.slice(0, MAX_CHUNK_CHARS);
 
-    await withFirestoreWriteTimeout(
-      setDoc(masterDocRef, {
-        version: Number(data.version) || 1,
-        lastModified: data.lastModified || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        doorsCount: data.doors?.length || 0,
-        chunkCount,
-        dataJson: firstChunk,
-      }, { merge: true }),
-      2500,
-      'saveAuthoritativeFirestoreDb'
-    );
-
+    // CRITICAL FIX: Write ALL secondary chunks FIRST before updating masterDocRef metadata.
+    // If any chunk write fails or times out, abort writing masterDocRef so the previous
+    // valid database state in Firestore remains uncorrupted.
     if (chunkCount > 1) {
       const chunkPromises: Promise<any>[] = [];
       for (let i = 1; i < chunkCount; i++) {
@@ -293,9 +309,26 @@ export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promis
           }, { merge: true })
         );
       }
-      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 3500, 'saveAuthoritativeFirestoreDb(chunks)');
+      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 8000, 'saveAuthoritativeFirestoreDb(chunks)');
     }
 
+    // Only commit master document metadata and first chunk after all secondary chunks succeed
+    await withFirestoreWriteTimeout(
+      setDoc(masterDocRef, {
+        version: Number(data.version) || 1,
+        lastModified: data.lastModified || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        doorsCount: data.doors?.length || 0,
+        chunkCount,
+        dataJson: firstChunk,
+      }, { merge: true }),
+      4000,
+      'saveAuthoritativeFirestoreDb(master)'
+    );
+
+    console.log(
+      `🛡️ [Firestore] Successfully saved authoritative master database (Version: ${data.version}, Doors: ${data.doors?.length || 0}, Chunks: ${chunkCount})`
+    );
     return true;
   } catch (err: any) {
     if (isQuotaExhaustedError(err)) {

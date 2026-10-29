@@ -12,6 +12,7 @@ import {
   getDb,
   saveDb,
   initCloudDatabase,
+  isDatabaseHydrated,
   UPLOAD_DIR,
   UPLOAD_BACKUP_DIR,
   syncUploadedImages,
@@ -47,11 +48,25 @@ import {
   checkR2Availability,
   getR2BucketName,
   deleteMediaFile,
+  getR2StorageStats,
+  syncPendingLocalFilesToR2,
 } from './server/storageService.ts';
 import {
   fetchAndValidateExternalImage,
   extractGoogleDriveFileId,
 } from './server/driveImageImport.ts';
+import {
+  uploadMediaToOwnerDrive,
+  getDriveMediaBuffer,
+  getDriveConnectionStatus,
+  saveServerDriveCredentials,
+  testOwnerDriveUpload,
+  listDriveCategoryFiles,
+  deleteFileFromOwnerDrive,
+  getDriveAuthUrl,
+  exchangeDriveAuthCode,
+  type DriveSubfolderCategory,
+} from './server/googleDriveStorage.ts';
 import { analyzeDoorWood, ImageInputPart } from './server/aiWoodDetector.ts';
 import { WOOD_SPECIES_PROFILES } from './server/woodAnatomyGuide.ts';
 import { runWoodBenchmarkEvaluation } from './server/woodBenchmark.ts';
@@ -90,7 +105,8 @@ import {
 import { initTrackingRoutes } from './server/trackingService.ts';
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const rawPort = process.env.PORT;
+const PORT = rawPort ? parseInt(rawPort, 10) : 3000;
 
 // Production & Development CORS Configuration (including Capacitor Android Native)
 const ALLOWED_ORIGIN_PATTERNS = [
@@ -153,6 +169,72 @@ app.use((req, res, next) => {
   }
 
   next();
+});
+
+// Fast Cloud Run & Kubernetes Startup & Liveness Probes
+// Immediate HTTP 200 OK without any blocking disk, database, or external calls
+app.get(
+  ['/health', '/healthz', '/live', '/api/health', '/api/server-info'],
+  (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const prodUrl =
+      process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL'
+        ? process.env.APP_URL
+        : '';
+    return res.status(200).json({
+      status: 'ok',
+      alive: true,
+      service: 'Jai Hanuman Door',
+      uptime: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'production',
+      productionApiUrl: prodUrl,
+    });
+  }
+);
+
+// Semantic Readiness Probe: reports HTTP 200 once database hydration completes, HTTP 503 while initializing
+app.get('/ready', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  const hydrated = isDatabaseHydrated();
+  if (hydrated) {
+    const db = getDb();
+    return res.status(200).json({
+      status: 'ready',
+      ready: true,
+      service: 'Jai Hanuman Door',
+      databaseReady: true,
+      doorsCount: db.doors?.length || 0,
+      databaseVersion: db.version || 0,
+      uptime: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+  } else {
+    return res.status(503).json({
+      status: 'initializing',
+      ready: false,
+      service: 'Jai Hanuman Door',
+      databaseReady: false,
+      uptime: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+app.head(
+  ['/', '/health', '/healthz', '/live', '/api/health'],
+  (_req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.status(200).end();
+  }
+);
+
+app.head('/ready', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  return res.status(isDatabaseHydrated() ? 200 : 503).end();
 });
 
 // Increase request size limit for base64/images
@@ -415,17 +497,20 @@ initTrackingRoutes(app, verifyAdminToken);
 // Upload endpoint for images
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: 'No image file uploaded' });
+    return res.status(400).json({ success: false, errorCode: 'NO_FILE', error: 'No image file uploaded' });
   }
 
   try {
     const fileBuf = fs.readFileSync(req.file.path);
-    const result = await saveMedia(req.file.filename, req.file.mimetype, fileBuf);
+    const category = typeof req.body?.category === 'string' && req.body.category.trim() ? req.body.category.trim() : 'doors';
+    const result = await saveMedia(req.file.filename, req.file.mimetype, fileBuf, category);
 
     if (!result.success) {
-      return res.status(502).json({
+      const statusCode = result.statusCode || 502;
+      return res.status(statusCode).json({
         success: false,
-        error: result.error || 'Failed to durably persist uploaded image to Cloudflare R2 or Firestore cloud store.',
+        errorCode: result.errorCode || 'STORAGE_UPLOAD_FAILED',
+        error: result.error || 'Failed to durably persist uploaded image to Firebase Storage.',
         storageType: result.storageType,
       });
     }
@@ -433,35 +518,42 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     return res.json({
       success: true,
       url: result.url,
+      downloadUrl: result.downloadUrl || result.url,
       filename: req.file.filename,
       size: req.file.size,
       storageType: result.storageType,
+      firebaseBucket: result.firebaseBucket,
+      storagePath: result.storagePath,
+      // Backward compatibility aliases
+      r2Bucket: result.firebaseBucket,
+      r2Key: result.storagePath,
       metadata: result.metadata,
     });
   } catch (err: any) {
     console.error('⚠️ Upload failed:', err);
-    return res.status(500).json({ error: err.message || 'Image upload failed' });
+    return res.status(500).json({ success: false, errorCode: 'UPLOAD_EXCEPTION', error: err.message || 'Image upload failed' });
   }
 });
 
 // Upload multiple images endpoint
 app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => {
   if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
-    return res.status(400).json({ error: 'No files uploaded' });
+    return res.status(400).json({ success: false, errorCode: 'NO_FILES', error: 'No files uploaded' });
   }
 
   const multerFiles = req.files as Express.Multer.File[];
   const urls: string[] = [];
   const errors: string[] = [];
+  const category = typeof req.body?.category === 'string' && req.body.category.trim() ? req.body.category.trim() : 'doors';
 
   for (const f of multerFiles) {
     try {
       const fileBuf = fs.readFileSync(f.path);
-      const resVal = await saveMedia(f.filename, f.mimetype, fileBuf);
+      const resVal = await saveMedia(f.filename, f.mimetype, fileBuf, category);
       if (resVal.success) {
         urls.push(resVal.url);
       } else {
-        errors.push(`${f.originalname}: ${resVal.error || 'Durable upload failed'}`);
+        errors.push(`${f.originalname}: ${resVal.error || 'Storage upload failed'}`);
       }
     } catch (err: any) {
       console.warn(`Failed uploading ${f.filename}:`, err);
@@ -472,7 +564,8 @@ app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => 
   if (urls.length === 0 && errors.length > 0) {
     return res.status(502).json({
       success: false,
-      error: `Failed to durably store any of the uploaded images: ${errors.join('; ')}`,
+      errorCode: 'STORAGE_BATCH_UPLOAD_FAILED',
+      error: `Failed to durably store images to Firebase Storage: ${errors.join('; ')}`,
       errors,
     });
   }
@@ -617,15 +710,15 @@ const handleDriveImageImport: express.RequestHandler = async (req, res) => {
       : 'url-door';
     const filename = `${safePrefix}-${Date.now()}-${Math.round(Math.random() * 1e5)}${validated.extension}`;
 
-    // Save validated binary image to Cloudflare R2 (and local cache) via storageService
+    // Save validated binary image to Firebase Storage (and local cache) via storageService
     const saveRes = await saveMedia(filename, validated.mimeType, validated.buffer);
     if (!saveRes.success) {
       return res.status(502).json({
         success: false,
-        errorCode: 'R2_STORAGE_WRITE_FAILED',
+        errorCode: 'STORAGE_WRITE_FAILED',
         error:
           saveRes.error ||
-          'Failed to persist imported image into Cloudflare R2 bucket. Please check storage credentials.',
+          'Failed to persist imported image into Firebase Storage bucket. Please check storage credentials.',
         storageType: saveRes.storageType,
       });
     }
@@ -635,14 +728,15 @@ const handleDriveImageImport: express.RequestHandler = async (req, res) => {
     if (!verifiedObj || !verifiedObj.buffer || verifiedObj.buffer.length !== validated.size) {
       return res.status(502).json({
         success: false,
-        errorCode: 'R2_STORAGE_VERIFY_FAILED',
-        error: 'Imported image could not be verified after R2 upload.',
+        errorCode: 'STORAGE_VERIFY_FAILED',
+        error: 'Imported image could not be verified after upload.',
       });
     }
 
     return res.json({
       success: true,
       url: saveRes.url,
+      downloadUrl: saveRes.downloadUrl || saveRes.url,
       filename,
       fileId: validated.fileId || null,
       isGoogleDrive: Boolean(validated.fileId),
@@ -651,8 +745,11 @@ const handleDriveImageImport: express.RequestHandler = async (req, res) => {
       width: validated.width,
       height: validated.height,
       storageType: saveRes.storageType,
-      r2Bucket: saveRes.metadata?.r2Bucket || getR2BucketName(),
-      r2Key: saveRes.metadata?.r2Key || `uploads/${filename}`,
+      firebaseBucket: saveRes.firebaseBucket,
+      storagePath: saveRes.storagePath,
+      // Backward compatibility aliases
+      r2Bucket: saveRes.firebaseBucket,
+      r2Key: saveRes.storagePath,
       metadata: saveRes.metadata,
     });
   } catch (err: any) {
@@ -662,7 +759,7 @@ const handleDriveImageImport: express.RequestHandler = async (req, res) => {
       success: false,
       errorCode,
       fileId: err?.fileId ?? extractGoogleDriveFileId(rawUrl),
-      error: err?.message || 'Failed to import image into Cloudflare R2.',
+      error: err?.message || 'Failed to import image into storage.',
     });
   }
 };
@@ -670,38 +767,277 @@ app.post('/api/admin/drive-image/import', verifyAdminToken, handleDriveImageImpo
 app.get('/api/admin/drive-image/import', verifyAdminToken, handleDriveImageImport);
 
 // Storage Management APIs for Admin Panel
-app.get('/api/admin/storage-status', verifyAdminToken, async (_req, res) => {
-  const r2Status = await checkR2Availability(true);
+app.get(['/api/admin/storage-status', '/api/admin/r2-status'], verifyAdminToken, async (_req, res) => {
+  const status = await checkR2Availability(true);
+  const stats = await getR2StorageStats();
+
+  let tokenGuidance = '';
+  if (!status.writable) {
+    tokenGuidance =
+      status.setupInstructionsRequired
+        ? 'Firebase Storage bucket needs one-time activation: Open Firebase Console (https://console.firebase.google.com/project/zeta-gadget-wf6jr/storage) -> Click "Get Started" -> Choose Cloud region -> Complete setup.'
+        : status.statusMessage;
+  }
+
   res.json({
-    r2: {
-      configured: r2Status.configured,
-      connected: r2Status.connected,
-      readable: r2Status.readable,
-      writable: r2Status.writable,
-      bucket: r2Status.bucket,
-      endpointConfigured: r2Status.endpointConfigured,
-      missingVars: r2Status.missingVars || [],
-      statusMessage: r2Status.statusMessage,
+    storage: {
+      provider: 'firebase_storage',
+      configured: status.configured,
+      connected: status.connected,
+      readable: status.readable,
+      writable: status.writable,
+      bucket: status.bucket,
+      statusMessage: status.statusMessage,
+      firebaseStorageReady: status.firebaseStorageReady,
+      setupInstructionsRequired: status.setupInstructionsRequired,
     },
-    activeMode: r2Status.connected ? (r2Status.writable ? 'r2_read_write' : 'r2_read_firestore_write') : 'firestore_chunked',
+    // Backward compatibility for existing UI
+    r2: {
+      configured: status.configured,
+      connected: status.connected,
+      readable: status.readable,
+      writable: status.writable,
+      bucket: status.bucket,
+      endpointConfigured: status.endpointConfigured,
+      missingVars: status.missingVars || [],
+      tokenPermissionIssue: status.tokenPermissionIssue || !status.writable,
+      statusMessage: status.statusMessage,
+      tokenGuidance,
+    },
+    stats: {
+      r2ObjectCount: stats.r2ObjectCount,
+      r2TotalBytes: stats.r2TotalBytes,
+      r2FormattedSize: stats.r2FormattedSize,
+      localFilesCount: stats.localFilesCount,
+      localTotalBytes: stats.localTotalBytes,
+      localFormattedSize: stats.localFormattedSize,
+      pendingSyncCount: stats.pendingSyncCount,
+    },
+    activeMode: status.connected ? (status.writable ? 'firebase_storage_read_write' : 'firebase_storage_pending_activation') : 'local_and_firestore',
     firestoreMediaPreserved: true,
     cloudDatabase: 'ai-studio-doorpricecalcula-e297ef94-a95a-4675-8ce2-05ba8783a0ed',
   });
 });
 
-// Health check & Server Info endpoint
-app.get(['/api/health', '/api/server-info'], (_req, res) => {
-  const db = getDb();
-  res.setHeader('Content-Type', 'application/json');
-  res.status(200).json({
-    status: 'ok',
-    service: 'Jai Hanuman Door',
-    uptime: Math.round(process.uptime()),
-    environment: process.env.NODE_ENV || 'production',
-    timestamp: new Date().toISOString(),
-    productionApiUrl: db.settings?.productionApiUrl || (process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL' ? process.env.APP_URL : ''),
-  });
+// Admin: Delete Orphan Media File from storage and local caches
+app.post('/api/admin/media/delete', verifyAdminToken, async (req, res) => {
+  try {
+    const rawUrl = String(req.body?.url || req.body?.filename || '').trim();
+    if (!rawUrl) {
+      return res.status(400).json({ success: false, error: 'Media URL or filename is required' });
+    }
+
+    const force = Boolean(req.body?.force);
+    const db = getDb();
+    if (!force && isMediaUrlReferencedInDb(db, rawUrl)) {
+      return res.status(409).json({
+        success: false,
+        error: 'Media is currently in use by an active product, catalogue, banner, or material. Pass force: true to override.',
+        inUse: true,
+      });
+    }
+
+    const result = await deleteMediaFile(rawUrl);
+    return res.json({
+      success: result.deleted,
+      deleted: result.deleted,
+      cleanedKeys: result.cleanedKeys || [],
+      cleanedR2Keys: result.cleanedKeys || [],
+      warning: result.warning,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Media deletion failed' });
+  }
 });
+
+// Admin: Sync Pending Local Container Files to Firebase Storage
+app.post(['/api/admin/storage/sync-pending', '/api/admin/r2/sync-pending'], verifyAdminToken, async (_req, res) => {
+  try {
+    const syncResult = await syncPendingLocalFilesToR2();
+    return res.json(syncResult);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      errorCode: 'SYNC_EXCEPTION',
+      error: err.message || 'Storage synchronization failed',
+    });
+  }
+});
+
+// =========================================================================
+// GOOGLE DRIVE CENTRAL MEDIA STORAGE API (Owner's Central Drive Storage)
+// =========================================================================
+
+// 1. Public Customer Media Delivery Endpoint (Zero Sign-In Required for Customers)
+app.get('/api/drive/media/:fileId', async (req, res) => {
+  try {
+    const fileId = req.params.fileId;
+    const { buffer, mimeType, size } = await getDriveMediaBuffer(fileId);
+
+    const rangeHeader = req.headers.range;
+    if (rangeHeader && mimeType.startsWith('video/')) {
+      const parts = rangeHeader.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : size - 1;
+      const chunkSize = end - start + 1;
+
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${size}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': mimeType,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      });
+      return res.end(buffer.subarray(start, end + 1));
+    }
+
+    res.writeHead(200, {
+      'Content-Type': mimeType,
+      'Content-Length': size,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    });
+    return res.end(buffer);
+  } catch (err: any) {
+    console.warn(`[Drive Media Stream] Could not stream ${req.params.fileId}:`, err.message);
+    return res.status(404).json({ error: 'Media file not found or inaccessible in Google Drive' });
+  }
+});
+
+// 2. Admin: Get Drive Central Storage Connection Status
+app.get('/api/admin/drive/status', verifyAdminToken, (_req, res) => {
+  try {
+    const status = getDriveConnectionStatus();
+    return res.json({ success: true, status });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. Admin: Configure Server-Side Drive OAuth Credentials
+app.post('/api/admin/drive/configure', verifyAdminToken, async (req, res) => {
+  try {
+    const { clientId, clientSecret, refreshToken, ownerEmail } = req.body;
+    if (!refreshToken && !clientSecret) {
+      return res.status(400).json({ success: false, error: 'Please provide either a refresh token or client credentials.' });
+    }
+
+    saveServerDriveCredentials({
+      clientId: clientId ? String(clientId).trim() : undefined,
+      clientSecret: clientSecret ? String(clientSecret).trim() : undefined,
+      refreshToken: refreshToken ? String(refreshToken).trim() : undefined,
+      ownerEmail: ownerEmail ? String(ownerEmail).trim() : undefined,
+      connectedAt: new Date().toISOString(),
+    });
+
+    const status = getDriveConnectionStatus();
+    return res.json({ success: true, message: 'Google Drive credentials updated on server', status });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3b. Admin: Generate OAuth 2.0 Authorization URL
+app.post('/api/admin/drive/auth-url', verifyAdminToken, (req, res) => {
+  try {
+    const { redirectUri, clientId } = req.body;
+    const resolvedRedirect = redirectUri || 'https://developers.google.com/oauthplayground';
+    const authUrl = getDriveAuthUrl(resolvedRedirect, clientId);
+    return res.json({ success: true, authUrl });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// 3c. Admin: Exchange Authorization Code for Refresh Token & Access Token
+app.post('/api/admin/drive/exchange-code', verifyAdminToken, async (req, res) => {
+  try {
+    const { code, redirectUri, clientId, clientSecret } = req.body;
+    if (!code) {
+      return res.status(400).json({ success: false, error: 'Authorization code is required' });
+    }
+    const resolvedRedirect = redirectUri || 'https://developers.google.com/oauthplayground';
+    const result = await exchangeDriveAuthCode(code, resolvedRedirect, clientId, clientSecret);
+    const status = getDriveConnectionStatus();
+    return res.json({ success: true, ...result, status });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message || 'Failed to exchange authorization code' });
+  }
+});
+
+// 4. Admin: Execute Real Connection Test Upload into Owner's Drive
+app.post('/api/admin/drive/test-upload', verifyAdminToken, async (_req, res) => {
+  try {
+    const result = await testOwnerDriveUpload();
+    return res.json({
+      success: true,
+      message: 'Real test upload successfully executed and verified in owner Google Drive',
+      result,
+    });
+  } catch (err: any) {
+    return res.status(400).json({
+      success: false,
+      error: err.message || 'Google Drive test upload failed',
+    });
+  }
+});
+
+// 5. Admin: Direct Media Upload into Owner's Google Drive
+app.post('/api/admin/drive/upload', verifyAdminToken, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: 'No media file attached' });
+  }
+
+  try {
+    const fileBuf = fs.readFileSync(req.file.path);
+    const category = (req.body?.category || 'products') as DriveSubfolderCategory;
+    const description = req.body?.description || `Admin upload for ${category}`;
+
+    const uploaded = await uploadMediaToOwnerDrive(
+      fileBuf,
+      req.file.originalname,
+      req.file.mimetype,
+      category,
+      description
+    );
+
+    return res.json({
+      success: true,
+      url: uploaded.url,
+      fileId: uploaded.fileId,
+      name: uploaded.name,
+      size: uploaded.size,
+      category: uploaded.category,
+      webViewLink: uploaded.webViewLink,
+    });
+  } catch (err: any) {
+    console.error('⚠️ [Drive Admin Upload Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Upload to owner Google Drive failed' });
+  }
+});
+
+// 6. Admin: List Media Files from Specific Category in Owner's Google Drive
+app.get('/api/admin/drive/files', verifyAdminToken, async (req, res) => {
+  try {
+    const category = (req.query.category || 'products') as DriveSubfolderCategory;
+    const files = await listDriveCategoryFiles(category);
+    return res.json({ success: true, category, files });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to list Drive files' });
+  }
+});
+
+// 7. Admin: Delete Media File from Owner's Google Drive
+app.delete('/api/admin/drive/files/:fileId', verifyAdminToken, async (req, res) => {
+  try {
+    const fileId = req.params.fileId;
+    await deleteFileFromOwnerDrive(fileId);
+    return res.json({ success: true, fileId });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to delete Drive file' });
+  }
+});
+
+
 
 // =========================================================================
 // AI WOOD DETECTOR – LAKDI KI PEHCHAN API (Privacy-Safe & Real-Time)
@@ -4328,10 +4664,15 @@ function findDistDirectory(): string | null {
   const candidatePaths = [
     path.join(process.cwd(), 'dist'),
     path.join(appDir, 'dist'),
-    path.resolve(appDir),
-  ];
+    appDir.endsWith('dist') ? appDir : null,
+    path.resolve(appDir, '..', 'dist'),
+  ].filter(Boolean) as string[];
+
   for (const candidate of candidatePaths) {
-    if (fs.existsSync(path.join(candidate, 'index.html'))) {
+    if (
+      fs.existsSync(path.join(candidate, 'index.html')) &&
+      (fs.existsSync(path.join(candidate, 'assets')) || fs.existsSync(path.join(candidate, 'server.cjs')))
+    ) {
       return candidate;
     }
   }
@@ -4376,7 +4717,15 @@ async function startServer() {
     }
   );
 
-  const isProduction = process.env.NODE_ENV === 'production';
+  const distPath = findDistDirectory();
+  const isCjsBundle = typeof __filename !== 'undefined' && __filename.endsWith('.cjs');
+  const isDevCommand =
+    process.env.npm_lifecycle_event === 'dev' ||
+    process.argv.some(arg => arg.includes('server.ts') || arg.includes('--host') || arg.includes('vite'));
+
+  // Production mode is active when running compiled bundle (dist/server.cjs) or when NODE_ENV is production and not in dev
+  const isProduction = isCjsBundle || (process.env.NODE_ENV === 'production' && !isDevCommand);
+
   // Dedicated API 404 handler - MUST execute before Vite dev middlewares or SPA fallback!
   app.all('/api/*', (req, res) => {
     res.status(404).setHeader('Content-Type', 'application/json').json({
@@ -4385,8 +4734,6 @@ async function startServer() {
       path: req.originalUrl,
     });
   });
-
-  const distPath = findDistDirectory();
 
   if (!isProduction) {
     try {
@@ -4475,27 +4822,34 @@ async function startServer() {
     console.log('----------------------------------------------------');
     console.log('🚀 Jai Hanuman Door server started successfully');
     console.log(`📡 Listening on: http://0.0.0.0:${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
+    console.log(`🌍 Environment: ${isProduction ? 'production' : 'development'}`);
     console.log(`📁 Static files directory: ${distPath || 'Vite dev middleware'}`);
     console.log('----------------------------------------------------');
 
-    // Hydrate authoritative database from Firestore cloud store asynchronously without blocking port bind
-    initCloudDatabase().catch((dbErr) => {
-      console.warn('⚠️ Could not hydrate cloud database at boot:', dbErr);
+    // Defer heavy background sync tasks so port 3000 binds and accepts Cloud Run startup probes immediately
+    setImmediate(() => {
+      // Hydrate authoritative database from Firestore cloud store asynchronously without blocking port bind
+      initCloudDatabase()
+        .then((db) => {
+          console.log(`🛡️ [Database Ready] Hydrated authoritative database (Version: ${db.version}, Doors: ${db.doors?.length || 0})`);
+        })
+        .catch((dbErr) => {
+          console.error('⚠️ [Database Init] Could not hydrate cloud database at boot:', dbErr);
+        });
+
+      try {
+        syncUploadedImages();
+        console.log('🛡️ Production data persistence verified & image storage synchronized');
+      } catch (syncErr) {
+        console.warn('⚠️ Image storage sync warning (non-fatal):', syncErr);
+      }
+
+      try {
+        startScheduledNotificationWorker();
+      } catch (workerErr) {
+        console.warn('⚠️ Scheduled notification worker error (non-fatal):', workerErr);
+      }
     });
-
-    try {
-      syncUploadedImages();
-      console.log('🛡️ Production data persistence verified & image storage synchronized');
-    } catch (syncErr) {
-      console.warn('⚠️ Image storage sync warning (non-fatal):', syncErr);
-    }
-
-    try {
-      startScheduledNotificationWorker();
-    } catch (workerErr) {
-      console.warn('⚠️ Scheduled notification worker error (non-fatal):', workerErr);
-    }
   });
 
   server.on('error', (err: any) => {

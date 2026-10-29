@@ -182,7 +182,7 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
       } else {
         setFormData(prev => ({ ...prev, deliveryPhotoUrl: uploadedUrl }));
       }
-      showToast(`${field === 'door' ? 'Door' : 'Delivery proof'} photo uploaded to persistent R2 storage!`);
+      showToast(`${field === 'door' ? 'Door' : 'Delivery proof'} photo uploaded to persistent Firebase Storage!`);
     } catch (err: any) {
       showToast(`Upload failed: ${err.message || 'Error uploading image'}`);
     } finally {
@@ -995,7 +995,7 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
                         {uploadingImage === 'door' ? (
                           <>
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Uploading to R2...</span>
+                            <span>Uploading to Firebase Storage...</span>
                           </>
                         ) : (
                           <>
@@ -1098,7 +1098,7 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
                         {uploadingImage === 'delivery' ? (
                           <>
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Uploading to R2...</span>
+                            <span>Uploading to Firebase Storage...</span>
                           </>
                         ) : (
                           <>

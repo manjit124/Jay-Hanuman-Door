@@ -61,6 +61,8 @@ import { AdminPanel } from './components/AdminPanel.tsx';
 import { UserProfileModal } from './components/UserProfileModal.tsx';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
+import { SplashScreen as CapSplashScreen } from '@capacitor/splash-screen';
+import { SplashScreen } from './components/SplashScreen.tsx';
 import { TeamSection } from './components/TeamSection.tsx';
 import { OurStorySection } from './components/OurStorySection.tsx';
 import { useAdminGesture } from './hooks/useAdminGesture.ts';
@@ -353,6 +355,7 @@ export const App: React.FC = () => {
       console.error('Failed to load application data:', err);
     } finally {
       setLoading(false);
+      CapSplashScreen.hide().catch(() => {});
     }
   };
 
@@ -361,10 +364,23 @@ export const App: React.FC = () => {
     setFavoriteDoorIds(getGuestFavorites());
   }, []);
 
+  // Sync Admin Active State with AdMob Service to strictly suppress all ad preloading and display on Admin screens
+  useEffect(() => {
+    const isPathAdmin = typeof window !== 'undefined' && window.location.pathname.toLowerCase().startsWith('/admin');
+    const isAdminActive = showAdminPanel || isPathAdmin;
+    adMobService.setAdminPanelActive(isAdminActive);
+    adMobService.setAdminSessionActive(isAdminLoggedIn);
+    if (isAdminActive || isAdminLoggedIn) {
+      adMobService.hideAdaptiveBanner();
+    }
+  }, [showAdminPanel, isAdminLoggedIn]);
+
   // Initialize Native Google AdMob SDK and preload ad units
   useEffect(() => {
-    adMobService.initialize(settings?.adSettings);
-  }, [settings?.adSettings]);
+    if (!adMobService.isAdminActive() && !showAdminPanel) {
+      adMobService.initialize(settings?.adSettings);
+    }
+  }, [settings?.adSettings, showAdminPanel]);
 
   // Format 6: Google AdMob App Open Ad (Cold start & Foreground return)
   useEffect(() => {
@@ -374,8 +390,10 @@ export const App: React.FC = () => {
     let appStateHandle: { remove: () => Promise<void> } | null = null;
     CapApp.addListener('appStateChange', (state) => {
       if (state.isActive) {
-        // App returned to foreground: show App Open Ad if eligible
-        adMobService.showAppOpenAd(settings?.adSettings);
+        // App returned to foreground: show App Open Ad if eligible and not on admin screen
+        if (!adMobService.isAdminActive() && !showAdminPanel) {
+          adMobService.showAppOpenAd(settings?.adSettings);
+        }
       }
     }).then(h => {
       appStateHandle = h;
@@ -383,7 +401,9 @@ export const App: React.FC = () => {
 
     // Cold start: Attempt App Open Ad after UI mounts (2.5s settle timer)
     const coldStartTimer = setTimeout(() => {
-      adMobService.showAppOpenAd(settings?.adSettings);
+      if (!adMobService.isAdminActive() && !showAdminPanel) {
+        adMobService.showAppOpenAd(settings?.adSettings);
+      }
     }, 2500);
 
     return () => {
@@ -392,7 +412,7 @@ export const App: React.FC = () => {
         appStateHandle.remove().catch(() => {});
       }
     };
-  }, [settings?.adSettings]);
+  }, [settings?.adSettings, showAdminPanel]);
 
   useEffect(() => {
     // Configure native Android dark status bar only on native platforms
@@ -512,6 +532,10 @@ export const App: React.FC = () => {
 
   // Canonical route navigation
   const navigateToView = (view: string) => {
+    const fromView = activeView;
+    if (fromView !== view && !adMobService.isAdminActive() && !showAdminPanel && view !== 'admin' && fromView !== 'admin') {
+      adMobService.recordNavigationTransition(fromView, view, () => {}, settings?.adSettings);
+    }
     setActiveView(view);
     const viewToPathMap: Record<string, string> = {
       home: '/',
@@ -617,6 +641,9 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-white text-[#1A1A1A] font-sans flex flex-col selection:bg-[#FFF7E3] selection:text-[#C89211] pb-16 md:pb-0">
       
+      {/* Official Jai Hanuman Door Splash Screen */}
+      <SplashScreen minDurationMs={1200} isDataReady={!loading} />
+
       {/* Navigation Bar */}
       <Navbar
         settings={settings}
@@ -1321,8 +1348,15 @@ export const App: React.FC = () => {
                 className="flex items-center gap-2.5 cursor-pointer select-none group"
                 title={settings.businessName}
               >
-                <div className="w-8 h-8 rounded-lg bg-[#C89211] text-white font-bold flex items-center justify-center font-serif text-lg group-hover:scale-105 transition-transform shadow-sm">
-                  {(settings.businessName || 'J')[0]}
+                <div className="w-10 h-10 rounded-full overflow-hidden border border-[#C89211]/40 shadow-xs bg-[#0C0A09] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                  <img
+                    src={settings.logoUrl || '/assets/logo.png'}
+                    alt={settings.businessName || 'Jai Hanuman Door'}
+                    className="w-full h-full object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = '/assets/logo.png';
+                    }}
+                  />
                 </div>
                 <span className="font-serif text-xl font-bold text-[#1A1A1A] tracking-tight group-hover:text-[#C89211] transition-colors">
                   {settings.businessName}

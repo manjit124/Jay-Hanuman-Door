@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import { Quotation, BusinessSettings, ChaukhatCalculationResult, CombinedQuotation } from '../types.ts';
 import { formatWhatsAppDisplay } from './contactUtils.ts';
 
-export function generateQuotationPDF(quote: Quotation, settings: BusinessSettings): void {
+export function buildQuotationPDFDoc(quote: Quotation, settings: BusinessSettings): { doc: jsPDF; filename: string } {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -300,9 +300,19 @@ export function generateQuotationPDF(quote: Quotation, settings: BusinessSetting
     { align: 'center' }
   );
 
-  // Save the PDF
   const filename = `${quote.quoteNumber || 'Quotation'}-${quote.customerName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+  return { doc, filename };
+}
+
+export function generateQuotationPDF(quote: Quotation, settings: BusinessSettings): void {
+  const { doc, filename } = buildQuotationPDFDoc(quote, settings);
   doc.save(filename);
+}
+
+export function createQuotationPDFBlob(quote: Quotation, settings: BusinessSettings): { blob: Blob; filename: string } {
+  const { doc, filename } = buildQuotationPDFDoc(quote, settings);
+  const blob = doc.output('blob');
+  return { blob, filename };
 }
 
 export function generateChaukhatQuotationPDF(

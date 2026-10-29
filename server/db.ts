@@ -1018,6 +1018,11 @@ Multiply Width in inches by Height in inches, then divide by 144:
 let inMemoryDb: DatabaseSchema | null = null;
 let lastBackupTime = 0;
 let lastLoadedMtime = 0;
+let isCloudDbInitialized = false;
+
+export function isDatabaseHydrated(): boolean {
+  return isCloudDbInitialized;
+}
 
 /**
  * Atomically writes data to disk using fsync and atomic rename.
@@ -1346,6 +1351,7 @@ export async function initCloudDatabase(): Promise<DatabaseSchema> {
         console.log(`🛡️ [PERSISTENCE] Using newer local authoritative database (Local v${localVersion} > Cloud v${cloudVersion})`);
         inMemoryDb = normalizeDatabaseSchema(localCandidate);
         lastLoadedMtime = Date.now();
+        isCloudDbInitialized = true;
         return inMemoryDb;
       }
 
@@ -1365,6 +1371,7 @@ export async function initCloudDatabase(): Promise<DatabaseSchema> {
         writeAtomicJson(MIRROR_FILE, inMemoryDb);
       } catch {}
 
+      isCloudDbInitialized = true;
       return inMemoryDb;
     }
   } catch (err: any) {
@@ -1378,6 +1385,7 @@ export async function initCloudDatabase(): Promise<DatabaseSchema> {
     } catch {}
   }
 
+  isCloudDbInitialized = true;
   return localData;
 }
 

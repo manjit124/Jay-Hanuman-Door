@@ -19,6 +19,8 @@ import {
   Maximize2,
   Layout,
   Video,
+  BarChart2,
+  TrendingUp,
 } from 'lucide-react';
 import { BusinessSettings, AdMobSettings } from '../../types.ts';
 import {
@@ -61,11 +63,34 @@ export const AdminAdMobTab: React.FC<AdminAdMobTabProps> = ({
     catalogNativeAdFrequency: currentAdSettings.catalogNativeAdFrequency || 6,
     interstitialMinIntervalSeconds: currentAdSettings.interstitialMinIntervalSeconds || 45,
     appOpenMinIntervalSeconds: currentAdSettings.appOpenMinIntervalSeconds || 180,
+    maxInterstitialsPerSession: currentAdSettings.maxInterstitialsPerSession ?? 4,
+    maxAppOpenPerSession: currentAdSettings.maxAppOpenPerSession ?? 2,
+    enableNavTransitionInterstitials: currentAdSettings.enableNavTransitionInterstitials ?? true,
+    navTransitionMinViews: currentAdSettings.navTransitionMinViews ?? 4,
+    enableArticlesNativeAds: currentAdSettings.enableArticlesNativeAds ?? true,
+    articlesNativeAdFrequency: currentAdSettings.articlesNativeAdFrequency ?? 3,
+    enableVisualizerRewardedBonus: currentAdSettings.enableVisualizerRewardedBonus ?? true,
+    bannerHome: currentAdSettings.bannerHome ?? true,
+    bannerCatalog: currentAdSettings.bannerCatalog ?? true,
+    bannerCalculator: currentAdSettings.bannerCalculator ?? true,
+    bannerChaukhat: currentAdSettings.bannerChaukhat ?? true,
+    bannerDetail: currentAdSettings.bannerDetail ?? true,
+    bannerVisualizer: currentAdSettings.bannerVisualizer ?? true,
+    bannerArticles: currentAdSettings.bannerArticles ?? true,
+    bannerTracking: currentAdSettings.bannerTracking ?? true,
+    bannerSaved: currentAdSettings.bannerSaved ?? true,
   });
 
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [testStatus, setTestStatus] = useState<string | null>(null);
+  const [, setAnalyticsTick] = useState(0);
+
+  const handleResetAnalytics = () => {
+    adMobService.resetAnalytics();
+    setAnalyticsTick((prev) => prev + 1);
+    setTestStatus('AdMob local performance analytics reset.');
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -117,13 +142,13 @@ export const AdminAdMobTab: React.FC<AdminAdMobTabProps> = ({
     setTestStatus('Loaded Google official sample test Ad Unit IDs. Zero policy risk during development.');
   };
 
-  // Test Handlers for each format
+  // Test Handlers for each format (Explicit manual diagnostic test clicks in settings tab)
   const handleTestInterstitial = async () => {
     setTestStatus('Testing Interstitial Ad (Format 2)...');
     try {
       await adMobService.showQuotationInterstitial(() => {
         setTestStatus('✅ Interstitial ad completed/dismissed successfully.');
-      }, form, 5000);
+      }, form, 5000, true);
     } catch (err: any) {
       setTestStatus('❌ Interstitial test error: ' + (err.message || err));
     }
@@ -139,7 +164,8 @@ export const AdminAdMobTab: React.FC<AdminAdMobTabProps> = ({
         () => {
           // dismissed
         },
-        form
+        form,
+        true
       );
       if (!result.shown) {
         setTestStatus('⚠️ Rewarded ad not shown or still preparing. Check network.');
@@ -157,7 +183,8 @@ export const AdminAdMobTab: React.FC<AdminAdMobTabProps> = ({
           setTestStatus(`✅ Rewarded interstitial completed! User reward verified: +${reward.amount || 3} Credits.`);
         },
         () => {},
-        form
+        form,
+        true
       );
       if (!result.shown) {
         setTestStatus('⚠️ Rewarded interstitial not shown or still preparing.');
@@ -170,7 +197,7 @@ export const AdminAdMobTab: React.FC<AdminAdMobTabProps> = ({
   const handleTestAppOpen = async () => {
     setTestStatus('Testing App Open Ad (Format 6)...');
     try {
-      const shown = await adMobService.showAppOpenAd(form);
+      const shown = await adMobService.showAppOpenAd(form, true);
       setTestStatus(shown ? '✅ App Open Ad presented successfully.' : '⚠️ App Open Ad skipped (frequency cap, freshness, or busy context).');
     } catch (err: any) {
       setTestStatus('❌ App Open Ad error: ' + (err.message || err));
@@ -180,9 +207,9 @@ export const AdminAdMobTab: React.FC<AdminAdMobTabProps> = ({
   const handlePreloadAll = async () => {
     setTestStatus('Preloading all full-screen AdMob formats in background...');
     const [intOk, rewOk, appOpenOk] = await Promise.all([
-      adMobService.preloadInterstitial(form),
-      adMobService.preloadRewarded(form),
-      adMobService.preloadAppOpen(form),
+      adMobService.preloadInterstitial(form, true),
+      adMobService.preloadRewarded(form, true),
+      adMobService.preloadAppOpen(form, true),
     ]);
     setTestStatus(`Preload results: Interstitial: ${intOk ? 'Ready' : 'Failed'}, Rewarded: ${rewOk ? 'Ready' : 'Failed'}, AppOpen: ${appOpenOk ? 'Ready' : 'Failed'}`);
   };
@@ -393,6 +420,198 @@ export const AdminAdMobTab: React.FC<AdminAdMobTabProps> = ({
                 />
               </div>
 
+            </div>
+          </div>
+
+          {/* Smart Ad Frequency & Session Limits Card */}
+          <div className="p-5 rounded-2xl bg-white border border-[#E5E5E5] shadow-xs space-y-4">
+            <h4 className="text-sm font-bold text-[#1A1A1A] flex items-center gap-2">
+              <Clock className="w-4 h-4 text-[#C89211]" />
+              <span>Smart Ad Frequency &amp; Session Management</span>
+            </h4>
+            <p className="text-[#666666] text-xs leading-relaxed">
+              Enforce policy-compliant frequency caps and session limits so ads appear only at natural transition points without overwhelming users.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs pt-1">
+              <div>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">
+                  Max Interstitials Per Session:
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={form.maxInterstitialsPerSession ?? 4}
+                  onChange={e => setForm({ ...form, maxInterstitialsPerSession: Math.max(1, parseInt(e.target.value) || 4) })}
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-[#E5E5E5] text-[#1A1A1A] font-semibold"
+                />
+                <p className="text-[10px] text-stone-500 mt-0.5">Recommended: 3 to 5 ads per user session</p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">
+                  Min Interval Between Interstitials (Sec):
+                </label>
+                <input
+                  type="number"
+                  min="20"
+                  max="300"
+                  value={form.interstitialMinIntervalSeconds || 45}
+                  onChange={e => setForm({ ...form, interstitialMinIntervalSeconds: Math.max(20, parseInt(e.target.value) || 45) })}
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-[#E5E5E5] text-[#1A1A1A] font-semibold"
+                />
+                <p className="text-[10px] text-stone-500 mt-0.5">Cooldown between full-screen ads (Default: 45s)</p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">
+                  Max App Open Ads Per Session:
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="5"
+                  value={form.maxAppOpenPerSession ?? 2}
+                  onChange={e => setForm({ ...form, maxAppOpenPerSession: Math.max(1, parseInt(e.target.value) || 2) })}
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-[#E5E5E5] text-[#1A1A1A] font-semibold"
+                />
+                <p className="text-[10px] text-stone-500 mt-0.5">Safe limit on foreground return ads (Default: 2)</p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">
+                  Min Interval for App Open Ads (Sec):
+                </label>
+                <input
+                  type="number"
+                  min="60"
+                  max="600"
+                  value={form.appOpenMinIntervalSeconds || 180}
+                  onChange={e => setForm({ ...form, appOpenMinIntervalSeconds: Math.max(60, parseInt(e.target.value) || 180) })}
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-[#E5E5E5] text-[#1A1A1A] font-semibold"
+                />
+                <p className="text-[10px] text-stone-500 mt-0.5">Enforces 3-minute gap between foreground ads</p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">
+                  Catalog Native Ad Frequency (Doors):
+                </label>
+                <input
+                  type="number"
+                  min="3"
+                  max="20"
+                  value={form.catalogNativeAdFrequency || 6}
+                  onChange={e => setForm({ ...form, catalogNativeAdFrequency: Math.max(3, parseInt(e.target.value) || 6) })}
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-[#E5E5E5] text-[#1A1A1A] font-semibold"
+                />
+                <p className="text-[10px] text-stone-500 mt-0.5">Insert a sponsored native card every N doors (Default: 6)</p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-[#1A1A1A] mb-1">
+                  Articles Native Ad Frequency (Guides):
+                </label>
+                <input
+                  type="number"
+                  min="2"
+                  max="10"
+                  value={form.articlesNativeAdFrequency ?? 3}
+                  onChange={e => setForm({ ...form, articlesNativeAdFrequency: Math.max(2, parseInt(e.target.value) || 3) })}
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-[#E5E5E5] text-[#1A1A1A] font-semibold"
+                />
+                <p className="text-[10px] text-stone-500 mt-0.5">Insert a sponsored card every N articles (Default: 3)</p>
+              </div>
+            </div>
+
+            {/* Natural Section Transitions & Rewarded Toggles */}
+            <div className="pt-3 border-t border-stone-100 space-y-3 text-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-[#1A1A1A]">Section Navigation Transition Interstitials</p>
+                  <p className="text-[#666666] text-[11px]">
+                    Display interstitial ad at natural transition breaks when navigating between major app screens
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.enableNavTransitionInterstitials !== false}
+                  onChange={e => setForm({ ...form, enableNavTransitionInterstitials: e.target.checked })}
+                  className="w-5 h-5 accent-[#C89211] rounded cursor-pointer"
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-[#1A1A1A]">Articles &amp; Blog Native Sponsored Ads</p>
+                  <p className="text-[#666666] text-[11px]">
+                    Display sponsored editorial partner cards in the woodworking guides &amp; articles feed
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.enableArticlesNativeAds !== false}
+                  onChange={e => setForm({ ...form, enableArticlesNativeAds: e.target.checked })}
+                  className="w-5 h-5 accent-[#C89211] rounded cursor-pointer"
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-[#1A1A1A]">3D Studio 4K Lighting Rewarded Video Bonus</p>
+                  <p className="text-[#666666] text-[11px]">
+                    Offer optional opt-in rewarded video to unlock 4K architectural lighting &amp; reflections in 3D viewer
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.enableVisualizerRewardedBonus !== false}
+                  onChange={e => setForm({ ...form, enableVisualizerRewardedBonus: e.target.checked })}
+                  className="w-5 h-5 accent-[#C89211] rounded cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Granular Screen Banner Placements Card */}
+          <div className="p-5 rounded-2xl bg-white border border-[#E5E5E5] shadow-xs space-y-4">
+            <h4 className="text-sm font-bold text-[#1A1A1A] flex items-center gap-2">
+              <Layout className="w-4 h-4 text-[#C89211]" />
+              <span>Banner Placements by Screen</span>
+            </h4>
+            <p className="text-[#666666] text-xs leading-relaxed">
+              Enable or disable responsive adaptive banners for specific screens. Banners include fixed bottom clearance to avoid covering navigation.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs pt-1">
+              {[
+                { key: 'bannerHome', label: 'Home Screen', desc: 'Above trust badge section' },
+                { key: 'bannerCatalog', label: 'Door Catalog & Gallery', desc: 'Bottom of catalog grid' },
+                { key: 'bannerCalculator', label: 'Door Price Calculator', desc: 'Below itemized price breakdown' },
+                { key: 'bannerChaukhat', label: 'Chaukhat Frame Calculator', desc: 'Below frame estimation total' },
+                { key: 'bannerDetail', label: 'Door Detail Modal', desc: 'Below specifications table' },
+                { key: 'bannerVisualizer', label: '3D & AR Door Visualizer', desc: 'Bottom of studio viewer' },
+                { key: 'bannerArticles', label: 'Wood Articles & Guides', desc: 'Bottom of feed and reader' },
+                { key: 'bannerTracking', label: 'Order Tracking Screen', desc: 'Below live dispatch timeline' },
+                { key: 'bannerSaved', label: 'Saved Doors & Favorites', desc: 'Bottom of profile modal' },
+              ].map(item => (
+                <label
+                  key={item.key}
+                  className="p-3 rounded-xl border border-stone-200/80 hover:border-stone-300 bg-stone-50/50 flex items-start justify-between gap-3 cursor-pointer transition-colors"
+                >
+                  <div>
+                    <span className="font-semibold text-stone-900 block">{item.label}</span>
+                    <span className="text-[11px] text-stone-500">{item.desc}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={(form as any)[item.key] !== false}
+                    onChange={e => setForm({ ...form, [item.key]: e.target.checked })}
+                    className="w-4 h-4 mt-0.5 accent-[#C89211] rounded cursor-pointer shrink-0"
+                  />
+                </label>
+              ))}
             </div>
           </div>
 
@@ -648,6 +867,128 @@ export const AdminAdMobTab: React.FC<AdminAdMobTabProps> = ({
                 {testStatus}
               </div>
             )}
+          </div>
+
+          {/* Monetization & Performance Analytics Dashboard */}
+          <div className="p-5 rounded-2xl bg-white border border-[#E5E5E5] shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-[#1A1A1A] flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-[#C89211]" />
+                <span>Monetization & Health Analytics</span>
+              </h4>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                Live
+              </span>
+            </div>
+
+            <p className="text-xs text-[#666666] leading-relaxed">
+              Monitored session ad impressions, user reward verifications, and SDK delivery health across all 6 formats.
+            </p>
+
+            {/* Active Session Guardrails */}
+            <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-2 text-xs">
+              <div className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">
+                Current Session Guardrails
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2 bg-white rounded-lg border border-stone-200">
+                  <span className="text-stone-500 block text-[10px]">Interstitials Shown:</span>
+                  <span className="font-bold text-stone-900">
+                    {status.sessionInterstitialCount} / {form.maxInterstitialsPerSession} cap
+                  </span>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-stone-200">
+                  <span className="text-stone-500 block text-[10px]">App Open Shown:</span>
+                  <span className="font-bold text-stone-900">
+                    {status.sessionAppOpenCount} / {form.maxAppOpenPerSession} cap
+                  </span>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-stone-200 col-span-2">
+                  <span className="text-stone-500 block text-[10px]">Section Views:</span>
+                  <span className="font-bold text-stone-900">
+                    {status.navigationViewCount} views (interstitial every {form.navTransitionMinViews} screens)
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Format Impressions Breakdown */}
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between text-[11px] font-bold text-stone-700">
+                <span>Impressions by Format</span>
+                <span className="text-stone-400 font-normal">Aggregated</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                <div className="p-2 rounded-lg bg-stone-50 border border-stone-200">
+                  <span className="text-stone-500 block text-[10px]">Banner</span>
+                  <span className="font-bold text-[#C89211] text-sm">
+                    {status.analytics?.impressions?.banner || 0}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-stone-50 border border-stone-200">
+                  <span className="text-stone-500 block text-[10px]">Native</span>
+                  <span className="font-bold text-[#C89211] text-sm">
+                    {status.analytics?.impressions?.native || 0}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-stone-50 border border-stone-200">
+                  <span className="text-stone-500 block text-[10px]">Interstitial</span>
+                  <span className="font-bold text-stone-900 text-sm">
+                    {status.analytics?.impressions?.interstitial || 0}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-stone-50 border border-stone-200">
+                  <span className="text-stone-500 block text-[10px]">Rewarded</span>
+                  <span className="font-bold text-emerald-700 text-sm">
+                    {status.analytics?.impressions?.rewarded || 0}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-stone-50 border border-stone-200">
+                  <span className="text-stone-500 block text-[10px]">Rew. Interstitial</span>
+                  <span className="font-bold text-emerald-700 text-sm">
+                    {status.analytics?.impressions?.rewarded_interstitial || 0}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-stone-50 border border-stone-200">
+                  <span className="text-stone-500 block text-[10px]">App Open</span>
+                  <span className="font-bold text-stone-900 text-sm">
+                    {status.analytics?.impressions?.app_open || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Delivery Health & Verified Rewards */}
+            <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/60 space-y-2 text-xs">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-amber-950 flex items-center gap-1.5">
+                  <Award className="w-3.5 h-3.5 text-amber-700" />
+                  Verified User Rewards:
+                </span>
+                <span className="font-bold text-amber-900 text-sm">
+                  {status.analytics?.rewards || 0} granted
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-stone-600 pt-1 border-t border-amber-200/50">
+                <span>SDK Load Successes:</span>
+                <span className="font-semibold text-emerald-700">{status.analytics?.loads?.success || 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-stone-600">
+                <span>Load Fails / No Fill:</span>
+                <span className="font-semibold text-stone-700">
+                  {(status.analytics?.loads?.fail || 0) + (status.analytics?.loads?.no_fill || 0)}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleResetAnalytics}
+              className="w-full py-2 px-3 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold flex items-center justify-center gap-1.5 border border-stone-200 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Local Analytics Counters</span>
+            </button>
           </div>
 
           {/* AdMob Policy & Safeguards Summary */}

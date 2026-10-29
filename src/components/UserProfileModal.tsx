@@ -226,8 +226,15 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         {/* Modal Top Bar */}
         <div className="px-6 py-4 border-b border-[#E5E5E5] flex items-center justify-between bg-white sticky top-0 z-10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#C89211] to-[#b07d08] flex items-center justify-center text-white font-bold text-lg shadow-sm">
-              <Heart className="w-5 h-5 text-white fill-white" />
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-[#C89211]/40 shadow-xs bg-[#0C0A09] flex items-center justify-center shrink-0">
+              <img
+                src={settings?.logoUrl || '/assets/logo.png'}
+                alt="Jai Hanuman Door"
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = '/assets/logo.png';
+                }}
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">

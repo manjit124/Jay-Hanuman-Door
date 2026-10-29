@@ -113,8 +113,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center gap-2.5 sm:gap-3 text-left group focus:outline-none cursor-pointer select-none"
             title={resolvedBusinessName}
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#C89211] to-[#A0700B] flex items-center justify-center shadow-md shadow-[#C89211]/20 border border-[#C89211]/30 group-hover:scale-105 transition-transform flex-shrink-0">
-              <DoorClosed className="w-5.5 h-5.5 text-white" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full overflow-hidden border border-[#C89211]/40 shadow-sm shadow-[#C89211]/20 bg-[#0C0A09] group-hover:scale-105 group-hover:border-[#C89211] transition-transform flex-shrink-0 flex items-center justify-center">
+              <img
+                src={settings?.logoUrl || '/assets/logo.png'}
+                alt={resolvedBusinessName}
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = '/assets/logo.png';
+                }}
+              />
             </div>
             <div>
               <div className="flex items-center gap-1.5 sm:gap-2">

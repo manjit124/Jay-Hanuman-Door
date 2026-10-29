@@ -18,6 +18,7 @@ import {
   Check,
   Award,
 } from 'lucide-react';
+import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
 import {
   ChaukhatWoodType,
   ChaukhatSectionSize,
@@ -1023,6 +1024,11 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
                   Every Chaukhat is kiln-dried to 8-12% moisture with double rebate precision for seamless door fitting.
                 </span>
               </div>
+            </div>
+
+            {/* AdMob Adaptive Banner Placement (Chaukhat Frame Calculator) */}
+            <div className="pt-2">
+              <AdMobBannerSlot placement="chaukhat" settings={settings} />
             </div>
 
           </div>

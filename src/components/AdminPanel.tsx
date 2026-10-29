@@ -52,6 +52,7 @@ import {
   Video,
   Server,
   Activity,
+  Cloud,
 } from 'lucide-react';
 import { ProtectedImage } from './ProtectedImage.tsx';
 import { DEFAULT_CONTENT_PROTECTION } from '../lib/contentProtection.ts';
@@ -62,12 +63,14 @@ import { AdminLegalTab } from './admin/AdminLegalTab.tsx';
 import { AdminEnquiriesTab } from './admin/AdminEnquiriesTab.tsx';
 import { AdminBackupRestore } from './admin/AdminBackupRestore.tsx';
 import { AdminWoodDetectorTab } from './admin/AdminWoodDetectorTab.tsx';
+import { adMobService } from '../lib/admob/admobService.ts';
 import { AdminOrderTrackingTab } from './admin/AdminOrderTrackingTab.tsx';
 import { AdminVisualizerTab } from './admin/AdminVisualizerTab.tsx';
 import { AdminBrandStoryTab } from './AdminBrandStoryTab.tsx';
 import { AdminDeliveryTab } from './admin/AdminDeliveryTab.tsx';
 import { AdminChaukhatTab } from './admin/AdminChaukhatTab.tsx';
 import { AdminAdMobTab } from './admin/AdminAdMobTab.tsx';
+import { AdminGoogleDriveTab } from './admin/AdminGoogleDriveTab.tsx';
 import {
   Door,
   Category,
@@ -124,7 +127,12 @@ import {
   setCustomApiBaseUrl,
   previewDriveOrExternalImage,
   importDriveOrExternalImageToR2,
+  importDriveOrExternalImageToStorage,
+  fetchStorageStatus,
+  triggerR2SyncPending,
+  triggerStorageSyncPending,
   type DriveImagePreviewResult,
+  type StorageStatusResponse,
 } from '../lib/api.ts';
 import { signInAdminWithGoogle, getClientAuth, ensureFirebaseAuthSession } from '../lib/firestoreClient.ts';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
@@ -193,6 +201,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     | 'backup'
     | 'wood-detector'
     | 'admob'
+    | 'googledrive'
   >('dashboard');
 
   // Loaded DB data in Admin
@@ -268,12 +277,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [driveImagePreview, setDriveImagePreview] = useState<DriveImagePreviewResult | null>(null);
   const [driveImageError, setDriveImageError] = useState<string | null>(null);
   const [driveImportSuccessMsg, setDriveImportSuccessMsg] = useState<string | null>(null);
+  const [doorUploadError, setDoorUploadError] = useState<string | null>(null);
+  const [r2StorageStatus, setR2StorageStatus] = useState<StorageStatusResponse | null>(null);
+  const [isSyncingR2, setIsSyncingR2] = useState(false);
+
+  const loadStorageStatus = async () => {
+    try {
+      const status = await fetchStorageStatus();
+      if (status) setR2StorageStatus(status);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (isOpen && isLoggedIn) {
+      loadStorageStatus();
+    }
+  }, [isOpen, isLoggedIn, activeTab]);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body?.classList.add('admin-panel-open');
+      adMobService.setAdminPanelActive(true);
+      adMobService.hideAdaptiveBanner();
+    } else {
+      document.body?.classList.remove('admin-panel-open');
+      if (!window.location.pathname.toLowerCase().startsWith('/admin')) {
+        adMobService.setAdminPanelActive(false);
+      }
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    adMobService.setAdminSessionActive(isLoggedIn);
+  }, [isLoggedIn]);
 
   useEffect(() => {
     setDriveImageUrlInput('');
     setDriveImagePreview(null);
     setDriveImageError(null);
     setDriveImportSuccessMsg(null);
+    setDoorUploadError(null);
   }, [editingDoor?.id]);
 
   // Quick inline price & details editing states
@@ -407,8 +450,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   useEffect(() => {
     if (initialTab) {
-      const mapped = initialTab === 'prices' ? 'materials' : initialTab === 'orders' ? 'tracking' : (initialTab === 'deliveries' || initialTab === 'delivery-stories' || initialTab === 'shipping') ? 'delivery' : (initialTab === '3d' || initialTab === 'ar') ? 'visualizer' : initialTab;
-      if (['dashboard', 'tracking', 'delivery', 'doors', 'visualizer', 'materials', 'finishes', 'frames', 'hardware', 'banners', 'articles', 'settings', 'quotes', 'team', 'notifications', 'enquiries', 'legal', 'backup', 'wood-detector'].includes(mapped)) {
+      const mapped = initialTab === 'prices' ? 'materials' : initialTab === 'orders' ? 'tracking' : (initialTab === 'deliveries' || initialTab === 'delivery-stories' || initialTab === 'shipping') ? 'delivery' : (initialTab === '3d' || initialTab === 'ar') ? 'visualizer' : initialTab === 'drive' ? 'googledrive' : initialTab;
+      if (['dashboard', 'tracking', 'delivery', 'doors', 'visualizer', 'materials', 'finishes', 'frames', 'hardware', 'banners', 'articles', 'settings', 'quotes', 'team', 'notifications', 'enquiries', 'legal', 'backup', 'wood-detector', 'admob', 'googledrive'].includes(mapped)) {
         setActiveTab(mapped as any);
       }
     }
@@ -507,6 +550,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (files.length === 0 || uploadingImage) return;
     setUploadingImage(true);
     setUploadProgress(5);
+    setDoorUploadError(null);
     const uploadedUrls: string[] = [];
     let totalSavedBytes = 0;
     try {
@@ -533,7 +577,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           : `Image uploaded${savedKb > 20 ? ` (optimized by ${savedKb} KB)` : ' successfully'}`
       );
     } catch (err: any) {
-      showToast(err?.message || 'Image upload failed. Please retry.');
+      const msg = err?.message || 'Image upload failed. Please retry.';
+      setDoorUploadError(msg);
+      showToast(msg);
     } finally {
       setUploadingImage(false);
       setUploadProgress(null);
@@ -674,14 +720,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
+    <div
+      id="admin-panel-container"
+      data-admin-panel="true"
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200"
+    >
       <div className="relative w-full max-w-6xl bg-white border border-[#E5E5E5] rounded-2xl shadow-2xl text-[#1A1A1A] overflow-hidden my-4 max-h-[96vh] flex flex-col">
         
         {/* Top Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5] bg-[#F8F8F6] sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
-              <ShieldCheck className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-[#C89211]/40 shadow-xs bg-[#0C0A09] flex items-center justify-center shrink-0">
+              <img
+                src="/assets/logo.png"
+                alt="Jai Hanuman Door Logo"
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -798,8 +852,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               /* Admin Login Form Screen */
               <div className="w-full max-w-md mx-auto my-auto p-6 sm:p-8 space-y-6">
                 <div className="text-center space-y-2">
-                  <div className="w-14 h-14 rounded-2xl bg-[#FFF7E3] border border-[#C89211]/30 text-[#C89211] flex items-center justify-center mx-auto">
-                    <ShieldCheck className="w-7 h-7" />
+                  <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-[#C89211]/60 shadow-lg bg-[#0C0A09] flex items-center justify-center mx-auto mb-2">
+                    <img
+                      src="/assets/logo.png"
+                      alt="Jai Hanuman Door Logo"
+                      className="w-full h-full object-contain"
+                    />
                   </div>
                   <h3 className="font-serif text-2xl font-bold text-[#1A1A1A]">
                     Administrator Sign In
@@ -1343,6 +1401,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <DollarSign className="w-4 h-4 text-emerald-600" />
                   AdMob Monetization
                 </button>
+
+                <button
+                  id="admin-tab-googledrive"
+                  onClick={() => handleTabSelect('googledrive')}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'googledrive' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                  }`}
+                >
+                  <Cloud className="w-4 h-4 text-[#C89211]" />
+                  Google Drive Storage
+                </button>
               </div>
 
               {/* Main Content Area */}
@@ -1529,7 +1598,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* 2. DOOR MANAGEMENT (Section 14) */}
                 {activeTab === 'doors' && (
                   <div className="space-y-6">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
                         <h3 className="font-serif text-xl font-bold text-white">
                           Door Catalog Designs
@@ -1559,6 +1628,62 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         Add New Door Design
                       </button>
                     </div>
+
+                    {/* Firebase Storage Persistent Storage Status Card */}
+                    {r2StorageStatus && (
+                      <div className={`p-3.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
+                        (r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable)
+                          ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                          : 'bg-amber-50 border-amber-300 text-amber-950'
+                      }`}>
+                        <div className="flex items-start sm:items-center gap-3">
+                          <HardDrive className={`w-5 h-5 shrink-0 mt-0.5 sm:mt-0 ${(r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) ? 'text-emerald-600' : 'text-amber-600'}`} />
+                          <div className="space-y-0.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-bold">Firebase Storage Bucket: {r2StorageStatus.storage?.bucket || r2StorageStatus.r2.bucket}</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                (r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-200 text-amber-900'
+                              }`}>
+                                {(r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) ? 'Read & Write Active' : 'Setup Required'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-stone-600">
+                              {r2StorageStatus.stats
+                                ? `Storage Cloud Store: ${r2StorageStatus.stats.r2FormattedSize} (${r2StorageStatus.stats.r2ObjectCount} objects) • Local Container: ${r2StorageStatus.stats.localFormattedSize} (${r2StorageStatus.stats.localFilesCount} files, ${r2StorageStatus.stats.pendingSyncCount} pending sync)`
+                                : (r2StorageStatus.storage?.statusMessage || r2StorageStatus.r2.statusMessage)}
+                            </p>
+                            {!(r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) && (
+                              <p className="text-[11px] text-amber-900 font-semibold bg-amber-100/60 p-2 rounded-lg border border-amber-200 mt-1 leading-relaxed">
+                                🚨 {r2StorageStatus.storage?.statusMessage || r2StorageStatus.r2.tokenGuidance || 'To activate Firebase Storage, open Firebase Console -> Build -> Storage -> Click "Get Started".'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {(r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) && r2StorageStatus.stats && r2StorageStatus.stats.pendingSyncCount > 0 && (
+                          <button
+                            type="button"
+                            disabled={isSyncingR2}
+                            onClick={async () => {
+                              setIsSyncingR2(true);
+                              try {
+                                const res = await triggerR2SyncPending();
+                                showToast(res.message);
+                                await loadStorageStatus();
+                              } catch (err: any) {
+                                alert(err.message || 'Sync failed');
+                              } finally {
+                                setIsSyncingR2(false);
+                              }
+                            }}
+                            className="px-3.5 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 shrink-0 transition cursor-pointer disabled:opacity-50 shadow-xs"
+                          >
+                            {isSyncingR2 ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                            <span>{isSyncingR2 ? 'Syncing to Storage...' : `Sync ${r2StorageStatus.stats.pendingSyncCount} Pending to Firebase Storage`}</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {/* Edit or Add Door Form */}
                     {editingDoor && (
@@ -1972,6 +2097,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </div>
                             </div>
 
+                            {/* Upload Error Banner with Actionable R2 Instructions */}
+                            {doorUploadError && (
+                              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs flex items-start gap-2.5 shadow-xs">
+                                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                                <div className="space-y-1 flex-1">
+                                  <p className="font-bold text-rose-900">Image Upload Failed</p>
+                                  <p className="text-[11px] leading-relaxed text-rose-800">{doorUploadError}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setDoorUploadError(null)}
+                                  className="text-rose-500 hover:text-rose-800 p-1 text-xs cursor-pointer"
+                                  title="Dismiss alert"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+
                             {/* Option 1: Direct File Upload */}
                             <div className={doorImageSourceMode === 'upload' ? 'space-y-2' : 'space-y-2 pt-1 border-t border-[#F0F0EE]'}>
                               <div className="flex flex-wrap items-center gap-3">
@@ -2007,12 +2151,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   />
                                 </label>
                                 <span className="text-[11px] text-[#666666]">
-                                  Auto-optimizes camera photos (1680px HD) and saves to Cloudflare R2
+                                  Auto-optimizes camera photos (1680px HD) and saves to Firebase Storage
                                 </span>
                               </div>
                             </div>
 
-                            {/* Option 2: Google Drive Image URL / Direct Image URL Import to R2 */}
+                            {/* Option 2: Google Drive Image URL / Direct Image URL Import to Firebase Storage */}
                             <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-2.5">
                               <div className="flex flex-wrap items-center justify-between gap-1">
                                 <label className="text-xs font-bold text-[#1A1A1A] flex items-center gap-1.5">
@@ -2081,26 +2225,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       setDriveImageError(null);
                                       setDriveImportSuccessMsg(null);
                                       try {
-                                        const imported = await importDriveOrExternalImageToR2(raw);
-                                        const r2Url = imported.url;
+                                        const imported = await importDriveOrExternalImageToStorage(raw);
+                                        const storageUrl = imported.url;
                                         setEditingDoor(prev => {
                                           if (!prev) return prev;
                                           const current = Array.isArray(prev.images) ? prev.images.filter(Boolean) : [];
-                                          const nextImages = current.includes(r2Url)
-                                            ? [r2Url, ...current.filter(u => u !== r2Url)]
-                                            : [r2Url, ...current];
+                                          const nextImages = current.includes(storageUrl)
+                                            ? [storageUrl, ...current.filter(u => u !== storageUrl)]
+                                            : [storageUrl, ...current];
                                           return {
                                             ...prev,
-                                            image: r2Url,
+                                            image: storageUrl,
                                             images: nextImages,
                                           };
                                         });
                                         setDriveImageUrlInput('');
                                         setDriveImagePreview(null);
                                         setDriveImportSuccessMsg(
-                                          `Imported to Cloudflare R2 (${imported.width}×${imported.height}px, ${Math.max(1, Math.round(imported.size / 1024))} KB) and set as Primary Product Photo.`
+                                          `Imported to Firebase Storage (${imported.width}×${imported.height}px, ${Math.max(1, Math.round(imported.size / 1024))} KB) and set as Primary Product Photo.`
                                         );
-                                        showToast('Image imported to Cloudflare R2 and attached to product!');
+                                        showToast('Image imported to Firebase Storage and attached to product!');
                                       } catch (err: any) {
                                         const rawMsg = String(err?.message || err || '').trim();
                                         const cleanMsg =
@@ -2119,7 +2263,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     ) : (
                                       <CheckCircle2 className="w-3.5 h-3.5" />
                                     )}
-                                    <span>{isImportingDriveImage ? 'Importing to R2...' : 'Import to R2'}</span>
+                                    <span>{isImportingDriveImage ? 'Importing to Storage...' : 'Import to Storage'}</span>
                                   </button>
                                 </div>
                               </div>
@@ -4206,7 +4350,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     1. Main Banner Image (Device Upload or URL)
                                   </label>
                                   <p className="text-[11px] text-[#666666]">
-                                    Upload artwork from phone/PC. Stored in Cloudflare R2 media storage.
+                                    Upload artwork from phone/PC. Stored in Firebase Storage.
                                   </p>
                                 </div>
                                 {bannerDimensions && (
@@ -4765,7 +4909,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     Promotional Banner Image (Phone/PC or URL)
                                   </label>
                                   <p className="text-[11px] text-[#666666]">
-                                    Upload complete promotional graphic (recommended ratio: ~3:1, e.g. 1500 × 500 px). Stored permanently in Cloudflare R2 / Server storage.
+                                    Upload complete promotional graphic (recommended ratio: ~3:1, e.g. 1500 × 500 px). Stored permanently in Firebase Storage / Cloud media storage.
                                   </p>
                                 </div>
                                 {bannerDimensions && (
@@ -4780,7 +4924,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   {uploadingImage ? (
                                     <>
                                       <Loader2 className="w-4 h-4 animate-spin" />
-                                      <span>Uploading to R2...</span>
+                                      <span>Uploading to Firebase Storage...</span>
                                     </>
                                   ) : (
                                     <>
@@ -6515,6 +6659,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       showToast('AdMob settings saved successfully');
                     }}
                   />
+                )}
+
+                {/* Owner Google Drive Central Media Storage Admin Tab */}
+                {activeTab === 'googledrive' && (
+                  <AdminGoogleDriveTab />
                 )}
 
               </div>

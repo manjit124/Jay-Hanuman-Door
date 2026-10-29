@@ -44,6 +44,8 @@ import {
   fetchUserSavedArticles,
   getGuestSavedArticles,
 } from '../lib/api.ts';
+import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
+import { AdMobCatalogNativeCard } from './admob/AdMobCatalogNativeCard.tsx';
 
 interface ArticlesSectionProps {
   articles: Article[];
@@ -585,17 +587,19 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-          {filteredArticles.map(article => {
+          {filteredArticles.map((article, idx) => {
             const isSaved = savedArticleIds.includes(article.id);
             const isLiked = !!userLikedMap[article.id];
+            const nativeAdFreq = settings?.adSettings?.articlesNativeAdFrequency || 3;
+            const showNativeAd = (idx + 1) % nativeAdFreq === 0;
 
             return (
-              <article
-                key={article.id}
-                id={`article-card-${article.id}`}
-                onClick={() => handleOpenArticle(article)}
-                className="group cursor-pointer bg-white rounded-2xl border border-stone-200/80 shadow-sm hover:shadow-xl hover:border-amber-300 transition-all duration-300 flex flex-col overflow-hidden"
-              >
+              <React.Fragment key={article.id}>
+                <article
+                  id={`article-card-${article.id}`}
+                  onClick={() => handleOpenArticle(article)}
+                  className="group cursor-pointer bg-white rounded-2xl border border-stone-200/80 shadow-sm hover:shadow-xl hover:border-amber-300 transition-all duration-300 flex flex-col overflow-hidden"
+                >
                 {/* Article Cover Image */}
                 <div className="relative aspect-[16/10] bg-stone-100 overflow-hidden">
                   <ProtectedImage
@@ -759,7 +763,18 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                     </div>
                   </div>
                 </div>
-              </article>
+                </article>
+
+                {/* Policy-Compliant AdMob Native Ad Card in Articles Feed */}
+                {showNativeAd && (
+                  <AdMobCatalogNativeCard
+                    key={`admob-article-native-${idx}`}
+                    index={Math.floor((idx + 1) / nativeAdFreq) - 1}
+                    settings={settings}
+                    variant="articles"
+                  />
+                )}
+              </React.Fragment>
             );
           })}
         </div>
@@ -1296,6 +1311,11 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* AdMob Adaptive Banner Placement (Inside Article Reader) */}
+              <div className="pt-4 border-t border-[#E5E5E5]">
+                <AdMobBannerSlot placement="articles" settings={settings} />
+              </div>
             </div>
 
             {/* Modal Bottom Bar */}

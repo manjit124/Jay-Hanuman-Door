@@ -632,6 +632,24 @@ export interface AdMobSettings {
   catalogNativeAdFrequency: number; // e.g. 6 or 8
   interstitialMinIntervalSeconds: number; // e.g. 45 or 60
   appOpenMinIntervalSeconds: number; // e.g. 180
+  // Centralized Smart Frequency & Session Management
+  maxInterstitialsPerSession?: number; // e.g. 4
+  maxAppOpenPerSession?: number; // e.g. 2
+  enableNavTransitionInterstitials?: boolean; // natural section transition
+  navTransitionMinViews?: number; // min screens navigated before eligible
+  enableArticlesNativeAds?: boolean; // native ad in articles / guides feed
+  articlesNativeAdFrequency?: number; // e.g. 3
+  enableVisualizerRewardedBonus?: boolean; // optional 4K studio lighting unlock
+  // Granular placement banner toggles
+  bannerHome?: boolean;
+  bannerCatalog?: boolean;
+  bannerCalculator?: boolean;
+  bannerChaukhat?: boolean;
+  bannerDetail?: boolean;
+  bannerVisualizer?: boolean;
+  bannerArticles?: boolean;
+  bannerTracking?: boolean;
+  bannerSaved?: boolean;
 }
 
 export interface AdminStats {

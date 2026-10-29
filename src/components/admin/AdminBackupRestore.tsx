@@ -10,6 +10,9 @@ import {
   AlertCircle,
   Database,
   CheckCircle2,
+  Cloud,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import {
   exportDatabaseBackup,
@@ -18,6 +21,7 @@ import {
   restoreLocalBackup,
   BackupSummary,
 } from '../../lib/api.ts';
+import { uploadBlobToDrive } from '../../lib/googleDriveService.ts';
 
 interface AdminBackupRestoreProps {
   onDataRestored: () => void;
@@ -51,6 +55,9 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
     loadBackups();
   }, []);
 
+  const [driveBackingUp, setDriveBackingUp] = useState(false);
+  const [driveBackupLink, setDriveBackupLink] = useState<{ url: string; name: string } | null>(null);
+
   const handleExport = async () => {
     try {
       setExporting(true);
@@ -68,6 +75,31 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
       alert('Backup export error: ' + err.message);
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleDriveBackup = async () => {
+    try {
+      setDriveBackingUp(true);
+      setDriveBackupLink(null);
+      const blob = await exportDatabaseBackup();
+      const filename = `jaihanuman-production-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const res = await uploadBlobToDrive(
+        blob,
+        filename,
+        'application/json',
+        'Jai Hanuman Door Backups',
+        `Full production database snapshot from ${new Date().toLocaleString()}`
+      );
+      setDriveBackupLink({
+        url: res.webViewLink || 'https://drive.google.com',
+        name: res.name,
+      });
+      showToast('Database backup saved to Google Drive!');
+    } catch (err: any) {
+      alert('Google Drive backup error: ' + (err?.message || err));
+    } finally {
+      setDriveBackingUp(false);
     }
   };
 
@@ -177,14 +209,51 @@ export const AdminBackupRestore: React.FC<AdminBackupRestoreProps> = ({
               </div>
             </div>
           </div>
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="mt-5 w-full py-2.5 px-4 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-semibold text-sm flex items-center justify-center gap-2 transition shadow-md disabled:opacity-50"
-          >
-            <Download className="w-4 h-4" />
-            {exporting ? 'Generating Backup...' : 'Download Production Backup (.JSON)'}
-          </button>
+          <div className="mt-5 space-y-2.5">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              className="w-full py-2.5 px-4 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-semibold text-xs flex items-center justify-center gap-2 transition shadow-md disabled:opacity-50 cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>{exporting ? 'Generating Backup...' : 'Download Production Backup (.JSON)'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDriveBackup}
+              disabled={driveBackingUp}
+              className="w-full py-2.5 px-4 rounded-lg bg-stone-900 hover:bg-stone-800 text-amber-400 font-semibold text-xs flex items-center justify-center gap-2 border border-amber-500/30 transition shadow-md disabled:opacity-50 cursor-pointer"
+            >
+              {driveBackingUp ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                  <span>Saving to Google Drive...</span>
+                </>
+              ) : (
+                <>
+                  <Cloud className="w-4 h-4 text-amber-400" />
+                  <span>Backup to Google Drive</span>
+                </>
+              )}
+            </button>
+
+            {driveBackupLink && (
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-[11px] text-emerald-900 animate-in fade-in duration-200">
+                <span className="truncate">Saved to folder <strong>Jai Hanuman Door Backups</strong></span>
+                <a
+                  href={driveBackupLink.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 font-bold text-emerald-700 hover:underline shrink-0 ml-2"
+                >
+                  <span>Open in Drive</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Import Panel */}

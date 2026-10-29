@@ -5,7 +5,7 @@ import { getActiveAdMobSettings } from '../../lib/admob/admobConfig.ts';
 import { BusinessSettings } from '../../types.ts';
 
 interface AdMobBannerSlotProps {
-  placement: 'home' | 'catalog' | 'calculator' | 'guide' | 'tracking' | 'detail' | 'visualizer' | 'saved';
+  placement: 'home' | 'catalog' | 'calculator' | 'chaukhat' | 'guide' | 'articles' | 'tracking' | 'detail' | 'visualizer' | 'saved';
   settings?: BusinessSettings;
   className?: string;
   position?: 'top' | 'bottom';
@@ -17,16 +17,25 @@ export const AdMobBannerSlot: React.FC<AdMobBannerSlotProps> = ({
   className = '',
   position = 'bottom',
 }) => {
+  const isAdmin = adMobService.isAdminActive();
   const adConfig = getActiveAdMobSettings(settings?.adSettings);
   const [isNative, setIsNative] = useState(false);
+  const isEnabled = !isAdmin && adMobService.isPlacementEnabled(placement, settings?.adSettings);
 
   useEffect(() => {
+    if (isAdmin) {
+      adMobService.hideAdaptiveBanner();
+      return;
+    }
+
     const native = adMobService.isNative();
     setIsNative(native);
 
-    if (!adConfig.enabled || !adConfig.enableBanners) {
+    if (!isEnabled) {
       return;
     }
+
+    adMobService.trackEvent('impression', 'banner', placement);
 
     if (native) {
       // In native Android, initialize and display banner with bottom-nav protection margin
@@ -36,9 +45,9 @@ export const AdMobBannerSlot: React.FC<AdMobBannerSlotProps> = ({
         adMobService.hideAdaptiveBanner();
       };
     }
-  }, [adConfig.enabled, adConfig.enableBanners, position, settings?.adSettings]);
+  }, [isEnabled, position, placement, settings?.adSettings, isAdmin]);
 
-  if (!adConfig.enabled || !adConfig.enableBanners) {
+  if (isAdmin || !isEnabled) {
     return null;
   }
 

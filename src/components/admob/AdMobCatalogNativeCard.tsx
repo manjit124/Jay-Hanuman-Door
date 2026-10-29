@@ -1,14 +1,16 @@
-import React from 'react';
-import { ExternalLink, ShieldCheck, Sparkles, Wrench, HardHat } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { ExternalLink, ShieldCheck, Sparkles, Wrench, HardHat, BookOpen, Layers } from 'lucide-react';
 import { getActiveAdMobSettings } from '../../lib/admob/admobConfig.ts';
 import { BusinessSettings } from '../../types.ts';
+import { adMobService } from '../../lib/admob/admobService.ts';
 
 interface AdMobCatalogNativeCardProps {
   index: number;
   settings?: BusinessSettings;
+  variant?: 'catalog' | 'articles' | 'visualizer';
 }
 
-// Sample policy-compliant sponsored editorial creative templates for woodworking & construction audience
+// Sample policy-compliant sponsored editorial creative templates for woodworking, construction & interior architecture
 const SPONSOR_TEMPLATES = [
   {
     title: 'Industrial Wood Seasoning & Moisture Meters',
@@ -34,14 +36,37 @@ const SPONSOR_TEMPLATES = [
     image: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
     icon: Sparkles,
   },
+  {
+    title: 'Sustainable Certified Plantation Teak Handbook',
+    sponsor: 'Forest Stewardship Guild',
+    description: 'Comprehensive research monograph on identifying authentic grain density & heartwood in timber.',
+    cta: 'Read Technical Guide',
+    image: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=800&q=80',
+    icon: BookOpen,
+  },
 ];
 
 export const AdMobCatalogNativeCard: React.FC<AdMobCatalogNativeCardProps> = ({
   index,
   settings,
+  variant = 'catalog',
 }) => {
+  const isAdmin = adMobService.isAdminActive();
   const adConfig = getActiveAdMobSettings(settings?.adSettings);
-  if (!adConfig.enabled || !adConfig.enableCatalogNativeAds) {
+
+  const isEnabled = !isAdmin && (
+    variant === 'articles'
+      ? (adConfig.enabled && adConfig.enableArticlesNativeAds !== false)
+      : (adConfig.enabled && adConfig.enableCatalogNativeAds)
+  );
+
+  useEffect(() => {
+    if (isEnabled && !isAdmin) {
+      adMobService.trackEvent('impression', 'native', variant);
+    }
+  }, [isEnabled, variant, isAdmin]);
+
+  if (isAdmin || !isEnabled) {
     return null;
   }
 
@@ -50,14 +75,15 @@ export const AdMobCatalogNativeCard: React.FC<AdMobCatalogNativeCardProps> = ({
 
   const handleSponsorClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // In production native AdMob, the native ad overlay captures user clicks directly.
-    // In web preview, open a safe demo sponsor notice or documentation
-    console.log('[AdMob Native] Sponsor card interaction recorded');
+    adMobService.trackEvent('click', 'native', variant);
+    console.log(`[AdMob Native] Sponsor card interaction recorded (variant: ${variant})`);
   };
 
   return (
     <div
-      className="group bg-gradient-to-b from-stone-50 to-stone-100 rounded-xl sm:rounded-2xl border-2 border-dashed border-stone-300 hover:border-[#C89211]/60 transition-all duration-300 flex flex-col overflow-hidden shadow-xs relative"
+      className={`group bg-gradient-to-b from-stone-50 to-stone-100 rounded-xl sm:rounded-2xl border-2 border-dashed border-stone-300 hover:border-[#C89211]/60 transition-all duration-300 flex flex-col overflow-hidden shadow-xs relative ${
+        variant === 'articles' ? 'h-full min-h-[380px]' : ''
+      }`}
       aria-label="Sponsored advertisement"
     >
       {/* Policy Mandated AD / SPONSORED Label Badge */}

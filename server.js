@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 // Ensure production mode is active by default in production hosting environments
-if (!process.env.NODE_ENV) {
+if (process.env.NODE_ENV !== 'test') {
   process.env.NODE_ENV = 'production';
 }
 

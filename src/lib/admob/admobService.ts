@@ -41,6 +41,8 @@ class AdMobService {
   private isInterstitialLoading = false;
   private isInterstitialLoaded = false;
   private lastInterstitialShownTime = 0;
+  private sessionInterstitialCount = 0;
+  private navigationViewCount = 0;
 
   // Rewarded Video State
   private isRewardedLoading = false;
@@ -56,6 +58,7 @@ class AdMobService {
   private isAppOpenLoaded = false;
   private appOpenLoadTimestamp = 0; // Freshness check (< 4 hours)
   private lastAppOpenShownTime = 0;
+  private sessionAppOpenCount = 0;
 
   // Banner State
   private activeBannerPosition: 'top' | 'bottom' | null = null;
@@ -64,8 +67,80 @@ class AdMobService {
   // Global Full-Screen Ad Lock (Ensures only 1 full-screen ad shows at any time)
   private isFullScreenAdActive = false;
 
-  // Safe Context Locks: Prevent ads during camera, photo scanning, or checkout
+  // Safe Context Locks: Prevent ads during camera, photo scanning, or checkout/form entry
   private isCameraOrScanActive = false;
+  private isFormOrCheckoutActive = false;
+
+  // Admin Context Restriction State
+  private isAdminPanelOpen = false;
+  private isAdminSessionActive = false;
+
+  public setAdminPanelActive(active: boolean): void {
+    this.isAdminPanelOpen = active;
+    if (typeof window !== 'undefined') {
+      (window as any).__JHD_ADMIN_PANEL_OPEN__ = active;
+      if (active) {
+        if (document.body) document.body.classList.add('admin-panel-open');
+        this.hideAdaptiveBanner();
+      } else {
+        if (document.body) document.body.classList.remove('admin-panel-open');
+      }
+    }
+  }
+
+  public setAdminSessionActive(active: boolean): void {
+    this.isAdminSessionActive = active;
+    if (typeof window !== 'undefined') {
+      (window as any).__JHD_ADMIN_SESSION_ACTIVE__ = active;
+    }
+  }
+
+  /**
+   * Reliable Admin Restriction Check:
+   * Returns true if user is currently on an Admin Panel screen, login screen,
+   * admin dashboard, product editor, image upload screen, or active admin route/session.
+   * Strictly suppresses all AdMob preloads, requests, impressions, and displays.
+   */
+  public isAdminActive(): boolean {
+    if (typeof window === 'undefined') return false;
+
+    // 1. Explicit JS state flags
+    if (this.isAdminPanelOpen || (window as any).__JHD_ADMIN_PANEL_OPEN__ === true) {
+      return true;
+    }
+
+    // 2. URL Path & Hash Detection
+    try {
+      const pathname = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      if (pathname.includes('/admin') || hash.includes('admin')) {
+        return true;
+      }
+    } catch {}
+
+    // 3. DOM & Class Markers
+    try {
+      if (
+        document.body?.classList.contains('admin-panel-open') ||
+        document.querySelector('[data-admin-panel="true"]') ||
+        document.querySelector('#admin-panel-container')
+      ) {
+        return true;
+      }
+    } catch {}
+
+    // 4. Authenticated Admin Session on Admin Views
+    try {
+      const token = localStorage.getItem('shivshahi_admin_token') || localStorage.getItem('jhd_admin_token');
+      if (token && token.trim().length > 0) {
+        if (this.isAdminSessionActive || (window as any).__JHD_ADMIN_SESSION_ACTIVE__ === true) {
+          return true;
+        }
+      }
+    } catch {}
+
+    return false;
+  }
 
   public isNative(): boolean {
     if (typeof window === 'undefined') return false;
@@ -89,11 +164,121 @@ class AdMobService {
   }
 
   /**
+   * Safe context lock: Notify when user is editing form, submitting quote, or in checkout
+   * to strictly suppress unexpected full-screen interruptions.
+   */
+  public setFormOrCheckoutActive(active: boolean): void {
+    this.isFormOrCheckoutActive = active;
+  }
+
+  public isFormOrCheckoutBusy(): boolean {
+    return this.isFormOrCheckoutActive;
+  }
+
+  /**
+   * Checks whether a specific banner placement is enabled in configuration.
+   */
+  public isPlacementEnabled(
+    placement: 'home' | 'catalog' | 'calculator' | 'chaukhat' | 'guide' | 'articles' | 'tracking' | 'detail' | 'visualizer' | 'saved',
+    customSettings?: AdMobSettings
+  ): boolean {
+    if (this.isAdminActive()) return false;
+    const config = getActiveAdMobSettings(customSettings);
+    if (!config.enabled || !config.enableBanners) return false;
+
+    switch (placement) {
+      case 'home':
+        return config.bannerHome !== false;
+      case 'catalog':
+        return config.bannerCatalog !== false;
+      case 'calculator':
+        return config.bannerCalculator !== false;
+      case 'chaukhat':
+        return config.bannerChaukhat !== false;
+      case 'detail':
+        return config.bannerDetail !== false;
+      case 'visualizer':
+        return config.bannerVisualizer !== false;
+      case 'guide':
+      case 'articles':
+        return config.bannerArticles !== false;
+      case 'tracking':
+        return config.bannerTracking !== false;
+      case 'saved':
+        return config.bannerSaved !== false;
+      default:
+        return true;
+    }
+  }
+
+  // --- Monitored Analytics Tracking (Policy Compliant, Zero Artificial Inflation) ---
+  public trackEvent(
+    type: 'impression' | 'click' | 'reward' | 'load_success' | 'load_fail' | 'no_fill',
+    format: 'banner' | 'interstitial' | 'rewarded' | 'rewarded_interstitial' | 'native' | 'app_open',
+    placement?: string
+  ): void {
+    if (typeof window === 'undefined' || this.isAdminActive()) return;
+    try {
+      const KEY = 'jai_admob_analytics_v1';
+      const raw = localStorage.getItem(KEY);
+      const data = raw ? JSON.parse(raw) : {
+        impressions: { banner: 0, interstitial: 0, rewarded: 0, rewarded_interstitial: 0, native: 0, app_open: 0 },
+        clicks: { banner: 0, native: 0 },
+        loads: { success: 0, fail: 0, no_fill: 0 },
+        rewards: 0,
+        lastUpdated: new Date().toISOString(),
+      };
+
+      if (type === 'impression') {
+        data.impressions[format] = (data.impressions[format] || 0) + 1;
+      } else if (type === 'click') {
+        if (format === 'banner' || format === 'native') {
+          data.clicks[format] = (data.clicks[format] || 0) + 1;
+        }
+      } else if (type === 'reward') {
+        data.rewards = (data.rewards || 0) + 1;
+      } else if (type === 'load_success') {
+        data.loads.success = (data.loads.success || 0) + 1;
+      } else if (type === 'load_fail') {
+        data.loads.fail = (data.loads.fail || 0) + 1;
+      } else if (type === 'no_fill') {
+        data.loads.no_fill = (data.loads.no_fill || 0) + 1;
+      }
+
+      data.lastUpdated = new Date().toISOString();
+      localStorage.setItem(KEY, JSON.stringify(data));
+    } catch {}
+  }
+
+  public getAnalyticsSummary() {
+    if (typeof window === 'undefined') return null;
+    try {
+      const KEY = 'jai_admob_analytics_v1';
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  public resetAnalytics(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.removeItem('jai_admob_analytics_v1');
+    } catch {}
+  }
+
+  /**
    * Initializes the Google Mobile Ads SDK and requests UMP consent if applicable.
    * Safe to call multiple times; executes only once.
    */
   public async initialize(customSettings?: AdMobSettings): Promise<void> {
     if (this.isInitialized || this.isInitializing) return;
+    if (this.isAdminActive()) {
+      console.log('🛡️ [AdMob Restriction] Admin screen/session active. Suppressing Mobile Ads SDK initialization.');
+      return;
+    }
     this.isInitializing = true;
 
     const config = getActiveAdMobSettings(customSettings);
@@ -135,14 +320,16 @@ class AdMobService {
       console.log('✅ [AdMob] Google Mobile Ads SDK initialized successfully. TestMode:', config.testMode);
 
       // 3. Preload full-screen ads in background for smooth natural transitions
-      if (config.enableInterstitials) {
-        this.preloadInterstitial(customSettings);
-      }
-      if (config.enableRewardedAds) {
-        this.preloadRewarded(customSettings);
-      }
-      if (config.enableAppOpenAds) {
-        this.preloadAppOpen(customSettings);
+      if (!this.isAdminActive()) {
+        if (config.enableInterstitials) {
+          this.preloadInterstitial(customSettings);
+        }
+        if (config.enableRewardedAds) {
+          this.preloadRewarded(customSettings);
+        }
+        if (config.enableAppOpenAds) {
+          this.preloadAppOpen(customSettings);
+        }
       }
     } catch (err: any) {
       console.warn('⚠️ [AdMob] Initialization notice (app will continue normally):', err.message || err);
@@ -175,7 +362,9 @@ class AdMobService {
         this.isInterstitialLoaded = false;
         this.isFullScreenAdActive = false;
         this.lastInterstitialShownTime = Date.now();
-        setTimeout(() => this.preloadInterstitial(), 3000);
+        if (!this.isAdminActive()) {
+          setTimeout(() => this.preloadInterstitial(), 3000);
+        }
       });
 
       AdMob.addListener(InterstitialAdPluginEvents.FailedToShow, () => {
@@ -201,7 +390,9 @@ class AdMobService {
         console.log('🚪 [AdMob] Rewarded video closed.');
         this.isRewardedLoaded = false;
         this.isFullScreenAdActive = false;
-        setTimeout(() => this.preloadRewarded(), 3000);
+        if (!this.isAdminActive()) {
+          setTimeout(() => this.preloadRewarded(), 3000);
+        }
       });
 
       AdMob.addListener(RewardAdPluginEvents.FailedToShow, () => {
@@ -228,7 +419,9 @@ class AdMobService {
         this.isAppOpenLoaded = false;
         this.isFullScreenAdActive = false;
         this.lastAppOpenShownTime = Date.now();
-        setTimeout(() => this.preloadAppOpen(), 5000);
+        if (!this.isAdminActive()) {
+          setTimeout(() => this.preloadAppOpen(), 5000);
+        }
       });
 
       AdMob.addListener(AppOpenAdPluginEvents.FailedToShow, () => {
@@ -249,6 +442,10 @@ class AdMobService {
     customSettings?: AdMobSettings,
     margin = 72
   ): Promise<void> {
+    if (this.isAdminActive()) {
+      this.hideAdaptiveBanner();
+      return;
+    }
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableBanners) return;
     if (!this.isNative()) return;
@@ -291,7 +488,8 @@ class AdMobService {
   // ==========================================================================
   // FORMAT 2: INTERSTITIAL AD (Natural breaks e.g. after quotation estimate)
   // ==========================================================================
-  public async preloadInterstitial(customSettings?: AdMobSettings): Promise<boolean> {
+  public async preloadInterstitial(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
+    if (!bypassAdminRestriction && this.isAdminActive()) return false;
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableInterstitials) return false;
     if (this.isInterstitialLoaded || this.isInterstitialLoading) return this.isInterstitialLoaded;
@@ -322,7 +520,8 @@ class AdMobService {
   public async showQuotationInterstitial(
     onDone: () => void,
     customSettings?: AdMobSettings,
-    safetyTimeoutMs = 3500
+    safetyTimeoutMs = 3500,
+    bypassAdminRestriction = false
   ): Promise<void> {
     let completed = false;
     const safeComplete = () => {
@@ -333,7 +532,12 @@ class AdMobService {
       }
     };
 
-    if (this.isFullScreenAdActive || this.isCameraOrScanActive) {
+    if (!bypassAdminRestriction && this.isAdminActive()) {
+      safeComplete();
+      return;
+    }
+
+    if (this.isFullScreenAdActive || this.isCameraOrScanActive || this.isFormOrCheckoutActive) {
       safeComplete();
       return;
     }
@@ -344,11 +548,19 @@ class AdMobService {
       return;
     }
 
-    // Frequency capping
+    // Session frequency capping (e.g. max 4 per session)
+    const maxPerSession = config.maxInterstitialsPerSession || 4;
+    if (this.sessionInterstitialCount >= maxPerSession) {
+      console.log(`⏱️ [AdMob Interstitial] Session limit (${maxPerSession}) reached; skipping.`);
+      safeComplete();
+      return;
+    }
+
+    // Frequency capping: Minimum interval between impressions
     const now = Date.now();
     const minIntervalMs = (config.interstitialMinIntervalSeconds || 45) * 1000;
     if (now - this.lastInterstitialShownTime < minIntervalMs) {
-      console.log('⏱️ [AdMob Interstitial] Frequency cap active; skipping.');
+      console.log('⏱️ [AdMob Interstitial] Frequency interval cooldown active; skipping.');
       safeComplete();
       return;
     }
@@ -363,13 +575,15 @@ class AdMobService {
     if (!this.isNative()) {
       clearTimeout(timeoutHandle);
       this.lastInterstitialShownTime = now;
+      this.sessionInterstitialCount++;
+      this.trackEvent('impression', 'interstitial', 'web_preview');
       safeComplete();
       return;
     }
 
     try {
       if (!this.isInterstitialLoaded) {
-        const loaded = await this.preloadInterstitial(customSettings);
+        const loaded = await this.preloadInterstitial(customSettings, bypassAdminRestriction);
         if (!loaded) {
           clearTimeout(timeoutHandle);
           safeComplete();
@@ -391,7 +605,9 @@ class AdMobService {
       dismissHandle = await AdMob.addListener(InterstitialAdPluginEvents.Dismissed, () => {
         cleanup();
         this.lastInterstitialShownTime = Date.now();
+        this.sessionInterstitialCount++;
         this.isInterstitialLoaded = false;
+        this.trackEvent('impression', 'interstitial', 'native');
         safeComplete();
       });
 
@@ -399,6 +615,7 @@ class AdMobService {
         cleanup();
         this.lastInterstitialShownTime = Date.now();
         this.isInterstitialLoaded = false;
+        this.trackEvent('load_fail', 'interstitial');
         safeComplete();
       });
 
@@ -407,14 +624,80 @@ class AdMobService {
     } catch (err: any) {
       console.warn('⚠️ [AdMob Interstitial] Could not show interstitial:', err?.message || err);
       clearTimeout(timeoutHandle);
+      this.trackEvent('load_fail', 'interstitial');
       safeComplete();
     }
+  }
+
+  /**
+   * Natural section transition interstitial helper.
+   * Checks if user has browsed multiple sections (e.g. 4 view changes),
+   * respects the session limit, minimum interval, and safe context locks.
+   * Asynchronous and failsafe: onDone() is ALWAYS invoked.
+   */
+  public async recordNavigationTransition(
+    fromView: string,
+    toView: string,
+    onDone: () => void,
+    customSettings?: AdMobSettings
+  ): Promise<void> {
+    if (this.isAdminActive() || fromView.toLowerCase().includes('admin') || toView.toLowerCase().includes('admin')) {
+      onDone();
+      return;
+    }
+
+    const config = getActiveAdMobSettings(customSettings);
+    if (!config.enabled || !config.enableInterstitials || !config.enableNavTransitionInterstitials) {
+      onDone();
+      return;
+    }
+
+    // Skip transitions to administrative, privacy, legal, or contact pages
+    const ignoredViews = ['privacy', 'disclaimer', 'contact', 'about', 'admin'];
+    if (ignoredViews.includes(toView.toLowerCase())) {
+      onDone();
+      return;
+    }
+
+    this.navigationViewCount++;
+    const minThreshold = config.navTransitionMinViews || 4;
+
+    if (this.navigationViewCount < minThreshold) {
+      onDone();
+      return;
+    }
+
+    // Check session frequency cap
+    const maxPerSession = config.maxInterstitialsPerSession || 4;
+    if (this.sessionInterstitialCount >= maxPerSession) {
+      onDone();
+      return;
+    }
+
+    // Check cooldown interval
+    const now = Date.now();
+    const minIntervalMs = (config.interstitialMinIntervalSeconds || 45) * 1000;
+    if (now - this.lastInterstitialShownTime < minIntervalMs) {
+      onDone();
+      return;
+    }
+
+    // Check safe locks
+    if (this.isFullScreenAdActive || this.isCameraOrScanActive || this.isFormOrCheckoutActive) {
+      onDone();
+      return;
+    }
+
+    // Reset view counter and present natural transition ad
+    this.navigationViewCount = 0;
+    this.showQuotationInterstitial(onDone, customSettings, 3200);
   }
 
   // ==========================================================================
   // FORMAT 3: REWARDED VIDEO AD (+3 AI Wood Scan Credits upon verified completion)
   // ==========================================================================
-  public async preloadRewarded(customSettings?: AdMobSettings): Promise<boolean> {
+  public async preloadRewarded(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
+    if (!bypassAdminRestriction && this.isAdminActive()) return false;
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableRewardedAds) return false;
     if (this.isRewardedLoaded || this.isRewardedLoading) return this.isRewardedLoaded;
@@ -452,8 +735,13 @@ class AdMobService {
   public async showRewardedAd(
     onRewardConfirmed: (reward: { amount: number; type: string }) => void,
     onDismissed?: () => void,
-    customSettings?: AdMobSettings
+    customSettings?: AdMobSettings,
+    bypassAdminRestriction = false
   ): Promise<{ shown: boolean; rewarded: boolean }> {
+    if (!bypassAdminRestriction && this.isAdminActive()) {
+      return { shown: false, rewarded: false };
+    }
+
     if (this.isFullScreenAdActive) {
       return { shown: false, rewarded: false };
     }
@@ -478,7 +766,7 @@ class AdMobService {
 
     try {
       if (!this.isRewardedLoaded) {
-        const loaded = await this.preloadRewarded(customSettings);
+        const loaded = await this.preloadRewarded(customSettings, bypassAdminRestriction);
         if (!loaded) {
           this.isFullScreenAdActive = false;
           return { shown: false, rewarded: false };
@@ -538,7 +826,8 @@ class AdMobService {
   // ==========================================================================
   // FORMAT 4: REWARDED INTERSTITIAL AD (Clear opt-in disclosure + verified reward)
   // ==========================================================================
-  public async preloadRewardedInterstitial(customSettings?: AdMobSettings): Promise<boolean> {
+  public async preloadRewardedInterstitial(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
+    if (!bypassAdminRestriction && this.isAdminActive()) return false;
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableRewardedInterstitialAds) return false;
     if (this.isRewardedInterstitialLoaded || this.isRewardedInterstitialLoading) {
@@ -571,8 +860,13 @@ class AdMobService {
   public async showRewardedInterstitialAd(
     onRewardConfirmed: (reward: { amount: number; type: string }) => void,
     onDismissed?: () => void,
-    customSettings?: AdMobSettings
+    customSettings?: AdMobSettings,
+    bypassAdminRestriction = false
   ): Promise<{ shown: boolean; rewarded: boolean }> {
+    if (!bypassAdminRestriction && this.isAdminActive()) {
+      return { shown: false, rewarded: false };
+    }
+
     if (this.isFullScreenAdActive) {
       return { shown: false, rewarded: false };
     }
@@ -596,7 +890,7 @@ class AdMobService {
 
     try {
       if (!this.isRewardedInterstitialLoaded) {
-        const loaded = await this.preloadRewardedInterstitial(customSettings);
+        const loaded = await this.preloadRewardedInterstitial(customSettings, bypassAdminRestriction);
         if (!loaded) {
           this.isFullScreenAdActive = false;
           return { shown: false, rewarded: false };
@@ -654,7 +948,8 @@ class AdMobService {
   // ==========================================================================
   // FORMAT 6: APP OPEN AD (Foreground return & cold start with 4h freshness)
   // ==========================================================================
-  public async preloadAppOpen(customSettings?: AdMobSettings): Promise<boolean> {
+  public async preloadAppOpen(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
+    if (!bypassAdminRestriction && this.isAdminActive()) return false;
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableAppOpenAds) return false;
     if (this.isAppOpenLoaded || this.isAppOpenLoading) {
@@ -687,14 +982,24 @@ class AdMobService {
     }
   }
 
-  public async showAppOpenAd(customSettings?: AdMobSettings): Promise<boolean> {
-    // Safety checks: Never interrupt when camera, photo scan, or another full-screen ad is active
-    if (this.isFullScreenAdActive || this.isCameraOrScanActive) {
+  public async showAppOpenAd(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
+    if (!bypassAdminRestriction && this.isAdminActive()) {
+      return false;
+    }
+
+    // Safety checks: Never interrupt when camera, photo scan, checkout, or full-screen ad is active
+    if (this.isFullScreenAdActive || this.isCameraOrScanActive || this.isFormOrCheckoutActive) {
       return false;
     }
 
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableAppOpenAds) {
+      return false;
+    }
+
+    // Session frequency cap for App Open ads (default 2 per session)
+    const maxAppOpen = config.maxAppOpenPerSession || 2;
+    if (this.sessionAppOpenCount >= maxAppOpen) {
       return false;
     }
 
@@ -715,6 +1020,8 @@ class AdMobService {
 
     if (!this.isNative()) {
       this.lastAppOpenShownTime = now;
+      this.sessionAppOpenCount++;
+      this.trackEvent('impression', 'app_open', 'web_preview');
       return true;
     }
 
@@ -727,13 +1034,38 @@ class AdMobService {
       console.log('🚀 [AdMob App Open] Presenting App Open ad...');
       await AdMob.showAppOpen();
       this.lastAppOpenShownTime = Date.now();
+      this.sessionAppOpenCount++;
+      this.trackEvent('impression', 'app_open', 'native');
       return true;
     } catch (err: any) {
       console.warn('⚠️ [AdMob App Open] Show failed:', err?.message || err);
       this.isFullScreenAdActive = false;
       this.isAppOpenLoaded = false;
+      this.trackEvent('load_fail', 'app_open');
       return false;
     }
+  }
+
+  // ==========================================================================
+  // REWARDED UNLOCK HELPER: 3D STUDIO 4K LIGHTING & PERSPECTIVE
+  // ==========================================================================
+  public isVisualizerStudioLightingUnlocked(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+      const expires = localStorage.getItem('jai_visualizer_lighting_unlocked_until');
+      if (expires && Number(expires) > Date.now()) {
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  public unlockVisualizerStudioLighting(durationMinutes = 120): void {
+    if (typeof window === 'undefined') return;
+    try {
+      const expiry = Date.now() + durationMinutes * 60 * 1000;
+      localStorage.setItem('jai_visualizer_lighting_unlocked_until', String(expiry));
+    } catch {}
   }
 
   // ==========================================================================
@@ -741,14 +1073,20 @@ class AdMobService {
   // ==========================================================================
   public getStatus() {
     return {
+      isAdminActive: this.isAdminActive(),
+      isAdminPanelOpen: this.isAdminPanelOpen,
+      isAdminSessionActive: this.isAdminSessionActive,
       isInitialized: this.isInitialized,
       isNative: this.isNative(),
       isFullScreenAdActive: this.isFullScreenAdActive,
       isCameraOrScanActive: this.isCameraOrScanActive,
+      isFormOrCheckoutActive: this.isFormOrCheckoutActive,
       // Interstitial
       isInterstitialLoaded: this.isInterstitialLoaded,
       isInterstitialLoading: this.isInterstitialLoading,
       lastInterstitialShownTime: this.lastInterstitialShownTime,
+      sessionInterstitialCount: this.sessionInterstitialCount,
+      navigationViewCount: this.navigationViewCount,
       // Rewarded
       isRewardedLoaded: this.isRewardedLoaded,
       isRewardedLoading: this.isRewardedLoading,
@@ -758,9 +1096,14 @@ class AdMobService {
       isAppOpenLoaded: this.isAppOpenLoaded,
       appOpenLoadTimestamp: this.appOpenLoadTimestamp,
       lastAppOpenShownTime: this.lastAppOpenShownTime,
+      sessionAppOpenCount: this.sessionAppOpenCount,
       // Banner
       activeBannerPosition: this.activeBannerPosition,
       isBannerShowing: this.isBannerShowing,
+      // Visualizer Reward Status
+      isStudioLightingUnlocked: this.isVisualizerStudioLightingUnlocked(),
+      // Analytics
+      analytics: this.getAnalyticsSummary(),
     };
   }
 }

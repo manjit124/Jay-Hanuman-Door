@@ -13,11 +13,14 @@ import {
   MapPin,
   Sparkles,
   Loader2,
+  Cloud,
+  ExternalLink,
 } from 'lucide-react';
 import { CalculationResult, BusinessSettings, Door, Quotation } from '../types.ts';
 import { createQuotation } from '../lib/api.ts';
-import { generateQuotationPDF } from '../lib/pdfGenerator.ts';
+import { generateQuotationPDF, createQuotationPDFBlob } from '../lib/pdfGenerator.ts';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
+import { uploadBlobToDrive } from '../lib/googleDriveService.ts';
 
 interface QuotationModalProps {
   calculation: CalculationResult;
@@ -90,9 +93,41 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
     }
   };
 
+  const [isDriveSaving, setIsDriveSaving] = useState(false);
+  const [driveSuccessLink, setDriveSuccessLink] = useState<{ url: string; name: string } | null>(null);
+  const [driveError, setDriveError] = useState<string | null>(null);
+
   const handleDownloadPDF = () => {
     if (!savedQuote) return;
     generateQuotationPDF(savedQuote, settings);
+  };
+
+  const handleSaveToGoogleDrive = async () => {
+    if (!savedQuote) return;
+    setIsDriveSaving(true);
+    setDriveError(null);
+    setDriveSuccessLink(null);
+
+    try {
+      const { blob, filename } = createQuotationPDFBlob(savedQuote, settings);
+      const res = await uploadBlobToDrive(
+        blob,
+        filename,
+        'application/pdf',
+        'Jai Hanuman Door Quotes',
+        `Official quotation ${savedQuote.quoteNumber} for ${savedQuote.customerName} (${savedQuote.doorName})`
+      );
+
+      setDriveSuccessLink({
+        url: res.webViewLink || 'https://drive.google.com',
+        name: res.name,
+      });
+    } catch (err: any) {
+      console.error('Google Drive save error:', err);
+      setDriveError(err?.message || 'Failed to save quotation to Google Drive');
+    } finally {
+      setIsDriveSaving(false);
+    }
   };
 
   const handleWhatsApp = () => {
@@ -477,34 +512,91 @@ Please confirm availability and dispatch timeline.`;
               </div>
 
               {/* Action Buttons (Section 11) */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 <button
                   id="btn-download-pdf"
+                  type="button"
                   onClick={handleDownloadPDF}
-                  className="py-3 px-4 rounded-xl bg-gradient-to-r from-[#C89211] to-[#b07d08] hover:opacity-95 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#C89211] to-[#b07d08] hover:opacity-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
                 >
                   <Download className="w-4 h-4 text-white" />
-                  Download PDF
+                  <span>Download PDF</span>
+                </button>
+
+                <button
+                  id="btn-save-google-drive"
+                  type="button"
+                  onClick={handleSaveToGoogleDrive}
+                  disabled={isDriveSaving}
+                  className="py-2.5 px-3 rounded-xl bg-[#0C0A09] hover:bg-stone-800 text-amber-400 font-semibold text-xs flex items-center justify-center gap-1.5 border border-[#C89211]/40 shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  {isDriveSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>Saving to Drive...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Cloud className="w-4 h-4 text-amber-400" />
+                      <span>Save to Drive</span>
+                    </>
+                  )}
                 </button>
 
                 <button
                   id="btn-send-whatsapp-quotation"
+                  type="button"
                   onClick={handleWhatsApp}
-                  className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
                 >
                   <MessageCircle className="w-4 h-4 text-white" />
-                  Send on WhatsApp
+                  <span>WhatsApp</span>
                 </button>
 
                 <button
                   id="btn-share-quotation-modal"
+                  type="button"
                   onClick={handleShare}
-                  className="py-3 px-4 rounded-xl bg-white hover:bg-[#F8F8F6] text-[#1A1A1A] font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-[#E5E5E5] shadow-sm transition-colors cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#F8F8F6] text-[#1A1A1A] font-semibold text-xs flex items-center justify-center gap-1.5 border border-[#E5E5E5] shadow-sm transition-colors cursor-pointer"
                 >
                   <Share2 className="w-4 h-4 text-[#666666]" />
-                  Share Quote
+                  <span>Share Quote</span>
                 </button>
               </div>
+
+              {driveSuccessLink && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Saved to your Google Drive in folder <strong>Jai Hanuman Door Quotes</strong></span>
+                  </div>
+                  <a
+                    href={driveSuccessLink.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 font-bold text-emerald-700 hover:underline shrink-0"
+                  >
+                    <span>Open in Drive</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              )}
+
+              {driveError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 flex items-center justify-between animate-in fade-in duration-200">
+                  <span className="flex items-center gap-1.5">
+                    <X className="w-4 h-4 text-red-600 shrink-0 cursor-pointer" onClick={() => setDriveError(null)} />
+                    {driveError}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSaveToGoogleDrive}
+                    className="underline text-[11px] font-semibold text-red-900 hover:text-red-700 cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
 
             </div>
           )}

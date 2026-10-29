@@ -276,6 +276,7 @@ export const DEFAULT_HARDWARE: HardwareItem[] = [
 export const DEFAULT_SETTINGS: BusinessSettings = {
   businessName: 'Jai Hanuman Door',
   tagline: 'Premium Handcrafted Wooden Doors & Custom Architectural Joinery',
+  logoUrl: '/assets/logo.png',
   phone: '7887412884',
   whatsappNumber: '7887412884',
   email: 'shivshahidoors@gmail.com',
@@ -704,6 +705,11 @@ export function setAdminToken(token: string): void {
 
 export function clearAdminToken(): void {
   localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+export function getAdminAuthHeaders(): Record<string, string> {
+  const token = getAdminToken();
+  return token ? { Authorization: `Bearer ${token}`, 'x-admin-token': token } : {};
 }
 
 function authHeaders(): HeadersInit {
@@ -1551,8 +1557,11 @@ export interface DriveImageImportResult {
   width: number;
   height: number;
   storageType: string;
-  r2Bucket: string;
-  r2Key: string;
+  downloadUrl?: string;
+  storagePath?: string;
+  firebaseBucket?: string;
+  r2Bucket?: string;
+  r2Key?: string;
   errorCode?: string;
 }
 
@@ -1648,7 +1657,7 @@ export async function previewDriveOrExternalImage(url: string): Promise<DriveIma
   );
 }
 
-export async function importDriveOrExternalImageToR2(url: string): Promise<DriveImageImportResult> {
+export async function importDriveOrExternalImageToStorage(url: string): Promise<DriveImageImportResult> {
   const cleanUrl = String(url || '').trim();
   if (!cleanUrl) {
     throw new Error('[EMPTY_URL] Please paste a Google Drive sharing link or direct HTTPS image URL.');
@@ -1657,7 +1666,7 @@ export async function importDriveOrExternalImageToR2(url: string): Promise<Drive
   const imported = await callDriveImageEndpoint<DriveImageImportResult>(
     '/api/admin/drive-image/import',
     cleanUrl,
-    'Import Image to Cloudflare R2'
+    'Import Image to Firebase Storage'
   );
 
   return {
@@ -1665,6 +1674,8 @@ export async function importDriveOrExternalImageToR2(url: string): Promise<Drive
     url: resolveImageUrl(imported.url),
   };
 }
+
+export const importDriveOrExternalImageToR2 = importDriveOrExternalImageToStorage;
 
 export async function uploadVideo(file: File): Promise<{ url: string; filename?: string; size?: number }> {
   const formData = new FormData();
@@ -4046,6 +4057,90 @@ export async function reorderAdminChaukhatProducts(ids: string[]): Promise<void>
     await reorderChaukhatProductsDirectFirestore(ids);
   }
 }
+
+export interface StorageStatusResponse {
+  storage?: {
+    provider: 'firebase_storage';
+    configured: boolean;
+    connected: boolean;
+    readable: boolean;
+    writable: boolean;
+    bucket: string;
+    statusMessage: string;
+    firebaseStorageReady: boolean;
+    setupInstructionsRequired?: boolean;
+  };
+  r2: {
+    configured: boolean;
+    connected: boolean;
+    readable: boolean;
+    writable: boolean;
+    bucket: string;
+    endpointConfigured: boolean;
+    missingVars: string[];
+    tokenPermissionIssue?: boolean;
+    statusMessage: string;
+    tokenGuidance?: string;
+  };
+  stats?: {
+    r2ObjectCount: number;
+    r2TotalBytes: number;
+    r2FormattedSize: string;
+    localFilesCount: number;
+    localTotalBytes: number;
+    localFormattedSize: string;
+    pendingSyncCount: number;
+  };
+  activeMode: string;
+  firestoreMediaPreserved: boolean;
+}
+
+export async function fetchStorageStatus(): Promise<StorageStatusResponse | null> {
+  try {
+    const res = await apiFetch('/api/admin/storage-status', {
+      headers: authHeaders(),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err: any) {
+    console.warn('[StorageAPI] Failed to fetch storage status:', err.message);
+  }
+  return null;
+}
+
+export async function triggerStorageSyncPending(): Promise<{ success: boolean; message: string; error?: string }> {
+  try {
+    const res = await apiFetch('/api/admin/storage/sync-pending', {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, message: data.error || 'Sync request failed', error: data.error };
+    }
+    return { success: data.success, message: data.message || 'Sync completed successfully' };
+  } catch (err: any) {
+    return { success: false, message: err.message || 'Network error triggering sync', error: err.message };
+  }
+}
+
+export const triggerR2SyncPending = triggerStorageSyncPending;
+
+export async function deleteMediaAsset(url: string, force = false): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await apiFetch('/api/admin/media/delete', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ url, force }),
+    });
+    const data = await res.json();
+    return { success: data.success || data.deleted, error: data.error };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
 
 
 
