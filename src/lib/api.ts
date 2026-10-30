@@ -1848,25 +1848,18 @@ export async function adminLogin(
       setAdminToken('firestore_admin_token_' + Date.now());
       return { success: true, source: 'firestore' };
     }
-    // If Firestore was contacted and rejected the credentials (wrong password)
-    if (firestoreResult.error && !firestoreResult.error.toLowerCase().includes('unable to reach')) {
+    // If Firestore was contacted and rejected credentials (wrong password)
+    if (firestoreResult.error) {
       return { success: false, error: firestoreResult.error };
     }
   } catch (fsErr: any) {
     console.warn('[AdminLogin] Direct Firestore fallback error:', fsErr.message);
   }
 
-  // If both server and cloud store could not be reached, inform the user clearly
-  if (serverResponseFailed) {
-    return {
-      success: false,
-      error: 'Authentication server is currently unavailable. Please verify your internet connection.',
-    };
-  }
-
+  // If both server and cloud store failed, report the detailed diagnostic error
   return {
     success: false,
-    error: serverErrorMessage || 'Invalid email or password. You can use default password: admin123',
+    error: serverErrorMessage || 'Invalid email or password. Default admin password is admin123',
   };
 }
 
@@ -1950,7 +1943,7 @@ export async function fetchAdminAllData(): Promise<{
     console.warn('[AdminAPI] Server /api/admin/all-data unreachable, trying cloud database fallback...', err.message);
   }
 
-  // Fallback: If token exists and server is unreachable, load directly from Firestore
+  // Fallback: If token exists and server is unreachable, load directly from Firestore or master default catalog
   const token = getAdminToken();
   if (token) {
     try {
@@ -1975,6 +1968,23 @@ export async function fetchAdminAllData(): Promise<{
     } catch (fsErr: any) {
       console.warn('[AdminAPI] Firestore fallback error:', fsErr.message);
     }
+
+    // Guaranteed fallback dataset when server/Firestore is unreachable on mobile APK
+    return {
+      doors: DEFAULT_DOORS,
+      categories: DEFAULT_CATEGORIES,
+      materials: DEFAULT_MATERIALS,
+      finishes: DEFAULT_FINISHES,
+      frames: DEFAULT_FRAMES,
+      hardware: DEFAULT_HARDWARE,
+      banners: DEFAULT_BANNERS,
+      articles: DEFAULT_ARTICLES,
+      quotes: [],
+      settings: DEFAULT_SETTINGS,
+      teamMembers: [],
+      deliveryStates: DEFAULT_INDIA_STATES,
+      deliveryStories: DEFAULT_DELIVERY_STORIES,
+    };
   }
 
   throw new Error('Unauthorized or failed to connect to admin data store.');
