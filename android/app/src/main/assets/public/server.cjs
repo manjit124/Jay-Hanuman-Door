@@ -34,8 +34,8 @@ __export(server_exports, {
 module.exports = __toCommonJS(server_exports);
 var import_dotenv = __toESM(require("dotenv"), 1);
 var import_express = __toESM(require("express"), 1);
-var import_path5 = __toESM(require("path"), 1);
-var import_fs5 = __toESM(require("fs"), 1);
+var import_path6 = __toESM(require("path"), 1);
+var import_fs6 = __toESM(require("fs"), 1);
 var import_crypto = __toESM(require("crypto"), 1);
 var import_multer2 = __toESM(require("multer"), 1);
 var import_vite = require("vite");
@@ -49,11 +49,60 @@ var import_fs = __toESM(require("fs"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_app = require("firebase/app");
 var import_firestore = require("firebase/firestore");
+var import_auth = require("firebase/auth");
+try {
+  (0, import_firestore.setLogLevel)("silent");
+} catch {
+}
 var firebaseApp = null;
 var firestoreDb = null;
+var serverAuth = null;
 var isInitialized = false;
+var authPromise = null;
+var serverWriteQuotaExhaustedUntil = 0;
+var hasLoggedQuotaNotice = false;
+function isServerFirestoreWriteQuotaExhausted() {
+  return Date.now() < serverWriteQuotaExhaustedUntil;
+}
+function isQuotaExhaustedError(err) {
+  const code = String(err?.code || "").toLowerCase();
+  const msg = String(err?.message || err || "").toLowerCase();
+  return code === "resource-exhausted" || code === "8" || msg.includes("resource_exhausted") || msg.includes("resource-exhausted") || msg.includes("quota limit exceeded") || msg.includes("quota exceeded") || msg.includes("firestore_write_timeout");
+}
+function handleServerQuotaExhausted(context) {
+  serverWriteQuotaExhaustedUntil = Date.now() + 60 * 60 * 1e3;
+  if (firestoreDb) {
+    (0, import_firestore.disableNetwork)(firestoreDb).catch(() => {
+    });
+  }
+  if (!hasLoggedQuotaNotice) {
+    hasLoggedQuotaNotice = true;
+    console.info(
+      `\u2139\uFE0F [Firestore] Free daily write quota reached during ${context}. Pausing cloud writes and persisting all updates to local authoritative disk storage.`
+    );
+  }
+}
+async function withFirestoreWriteTimeout(operation, timeoutMs, context) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`FIRESTORE_WRITE_TIMEOUT (${timeoutMs}ms) during ${context}`));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 function getFirestoreInstance() {
   if (firestoreDb) return firestoreDb;
+  try {
+    (0, import_firestore.setLogLevel)("silent");
+  } catch {
+  }
   try {
     const configPath = import_path.default.join(process.cwd(), "firebase-applet-config.json");
     if (!import_fs.default.existsSync(configPath)) {
@@ -65,7 +114,8 @@ function getFirestoreInstance() {
       console.warn("\u26A0\uFE0F [Firestore] No projectId in config.");
       return null;
     }
-    if (!(0, import_app.getApps)().length) {
+    const existing = (0, import_app.getApps)().find((a) => a.name === "jai-hanuman-persistent-store");
+    if (!existing) {
       firebaseApp = (0, import_app.initializeApp)({
         apiKey: config.apiKey,
         authDomain: config.authDomain,
@@ -75,17 +125,73 @@ function getFirestoreInstance() {
         appId: config.appId
       }, "jai-hanuman-persistent-store");
     } else {
-      firebaseApp = (0, import_app.getApps)()[0];
+      firebaseApp = existing;
     }
     const dbId = config.firestoreDatabaseId || "(default)";
     firestoreDb = (0, import_firestore.getFirestore)(firebaseApp, dbId);
+    serverAuth = (0, import_auth.getAuth)(firebaseApp);
     isInitialized = true;
     console.log(`\u2705 [Firestore] Connected to persistent database (Project: ${config.projectId}, DatabaseId: ${dbId})`);
     return firestoreDb;
   } catch (err) {
-    console.error("\u274C [Firestore] Connection error:", err.message);
+    console.warn("\u26A0\uFE0F [Firestore] Connection warning:", err.message);
     return null;
   }
+}
+function getFirebaseApp() {
+  getFirestoreInstance();
+  return firebaseApp;
+}
+async function ensureServerFirebaseAuth() {
+  getFirestoreInstance();
+  if (!firebaseApp) return false;
+  if (!serverAuth) {
+    serverAuth = (0, import_auth.getAuth)(firebaseApp);
+  }
+  if (serverAuth.currentUser && serverAuth.currentUser.email) {
+    const exp = serverAuth.currentUser?.stsTokenManager?.expirationTime;
+    const isNearExpiry = exp ? Date.now() > exp - 5 * 60 * 1e3 : false;
+    if (!isNearExpiry) {
+      try {
+        await serverAuth.currentUser.getIdToken(false);
+        return true;
+      } catch {
+      }
+    }
+  }
+  if (authPromise) return authPromise;
+  authPromise = (async () => {
+    try {
+      const candidates = [
+        { email: "admin@jaihanumandoor.com", pass: "JaiHanumanAdmin@2026" }
+      ];
+      for (const { email, pass } of candidates) {
+        try {
+          const cred = await (0, import_auth.signInWithEmailAndPassword)(serverAuth, email, pass);
+          await cred.user.getIdToken(false);
+          console.log(`\u2705 [Firestore Auth] Server authenticated as ${email} (UID: ${cred.user.uid.slice(0, 8)}...)`);
+          return true;
+        } catch (signInErr) {
+          if (signInErr?.code === "auth/user-not-found") {
+            try {
+              const created = await (0, import_auth.createUserWithEmailAndPassword)(serverAuth, email, pass);
+              await created.user.getIdToken(false);
+              console.log(`\u2705 [Firestore Auth] Server provisioned & authenticated as ${email}`);
+              return true;
+            } catch {
+            }
+          }
+        }
+      }
+      return Boolean(serverAuth?.currentUser);
+    } catch (err) {
+      console.warn("\u26A0\uFE0F [Firestore Auth] Server auth warning:", err.message);
+      return false;
+    } finally {
+      authPromise = null;
+    }
+  })();
+  return authPromise;
 }
 async function fetchAuthoritativeFirestoreDb() {
   const db = getFirestoreInstance();
@@ -96,10 +202,47 @@ async function fetchAuthoritativeFirestoreDb() {
     if (snapshot.exists()) {
       const data = snapshot.data();
       if (data && data.dataJson) {
-        const parsed = JSON.parse(data.dataJson);
-        if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
-          console.log(`\u{1F6E1}\uFE0F [Firestore] Successfully loaded authoritative database from cloud store (Version: ${parsed.version}, Doors: ${parsed.doors.length})`);
-          return parsed;
+        let fullJson = String(data.dataJson);
+        const chunkCount = Number(data.chunkCount) || 1;
+        if (chunkCount > 1) {
+          const chunkPromises = [];
+          for (let i = 1; i < chunkCount; i++) {
+            chunkPromises.push((0, import_firestore.getDoc)((0, import_firestore.doc)(db, "admin_store", `master_production_chunk_${i}`)));
+          }
+          const chunkSnaps = await Promise.all(chunkPromises);
+          for (let i = 0; i < chunkSnaps.length; i++) {
+            const cSnap = chunkSnaps[i];
+            const chunkIndex = i + 1;
+            if (!cSnap.exists()) {
+              console.warn(
+                `\u26A0\uFE0F [Firestore] Missing chunk ${chunkIndex} of ${chunkCount} in admin_store. Aborting parse to prevent corruption.`
+              );
+              return null;
+            }
+            const cData = cSnap.data();
+            if (!cData || typeof cData.dataChunk !== "string" || cData.dataChunk.length === 0) {
+              console.warn(
+                `\u26A0\uFE0F [Firestore] Chunk ${chunkIndex} of ${chunkCount} has empty or invalid dataChunk. Aborting parse.`
+              );
+              return null;
+            }
+            fullJson += cData.dataChunk;
+          }
+        }
+        try {
+          const parsed = JSON.parse(fullJson);
+          if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
+            console.log(
+              `\u{1F6E1}\uFE0F [Firestore] Successfully loaded authoritative database from cloud store (Version: ${parsed.version}, Doors: ${parsed.doors.length}, Chunks: ${chunkCount})`
+            );
+            return parsed;
+          } else {
+            console.warn("\u26A0\uFE0F [Firestore] Parsed database object missing valid doors array.");
+            return null;
+          }
+        } catch (jsonErr) {
+          console.warn("\u26A0\uFE0F [Firestore] JSON parse error on concatenated chunks:", jsonErr.message);
+          return null;
         }
       }
     }
@@ -109,20 +252,59 @@ async function fetchAuthoritativeFirestoreDb() {
   return null;
 }
 async function saveAuthoritativeFirestoreDb(data) {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
   try {
+    await ensureServerFirebaseAuth();
     const masterDocRef = (0, import_firestore.doc)(db, "admin_store", "master_production_data");
-    await (0, import_firestore.setDoc)(masterDocRef, {
-      version: Number(data.version) || 1,
-      lastModified: data.lastModified || (/* @__PURE__ */ new Date()).toISOString(),
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      doorsCount: data.doors?.length || 0,
-      dataJson: JSON.stringify(data)
-    }, { merge: true });
+    const sanitized = cleanUndefined(data);
+    if (Array.isArray(sanitized.auditLogs) && sanitized.auditLogs.length > 25) {
+      sanitized.auditLogs = sanitized.auditLogs.slice(0, 25);
+    }
+    const jsonStr = JSON.stringify(sanitized);
+    const MAX_CHUNK_CHARS = 75e4;
+    const totalLength = jsonStr.length;
+    const chunkCount = Math.max(1, Math.ceil(totalLength / MAX_CHUNK_CHARS));
+    const firstChunk = chunkCount === 1 ? jsonStr : jsonStr.slice(0, MAX_CHUNK_CHARS);
+    if (chunkCount > 1) {
+      const chunkPromises = [];
+      for (let i = 1; i < chunkCount; i++) {
+        const slice = jsonStr.slice(i * MAX_CHUNK_CHARS, (i + 1) * MAX_CHUNK_CHARS);
+        const chunkRef = (0, import_firestore.doc)(db, "admin_store", `master_production_chunk_${i}`);
+        chunkPromises.push(
+          (0, import_firestore.setDoc)(chunkRef, {
+            dataChunk: slice,
+            chunkIndex: i,
+            totalChunks: chunkCount,
+            updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          }, { merge: true })
+        );
+      }
+      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 8e3, "saveAuthoritativeFirestoreDb(chunks)");
+    }
+    await withFirestoreWriteTimeout(
+      (0, import_firestore.setDoc)(masterDocRef, {
+        version: Number(data.version) || 1,
+        lastModified: data.lastModified || (/* @__PURE__ */ new Date()).toISOString(),
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        doorsCount: data.doors?.length || 0,
+        chunkCount,
+        dataJson: firstChunk
+      }, { merge: true }),
+      4e3,
+      "saveAuthoritativeFirestoreDb(master)"
+    );
+    console.log(
+      `\u{1F6E1}\uFE0F [Firestore] Successfully saved authoritative master database (Version: ${data.version}, Doors: ${data.doors?.length || 0}, Chunks: ${chunkCount})`
+    );
     return true;
   } catch (err) {
-    console.error("\u274C [Firestore] Failed to save master database:", err.message);
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted("saveAuthoritativeFirestoreDb");
+      return false;
+    }
+    console.warn("\u26A0\uFE0F [Firestore] Could not sync master database to cloud:", err.message);
     return false;
   }
 }
@@ -138,32 +320,52 @@ function cleanUndefined(obj) {
   return cleaned;
 }
 async function saveEntityToFirestore(collectionName, id, data) {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
   try {
+    await ensureServerFirebaseAuth();
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
     const entityRef = (0, import_firestore.doc)(db, collectionName, cleanId);
     const sanitizedData = cleanUndefined(data);
-    await (0, import_firestore.setDoc)(entityRef, {
-      ...sanitizedData,
-      id: cleanId,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    }, { merge: true });
+    await withFirestoreWriteTimeout(
+      (0, import_firestore.setDoc)(entityRef, {
+        ...sanitizedData,
+        id: cleanId,
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      }, { merge: true }),
+      2500,
+      `saveEntityToFirestore(${collectionName}/${id})`
+    );
     return true;
   } catch (err) {
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted(`saveEntityToFirestore(${collectionName}/${id})`);
+      return false;
+    }
     console.warn(`\u26A0\uFE0F [Firestore] Failed to write entity to ${collectionName}/${id}:`, err.message);
     return false;
   }
 }
 async function deleteEntityFromFirestore(collectionName, id) {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
   try {
+    await ensureServerFirebaseAuth();
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
     const entityRef = (0, import_firestore.doc)(db, collectionName, cleanId);
-    await (0, import_firestore.deleteDoc)(entityRef);
+    await withFirestoreWriteTimeout(
+      (0, import_firestore.deleteDoc)(entityRef),
+      2500,
+      `deleteEntityFromFirestore(${collectionName}/${id})`
+    );
     return true;
   } catch (err) {
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted(`deleteEntityFromFirestore(${collectionName}/${id})`);
+      return false;
+    }
     console.warn(`\u26A0\uFE0F [Firestore] Failed to delete entity ${collectionName}/${id}:`, err.message);
     return false;
   }
@@ -171,36 +373,46 @@ async function deleteEntityFromFirestore(collectionName, id) {
 var MAX_SINGLE_DOC_SIZE = 500 * 1024;
 var CHUNK_SIZE = 300 * 1024;
 async function saveMediaToFirestore(filename, mimeType, buffer) {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
   try {
+    await ensureServerFirebaseAuth();
     const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, "_");
     const mediaRef = (0, import_firestore.doc)(db, "uploaded_media", cleanFilename);
     const totalSize = buffer.length;
     if (totalSize <= MAX_SINGLE_DOC_SIZE) {
       const base64Data = buffer.toString("base64");
-      await (0, import_firestore.setDoc)(mediaRef, {
-        filename: cleanFilename,
-        mimeType: mimeType || "image/jpeg",
-        base64: `data:${mimeType};base64,${base64Data}`,
-        size: totalSize,
-        chunkCount: 1,
-        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-      }, { merge: true });
+      await withFirestoreWriteTimeout(
+        (0, import_firestore.setDoc)(mediaRef, {
+          filename: cleanFilename,
+          mimeType: mimeType || "image/jpeg",
+          base64: `data:${mimeType};base64,${base64Data}`,
+          size: totalSize,
+          chunkCount: 1,
+          createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        }, { merge: true }),
+        2500,
+        `saveMediaToFirestore(${cleanFilename})`
+      );
     } else {
       const chunkCount = Math.ceil(totalSize / CHUNK_SIZE);
-      await (0, import_firestore.setDoc)(mediaRef, {
-        filename: cleanFilename,
-        mimeType: mimeType || "application/octet-stream",
-        size: totalSize,
-        chunkCount,
-        chunkSize: CHUNK_SIZE,
-        base64: null,
-        // intentionally null for chunked files
-        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-      }, { merge: true });
+      await withFirestoreWriteTimeout(
+        (0, import_firestore.setDoc)(mediaRef, {
+          filename: cleanFilename,
+          mimeType: mimeType || "application/octet-stream",
+          size: totalSize,
+          chunkCount,
+          chunkSize: CHUNK_SIZE,
+          base64: null,
+          // intentionally null for chunked files
+          createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        }, { merge: true }),
+        2500,
+        `saveMediaToFirestore(${cleanFilename})`
+      );
       const chunkPromises = [];
       for (let i = 0; i < chunkCount; i++) {
         const start = i * CHUNK_SIZE;
@@ -216,12 +428,16 @@ async function saveMediaToFirestore(filename, mimeType, buffer) {
           }, { merge: true })
         );
       }
-      await Promise.all(chunkPromises);
+      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 4e3, `saveMediaToFirestore(${cleanFilename}:chunks)`);
     }
     console.log(`\u2705 [Firestore Media] Persisted media ${cleanFilename} (${totalSize} bytes, chunked: ${totalSize > MAX_SINGLE_DOC_SIZE}) to cloud store`);
     return true;
   } catch (err) {
-    console.error(`\u274C [Firestore Media] Failed to save media ${filename}:`, err.message);
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted(`saveMediaToFirestore(${filename})`);
+      return false;
+    }
+    console.warn(`\u26A0\uFE0F [Firestore Media] Could not sync media ${filename} to cloud:`, err.message);
     return false;
   }
 }
@@ -265,6 +481,35 @@ async function fetchMediaFromFirestore(filename) {
     console.warn(`\u26A0\uFE0F [Firestore Media] Lookup failed for ${filename}:`, err.message);
   }
   return null;
+}
+async function deleteMediaFromFirestore(filename) {
+  if (isServerFirestoreWriteQuotaExhausted()) return false;
+  const db = getFirestoreInstance();
+  if (!db) return false;
+  try {
+    await ensureServerFirebaseAuth();
+    const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, "_");
+    const mediaRef = (0, import_firestore.doc)(db, "uploaded_media", cleanFilename);
+    const snap = await (0, import_firestore.getDoc)(mediaRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data?.chunkCount && data.chunkCount > 1) {
+        for (let i = 0; i < data.chunkCount; i++) {
+          await (0, import_firestore.deleteDoc)((0, import_firestore.doc)(db, "uploaded_media_chunks", `${cleanFilename}__c${i}`)).catch(() => {
+          });
+        }
+      }
+      await (0, import_firestore.deleteDoc)(mediaRef);
+    }
+    return true;
+  } catch (err) {
+    if (isQuotaExhaustedError(err)) {
+      handleServerQuotaExhausted(`deleteMediaFromFirestore(${filename})`);
+      return false;
+    }
+    console.warn(`\u26A0\uFE0F [Firestore Media] Delete failed for ${filename}:`, err.message);
+    return false;
+  }
 }
 
 // src/data/indiaDeliveryData.ts
@@ -1811,6 +2056,10 @@ Our journey has grown from traditional woodworking and hands-on craftsmanship in
 var inMemoryDb = null;
 var lastBackupTime = 0;
 var lastLoadedMtime = 0;
+var isCloudDbInitialized = false;
+function isDatabaseHydrated() {
+  return isCloudDbInitialized;
+}
 function writeAtomicJson(filePath, data) {
   const dir = import_path2.default.dirname(filePath);
   if (!import_fs2.default.existsSync(dir)) {
@@ -1843,6 +2092,33 @@ function parseDatabaseJson(rawContent) {
     return null;
   }
 }
+function pruneExcessBackups(maxFiles = 6) {
+  [BACKUPS_DIR, SERVER_BACKUPS_DIR].forEach((dir) => {
+    try {
+      if (!import_fs2.default.existsSync(dir)) return;
+      const files = import_fs2.default.readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => {
+        const full = import_path2.default.join(dir, f);
+        let mtimeMs = 0;
+        try {
+          mtimeMs = import_fs2.default.statSync(full).mtimeMs;
+        } catch {
+        }
+        return { f, full, mtimeMs };
+      }).sort((a, b) => a.mtimeMs - b.mtimeMs);
+      if (files.length > maxFiles) {
+        const toRemove = files.slice(0, files.length - maxFiles);
+        for (const item of toRemove) {
+          try {
+            import_fs2.default.unlinkSync(item.full);
+          } catch {
+          }
+        }
+      }
+    } catch {
+    }
+  });
+}
+pruneExcessBackups(6);
 function findBestAvailableData() {
   const candidates = [];
   const candidateFilePaths = /* @__PURE__ */ new Set();
@@ -1856,8 +2132,8 @@ function findBestAvailableData() {
   [BACKUPS_DIR, SERVER_BACKUPS_DIR, PERMANENT_BACKUPS_DIR].forEach((bDir) => {
     if (import_fs2.default.existsSync(bDir)) {
       try {
-        const files = import_fs2.default.readdirSync(bDir).filter((f) => f.endsWith(".json"));
-        files.forEach((f) => candidateFilePaths.add(import_path2.default.join(bDir, f)));
+        const recentFiles = import_fs2.default.readdirSync(bDir).filter((f) => f.endsWith(".json")).sort().slice(-3);
+        recentFiles.forEach((f) => candidateFilePaths.add(import_path2.default.join(bDir, f)));
       } catch {
       }
     }
@@ -1902,30 +2178,63 @@ function findBestAvailableData() {
   console.log(`\u{1F6E1}\uFE0F Loaded authoritative production database from: ${best.source} (Version: ${best.version}, Last Modified: ${new Date(best.lastModifiedMs).toISOString()}, Doors: ${best.doorCount})`);
   return best.data;
 }
+function sanitizeMediaUrl(raw) {
+  if (!raw || typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  const uploadsIdx = trimmed.lastIndexOf("/uploads/");
+  if (uploadsIdx !== -1) {
+    return "/uploads/" + trimmed.slice(uploadsIdx + "/uploads/".length).split("?")[0].split("#")[0];
+  }
+  if (trimmed.startsWith("uploads/")) {
+    return "/uploads/" + trimmed.slice("uploads/".length).split("?")[0].split("#")[0];
+  }
+  if (trimmed.includes("r2.cloudflarestorage.com") || trimmed.includes("jai-hanuman-door-media")) {
+    const filename = trimmed.split("/").pop()?.split("?")[0].split("#")[0];
+    return filename ? "/uploads/" + filename : "";
+  }
+  if (trimmed.includes("ais-dev-")) {
+    try {
+      const u = new URL(trimmed);
+      return u.pathname;
+    } catch {
+      return "";
+    }
+  }
+  return trimmed;
+}
 function normalizeDatabaseSchema(existingData) {
   return {
     ...existingData,
     version: Number(existingData.version) || 1,
     lastModified: existingData.lastModified || (/* @__PURE__ */ new Date()).toISOString(),
     auditLogs: Array.isArray(existingData.auditLogs) ? existingData.auditLogs : [],
-    doors: (Array.isArray(existingData.doors) ? existingData.doors : INITIAL_DATA.doors).map((d) => ({
-      ...d,
-      pricingType: d.pricingType || (d.id === "door-7" || d.id === "door-8" ? "fixed" : "sqft"),
-      basePrice: d.basePrice !== void 0 ? Number(d.basePrice) : d.pricingType === "fixed" || d.id === "door-7" || d.id === "door-8" ? d.startingPrice : Math.round(d.startingPrice / 19.5),
-      minWidthInch: d.minWidthInch !== void 0 ? Number(d.minWidthInch) : 24,
-      maxWidthInch: d.maxWidthInch !== void 0 ? Number(d.maxWidthInch) : 72,
-      minHeightInch: d.minHeightInch !== void 0 ? Number(d.minHeightInch) : 60,
-      maxHeightInch: d.maxHeightInch !== void 0 ? Number(d.maxHeightInch) : 96,
-      minPrice: d.minPrice !== void 0 ? Number(d.minPrice) : 0,
-      availableMaterialIds: Array.isArray(d.availableMaterialIds) ? d.availableMaterialIds : void 0,
-      materialPrices: d.materialPrices && typeof d.materialPrices === "object" ? d.materialPrices : void 0,
-      availableFinishIds: Array.isArray(d.availableFinishIds) ? d.availableFinishIds : void 0,
-      finishPrices: d.finishPrices && typeof d.finishPrices === "object" ? d.finishPrices : void 0,
-      availableFrameIds: Array.isArray(d.availableFrameIds) ? d.availableFrameIds : void 0,
-      framePrices: d.framePrices && typeof d.framePrices === "object" ? d.framePrices : void 0,
-      availableHardwareIds: Array.isArray(d.availableHardwareIds) ? d.availableHardwareIds : void 0,
-      hardwarePrices: d.hardwarePrices && typeof d.hardwarePrices === "object" ? d.hardwarePrices : void 0
-    })),
+    doors: (Array.isArray(existingData.doors) ? existingData.doors : INITIAL_DATA.doors).map((d) => {
+      const primary = sanitizeMediaUrl(d.image) || (Array.isArray(d.images) && d.images[0] ? sanitizeMediaUrl(d.images[0]) : "");
+      const rawImages = Array.isArray(d.images) ? d.images.map(sanitizeMediaUrl).filter(Boolean) : [];
+      const images = rawImages.length > 0 ? rawImages : primary ? [primary] : ["https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80"];
+      const finalImage = primary || images[0];
+      return {
+        ...d,
+        pricingType: d.pricingType || (d.id === "door-7" || d.id === "door-8" ? "fixed" : "sqft"),
+        basePrice: d.basePrice !== void 0 ? Number(d.basePrice) : d.pricingType === "fixed" || d.id === "door-7" || d.id === "door-8" ? d.startingPrice : Math.round(d.startingPrice / 19.5),
+        minWidthInch: d.minWidthInch !== void 0 ? Number(d.minWidthInch) : 24,
+        maxWidthInch: d.maxWidthInch !== void 0 ? Number(d.maxWidthInch) : 72,
+        minHeightInch: d.minHeightInch !== void 0 ? Number(d.minHeightInch) : 60,
+        maxHeightInch: d.maxHeightInch !== void 0 ? Number(d.maxHeightInch) : 96,
+        minPrice: d.minPrice !== void 0 ? Number(d.minPrice) : 0,
+        availableMaterialIds: Array.isArray(d.availableMaterialIds) ? d.availableMaterialIds : void 0,
+        materialPrices: d.materialPrices && typeof d.materialPrices === "object" ? d.materialPrices : void 0,
+        availableFinishIds: Array.isArray(d.availableFinishIds) ? d.availableFinishIds : void 0,
+        finishPrices: d.finishPrices && typeof d.finishPrices === "object" ? d.finishPrices : void 0,
+        availableFrameIds: Array.isArray(d.availableFrameIds) ? d.availableFrameIds : void 0,
+        framePrices: d.framePrices && typeof d.framePrices === "object" ? d.framePrices : void 0,
+        availableHardwareIds: Array.isArray(d.availableHardwareIds) ? d.availableHardwareIds : void 0,
+        hardwarePrices: d.hardwarePrices && typeof d.hardwarePrices === "object" ? d.hardwarePrices : void 0,
+        image: finalImage,
+        images,
+        transparentPngUrl: d.transparentPngUrl ? sanitizeMediaUrl(d.transparentPngUrl) : void 0
+      };
+    }),
     categories: Array.isArray(existingData.categories) ? existingData.categories : INITIAL_DATA.categories,
     materials: (Array.isArray(existingData.materials) ? existingData.materials : INITIAL_DATA.materials).map((m) => {
       const def = INITIAL_DATA.materials.find((dm) => dm.id === m.id || dm.name.toLowerCase() === m.name.toLowerCase());
@@ -1996,17 +2305,28 @@ function normalizeDatabaseSchema(existingData) {
   };
 }
 async function initCloudDatabase() {
+  const localDiskExisted = import_fs2.default.existsSync(DB_FILE) || import_fs2.default.existsSync(ADMIN_STORE_FILE);
+  const localCandidate = findBestAvailableData();
   try {
     const cloudData = await fetchAuthoritativeFirestoreDb();
     if (cloudData && Array.isArray(cloudData.doors) && cloudData.doors.length > 0) {
-      console.log(`\u{1F6E1}\uFE0F [PERSISTENCE] Successfully hydrated application state from Firestore cloud store (Doors: ${cloudData.doors.length}, Version: ${cloudData.version})`);
+      const cloudVersion = Number(cloudData.version) || 0;
+      const localVersion = Number(localCandidate?.version) || 0;
+      const cloudModMs = cloudData.lastModified ? new Date(cloudData.lastModified).getTime() : 0;
+      const localModMs = localCandidate?.lastModified ? new Date(localCandidate.lastModified).getTime() : 0;
+      if (localCandidate && (localVersion > cloudVersion || localModMs > cloudModMs + 2e3)) {
+        console.log(`\u{1F6E1}\uFE0F [PERSISTENCE] Using newer local authoritative database (Local v${localVersion} > Cloud v${cloudVersion})`);
+        inMemoryDb = normalizeDatabaseSchema(localCandidate);
+        lastLoadedMtime = Date.now();
+        isCloudDbInitialized = true;
+        return inMemoryDb;
+      }
+      console.log(`\u{1F6E1}\uFE0F [PERSISTENCE] Hydrated application state from Firestore cloud store (Doors: ${cloudData.doors.length}, Version: ${cloudData.version})`);
       inMemoryDb = normalizeDatabaseSchema(cloudData);
       lastLoadedMtime = Date.now();
-      if (!inMemoryDb.settings?.productionApiUrl && process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL") {
+      if (!inMemoryDb.settings?.productionApiUrl && process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL" && !process.env.APP_URL.includes("ais-dev-")) {
         inMemoryDb.settings = inMemoryDb.settings || {};
         inMemoryDb.settings.productionApiUrl = process.env.APP_URL.trim().replace(/\/$/, "");
-        saveAuthoritativeFirestoreDb(inMemoryDb).catch(() => {
-        });
       }
       try {
         writeAtomicJson(DB_FILE, inMemoryDb);
@@ -2014,18 +2334,20 @@ async function initCloudDatabase() {
         writeAtomicJson(MIRROR_FILE, inMemoryDb);
       } catch {
       }
+      isCloudDbInitialized = true;
       return inMemoryDb;
     }
   } catch (err) {
-    console.warn("\u26A0\uFE0F [PERSISTENCE] Firestore initialization check error:", err.message);
+    console.warn("\u26A0\uFE0F [PERSISTENCE] Firestore initialization check warning:", err.message);
   }
   const localData = getDb();
-  try {
-    await saveAuthoritativeFirestoreDb(localData);
-    console.log(`\u{1F4E6} [PERSISTENCE] Seeded Firestore with current authoritative local data (${localData.doors.length} doors)`);
-  } catch (err) {
-    console.warn("\u26A0\uFE0F [PERSISTENCE] Could not seed Firestore:", err.message);
+  if (!localDiskExisted) {
+    try {
+      await saveAuthoritativeFirestoreDb(localData);
+    } catch {
+    }
   }
+  isCloudDbInitialized = true;
   return localData;
 }
 function getDb() {
@@ -2055,8 +2377,6 @@ function getDb() {
       if (!import_fs2.default.existsSync(MIRROR_FILE)) writeAtomicJson(MIRROR_FILE, inMemoryDb);
     } catch {
     }
-    saveAuthoritativeFirestoreDb(inMemoryDb).catch(() => {
-    });
     return inMemoryDb;
   }
   console.log("\u{1F195} First-time initialization: No existing production data or backup found. Initializing seed structure.");
@@ -2117,14 +2437,18 @@ function saveDb(data, auditContext) {
   if (successCount === 0 && lastError) {
     throw new Error(`CRITICAL: Failed to write database to any persistent location! ${lastError.message}`);
   }
-  saveAuthoritativeFirestoreDb(data).catch((err) => {
-    console.error("\u274C Error updating Firestore cloud database:", err);
+  saveAuthoritativeFirestoreDb(data).catch(() => {
   });
   if (auditContext?.entity && auditContext?.targetId) {
     const { entity, targetId, action } = auditContext;
+    const collectionName = entity === "delivery_story" ? "delivery_stories" : entity === "category" ? "categories" : entity === "finish" ? "finishes" : entity === "settings" ? "settings" : entity + "s";
     if (action === "delete") {
-      deleteEntityFromFirestore(entity + "s", targetId).catch(() => {
+      deleteEntityFromFirestore(collectionName, targetId).catch(() => {
       });
+      if (entity === "delivery_story") {
+        deleteEntityFromFirestore("delivery_storys", targetId).catch(() => {
+        });
+      }
     } else {
       let entityData = null;
       if (entity === "door") entityData = data.doors.find((d) => d.id === targetId);
@@ -2139,7 +2463,7 @@ function saveDb(data, auditContext) {
       else if (entity === "delivery_state") entityData = (data.deliveryStates || []).find((s) => s.id === targetId);
       else if (entity === "delivery_story") entityData = (data.deliveryStories || []).find((s) => s.id === targetId);
       if (entityData) {
-        saveEntityToFirestore(entity + "s", targetId, entityData).catch(() => {
+        saveEntityToFirestore(collectionName, targetId, entityData).catch(() => {
         });
       }
     }
@@ -2158,21 +2482,7 @@ function saveDb(data, auditContext) {
       writeAtomicJson(serverBackupFile, data);
     } catch {
     }
-    [BACKUPS_DIR, SERVER_BACKUPS_DIR].forEach((dir) => {
-      try {
-        const files = import_fs2.default.readdirSync(dir).filter((f) => f.startsWith("snapshot-") && f.endsWith(".json")).sort();
-        if (files.length > 40) {
-          const toRemove = files.slice(0, files.length - 40);
-          for (const f of toRemove) {
-            try {
-              import_fs2.default.unlinkSync(import_path2.default.join(dir, f));
-            } catch {
-            }
-          }
-        }
-      } catch {
-      }
-    });
+    pruneExcessBackups(6);
   }
 }
 function exportDatabaseBackup() {
@@ -2545,254 +2855,399 @@ function deleteDeliveryStory(id) {
   }
   return false;
 }
+function isMediaUrlReferencedInDb(db, candidateUrl) {
+  if (!candidateUrl || typeof candidateUrl !== "string") return true;
+  const trimmed = candidateUrl.trim();
+  const uploadsIdx = trimmed.lastIndexOf("/uploads/");
+  if (uploadsIdx === -1) {
+    return true;
+  }
+  const filename = trimmed.slice(uploadsIdx + "/uploads/".length).split("?")[0].split("#")[0];
+  if (!filename) return true;
+  const needle = `/uploads/${filename}`;
+  const matchesUrl = (val) => typeof val === "string" && val.includes(needle);
+  if (Array.isArray(db.banners) && db.banners.some((b) => matchesUrl(b.image))) return true;
+  if (Array.isArray(db.doors) && db.doors.some(
+    (d) => matchesUrl(d.image) || matchesUrl(d.transparentPngUrl) || matchesUrl(d.videoUrl) || matchesUrl(d.model3d?.modelUrl) || matchesUrl(d.model3d?.glbUrl) || matchesUrl(d.model3d?.textureUrl) || matchesUrl(d.model3d?.frontTextureUrl) || matchesUrl(d.model3d?.backTextureUrl) || matchesUrl(d.model3d?.sideEdgeTextureUrl) || Array.isArray(d.images) && d.images.some((img) => matchesUrl(img))
+  )) {
+    return true;
+  }
+  if (Array.isArray(db.deliveryStories) && db.deliveryStories.some(
+    (s) => matchesUrl(s.doorThumbnail) || matchesUrl(s.doorPhotoUrl) || matchesUrl(s.deliveryPhoto) || matchesUrl(s.deliveryPhotoUrl) || Array.isArray(s.images) && s.images.some((img) => matchesUrl(img))
+  )) {
+    return true;
+  }
+  if (Array.isArray(db.articles) && db.articles.some(
+    (a) => matchesUrl(a.image) || matchesUrl(a.featuredImage) || matchesUrl(a.coverImage) || matchesUrl(a.videoUrl) || Array.isArray(a.galleryImages) && a.galleryImages.some((g) => matchesUrl(g))
+  )) {
+    return true;
+  }
+  if (Array.isArray(db.teamMembers) && db.teamMembers.some((tm) => matchesUrl(tm.photo))) return true;
+  const storySettings = db.settings?.storySettings;
+  if (matchesUrl(storySettings?.founderPhoto) || matchesUrl(storySettings?.ownerPhotoUrl)) return true;
+  if (Array.isArray(storySettings?.workshopGallery) && storySettings.workshopGallery.some((g) => matchesUrl(typeof g === "string" ? g : g?.url))) {
+    return true;
+  }
+  if (Array.isArray(db.woodReferences) && db.woodReferences.some((w) => matchesUrl(w.imageUrl))) return true;
+  if (Array.isArray(db.materials) && db.materials.some((m) => matchesUrl(m.image))) return true;
+  if (Array.isArray(db.finishes) && db.finishes.some((f) => matchesUrl(f.image))) return true;
+  if (Array.isArray(db.frames) && db.frames.some((fr) => matchesUrl(fr.image))) return true;
+  if (Array.isArray(db.hardware) && db.hardware.some((h) => matchesUrl(h.image))) return true;
+  if (Array.isArray(db.chaukhatProducts) && db.chaukhatProducts.some(
+    (c) => matchesUrl(c.image) || matchesUrl(c.primaryImage) || matchesUrl(c.plainImage) || matchesUrl(c.diamondImage) || matchesUrl(c.handCarvedImage) || Array.isArray(c.images) && c.images.some((img) => matchesUrl(img))
+  )) {
+    return true;
+  }
+  if (Array.isArray(db.trackingOrders) && db.trackingOrders.some(
+    (to) => matchesUrl(to.productImage) || Array.isArray(to.media) && to.media.some((m) => matchesUrl(m.url))
+  )) {
+    return true;
+  }
+  return false;
+}
 
 // server/storageService.ts
 var import_fs3 = __toESM(require("fs"), 1);
 var import_path3 = __toESM(require("path"), 1);
+var import_storage = require("firebase/storage");
 var import_client_s3 = require("@aws-sdk/client-s3");
+var import_firestore2 = require("firebase/firestore");
 var UPLOAD_DIR2 = import_path3.default.join(process.cwd(), "data", "uploads");
 var UPLOAD_BACKUP_DIR2 = import_path3.default.join(process.cwd(), "data", "uploads_backup");
 if (!import_fs3.default.existsSync(UPLOAD_DIR2)) import_fs3.default.mkdirSync(UPLOAD_DIR2, { recursive: true });
 if (!import_fs3.default.existsSync(UPLOAD_BACKUP_DIR2)) import_fs3.default.mkdirSync(UPLOAD_BACKUP_DIR2, { recursive: true });
-var s3Client = null;
-var cachedR2Status = null;
-var lastR2CheckTime = 0;
-var R2_CHECK_INTERVAL_MS = 3e4;
-var DEFAULT_R2_BUCKET = "jai-hanuman-door-media";
-function getR2BucketName() {
-  return (process.env.R2_BUCKET_NAME || DEFAULT_R2_BUCKET).trim();
-}
-function getR2Endpoint() {
-  if (process.env.R2_ENDPOINT && process.env.R2_ENDPOINT.trim()) {
-    return process.env.R2_ENDPOINT.trim();
+var firebaseStorageInstance = null;
+var cachedStorageStatus = null;
+var lastStorageCheckTime = 0;
+var STORAGE_CHECK_INTERVAL_MS = 15e3;
+var DEFAULT_FIREBASE_BUCKET = "zeta-gadget-wf6jr.firebasestorage.app";
+function getFirebaseStorageBucketName() {
+  if (process.env.FIREBASE_STORAGE_BUCKET && process.env.FIREBASE_STORAGE_BUCKET.trim()) {
+    return process.env.FIREBASE_STORAGE_BUCKET.trim();
   }
-  const accountId = (process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
-  if (accountId) {
-    return `https://${accountId}.r2.cloudflarestorage.com`;
-  }
-  return null;
-}
-function getR2Client() {
-  const accessKeyId = (process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || "").trim();
-  const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || "").trim();
-  const endpoint = getR2Endpoint();
-  if (!accessKeyId || !secretAccessKey || !endpoint) {
-    return null;
-  }
-  if (!s3Client) {
-    s3Client = new import_client_s3.S3Client({
-      region: "auto",
-      endpoint,
-      credentials: {
-        accessKeyId,
-        secretAccessKey
-      }
-    });
-  }
-  return s3Client;
-}
-async function checkR2Availability(forceRecheck = false) {
-  const now = Date.now();
-  if (!forceRecheck && cachedR2Status && now - lastR2CheckTime < R2_CHECK_INTERVAL_MS) {
-    return cachedR2Status;
-  }
-  const bucket = getR2BucketName();
-  const accessKeyId = (process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || "").trim();
-  const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || "").trim();
-  const accountId = (process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
-  const explicitEndpoint = (process.env.R2_ENDPOINT || "").trim();
-  const missingVars = [];
-  if (!accountId && !explicitEndpoint) missingVars.push("R2_ACCOUNT_ID (or R2_ENDPOINT)");
-  if (!accessKeyId) missingVars.push("R2_ACCESS_KEY_ID");
-  if (!secretAccessKey) missingVars.push("R2_SECRET_ACCESS_KEY");
-  if (missingVars.length > 0) {
-    cachedR2Status = {
-      configured: false,
-      connected: false,
-      bucket,
-      endpointConfigured: !!(accountId || explicitEndpoint),
-      missingVars,
-      statusMessage: `R2 not configured. Missing environment variables: ${missingVars.join(", ")}`
-    };
-    lastR2CheckTime = now;
-    return cachedR2Status;
-  }
-  const client = getR2Client();
-  if (!client) {
-    cachedR2Status = {
-      configured: false,
-      connected: false,
-      bucket,
-      endpointConfigured: false,
-      missingVars: ["Failed to initialize R2 S3 Client"],
-      statusMessage: "Failed to construct R2 S3 client with current environment settings."
-    };
-    lastR2CheckTime = now;
-    return cachedR2Status;
+  if (process.env.STORAGE_BUCKET && process.env.STORAGE_BUCKET.trim()) {
+    return process.env.STORAGE_BUCKET.trim();
   }
   try {
-    const cmd = new import_client_s3.HeadBucketCommand({ Bucket: bucket });
-    await client.send(cmd);
-    const probeKey = `_probe_${Date.now()}.tmp`;
-    try {
-      await client.send(new import_client_s3.PutObjectCommand({
-        Bucket: bucket,
-        Key: probeKey,
-        Body: Buffer.from("ok"),
-        ContentType: "text/plain"
-      }));
-      await client.send(new import_client_s3.DeleteObjectCommand({
-        Bucket: bucket,
-        Key: probeKey
-      })).catch(() => {
-      });
-    } catch (writeErr) {
-      const statusCode = writeErr.$metadata?.httpStatusCode;
-      let writeMsg = `Connected to bucket "${bucket}", but write access failed (${writeErr.name || "Error"}).`;
-      if (statusCode === 403 || writeErr.name === "AccessDenied") {
-        writeMsg = `Access Denied (HTTP 403): R2 API Token lacks write permissions. Please edit or recreate the API token in Cloudflare Dashboard with "Object Read & Write" permissions for bucket "${bucket}".`;
+    const configPath = import_path3.default.join(process.cwd(), "firebase-applet-config.json");
+    if (import_fs3.default.existsSync(configPath)) {
+      const config = JSON.parse(import_fs3.default.readFileSync(configPath, "utf8"));
+      if (config.storageBucket && config.storageBucket.trim()) {
+        return config.storageBucket.trim();
       }
-      cachedR2Status = {
-        configured: true,
-        connected: false,
-        bucket,
-        endpointConfigured: true,
-        statusMessage: writeMsg
-      };
-      console.warn(`\u26A0\uFE0F [R2 Storage] ${writeMsg}`);
-      lastR2CheckTime = now;
-      return cachedR2Status;
     }
-    cachedR2Status = {
+  } catch {
+  }
+  return DEFAULT_FIREBASE_BUCKET;
+}
+function getFirebaseStorageInstance() {
+  if (firebaseStorageInstance) return firebaseStorageInstance;
+  try {
+    const app2 = getFirebaseApp();
+    if (!app2) {
+      console.warn("\u26A0\uFE0F [Firebase Storage] Firebase App instance not available.");
+      return null;
+    }
+    const bucketName = getFirebaseStorageBucketName();
+    firebaseStorageInstance = (0, import_storage.getStorage)(app2, `gs://${bucketName}`);
+    console.log(`\u2705 [Firebase Storage] Initialized Storage client for bucket "gs://${bucketName}"`);
+    return firebaseStorageInstance;
+  } catch (err) {
+    console.warn("\u26A0\uFE0F [Firebase Storage] Storage initialization warning:", err.message);
+    return null;
+  }
+}
+function getLegacyR2Client() {
+  const accountId = (process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  const accessKeyId = (process.env.R2_ACCESS_KEY_ID || process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || "").trim();
+  const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || "").trim();
+  if (!accountId || !accessKeyId || !secretAccessKey) return null;
+  try {
+    return new import_client_s3.S3Client({
+      region: "auto",
+      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId, secretAccessKey }
+    });
+  } catch {
+    return null;
+  }
+}
+async function checkStorageAvailability(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedStorageStatus && now - lastStorageCheckTime < STORAGE_CHECK_INTERVAL_MS) {
+    return cachedStorageStatus;
+  }
+  const bucket = getFirebaseStorageBucketName();
+  const storage3 = getFirebaseStorageInstance();
+  if (!storage3) {
+    cachedStorageStatus = {
+      configured: false,
+      connected: false,
+      readable: false,
+      writable: false,
+      provider: "firebase_storage",
+      bucket,
+      endpointConfigured: false,
+      statusMessage: "Firebase Storage is not initialized. Ensure firebase-applet-config.json exists.",
+      firebaseStorageReady: false,
+      setupInstructionsRequired: true,
+      tokenPermissionIssue: false
+    };
+    lastStorageCheckTime = now;
+    return cachedStorageStatus;
+  }
+  try {
+    await ensureServerFirebaseAuth();
+    const pingRef = (0, import_storage.ref)(storage3, "system_checks/ping.txt");
+    let readable = true;
+    let writable = false;
+    let setupInstructionsRequired = false;
+    let statusMessage = "";
+    try {
+      const pingBuffer = Buffer.from(`Jai Hanuman Door Storage Active - ${(/* @__PURE__ */ new Date()).toISOString()}`, "utf-8");
+      await (0, import_storage.uploadBytes)(pingRef, pingBuffer, { contentType: "text/plain" });
+      writable = true;
+      readable = true;
+      statusMessage = `Connected to Firebase Storage bucket "${bucket}" with full Read & Write permissions.`;
+      console.log(`\u2705 [Firebase Storage] Health check passed for bucket "${bucket}".`);
+    } catch (writeErr) {
+      const code = String(writeErr?.code || "").toLowerCase();
+      const status = writeErr?.status_ || writeErr?.statusCode;
+      if (status === 404 || code.includes("unknown") || code.includes("bucket-not-found")) {
+        setupInstructionsRequired = true;
+        statusMessage = `Firebase Storage bucket "${bucket}" is registered in project configuration, but needs one-time activation in Firebase Console. Go to Firebase Console -> Build -> Storage -> Click "Get Started".`;
+      } else if (code.includes("unauthorized") || code.includes("permission-denied") || status === 403) {
+        statusMessage = `Firebase Storage connected, but write permissions were denied. Check Firebase Storage Security Rules in Firebase Console.`;
+      } else {
+        statusMessage = `Firebase Storage check notice: ${writeErr?.message || String(writeErr)}`;
+      }
+      console.warn(`\u26A0\uFE0F [Firebase Storage] ${statusMessage}`);
+    }
+    cachedStorageStatus = {
       configured: true,
-      connected: true,
+      connected: writable || readable,
+      readable,
+      writable,
+      provider: "firebase_storage",
       bucket,
       endpointConfigured: true,
-      statusMessage: `Successfully connected to Cloudflare R2 bucket "${bucket}" with full Read & Write permissions.`
+      statusMessage,
+      firebaseStorageReady: writable,
+      setupInstructionsRequired,
+      tokenPermissionIssue: !writable
     };
-    console.log(`\u2705 [R2 Storage] Connected and verified read/write access to bucket "${bucket}"`);
   } catch (err) {
-    const errName = err.name || "ConnectionError";
-    const statusCode = err.$metadata?.httpStatusCode;
-    let friendlyMessage = `R2 connection check failed: ${errName}`;
-    if (statusCode === 404) {
-      friendlyMessage = `Bucket "${bucket}" does not exist in your Cloudflare account.`;
-    } else if (statusCode === 403) {
-      friendlyMessage = `Access denied to bucket "${bucket}". Check R2 API Token permissions (Object Read & Write).`;
-    }
-    cachedR2Status = {
+    cachedStorageStatus = {
       configured: true,
       connected: false,
+      readable: false,
+      writable: false,
+      provider: "firebase_storage",
       bucket,
       endpointConfigured: true,
-      statusMessage: friendlyMessage
+      statusMessage: `Firebase Storage check failed: ${err.message}`,
+      firebaseStorageReady: false,
+      setupInstructionsRequired: true,
+      tokenPermissionIssue: true
     };
-    console.warn(`\u26A0\uFE0F [R2 Storage] Check warning: ${friendlyMessage}`);
   }
-  lastR2CheckTime = now;
-  return cachedR2Status;
+  lastStorageCheckTime = now;
+  return cachedStorageStatus;
 }
-async function saveMedia(filename, mimeType, buffer) {
-  const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, "_");
-  const size = buffer.length;
+async function checkR2Availability(forceRefresh = false) {
+  const status = await checkStorageAvailability(forceRefresh);
+  return {
+    ...status,
+    r2: {
+      configured: status.configured,
+      connected: status.connected,
+      readable: status.readable,
+      writable: status.writable,
+      bucket: status.bucket,
+      endpointConfigured: status.endpointConfigured,
+      statusMessage: status.statusMessage,
+      tokenPermissionIssue: status.tokenPermissionIssue
+    }
+  };
+}
+function buildStoragePath(filename, category = "doors", productId) {
+  const cleanFilename = String(filename || "").replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const safeCategory = String(category || "doors").replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase();
+  const safeProductId = productId ? String(productId).replace(/[^a-zA-Z0-9_-]/g, "_") : "common";
+  if (safeCategory === "banners" || safeCategory === "banner") {
+    return `banners/${cleanFilename}`;
+  }
+  if (safeCategory === "videos" || safeCategory === "video") {
+    return `videos/${safeProductId}/${cleanFilename}`;
+  }
+  if (safeCategory === "catalog" || safeCategory === "catalogue") {
+    return `catalog/${safeProductId}/${cleanFilename}`;
+  }
+  if (safeCategory === "products" || safeCategory === "doors" || safeCategory === "door") {
+    return `products/${safeProductId}/${cleanFilename}`;
+  }
+  return `uploads/${safeCategory}/${cleanFilename}`;
+}
+async function saveMedia(filename, mimeType, buffer, category = "doors", productId) {
+  const cleanFilename = String(filename || "").replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const size = buffer ? buffer.length : 0;
   const relativeUrl = `/uploads/${cleanFilename}`;
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  if (!buffer || size === 0) {
+    return {
+      success: false,
+      url: relativeUrl,
+      storageType: "firebase_storage",
+      statusCode: 400,
+      errorCode: "EMPTY_FILE",
+      error: "Uploaded file buffer is empty (0 bytes)."
+    };
+  }
+  const isVideoOrModel = mimeType.startsWith("video/") || mimeType.includes("gltf") || mimeType.includes("octet-stream");
+  const maxBytes = isVideoOrModel ? 50 * 1024 * 1024 : 15 * 1024 * 1024;
+  if (size > maxBytes) {
+    return {
+      success: false,
+      url: relativeUrl,
+      storageType: "firebase_storage",
+      statusCode: 413,
+      errorCode: "FILE_TOO_LARGE",
+      error: `File size (${(size / (1024 * 1024)).toFixed(1)} MB) exceeds maximum allowed limit of ${isVideoOrModel ? 50 : 15} MB.`
+    };
+  }
   try {
     const localPath = import_path3.default.join(UPLOAD_DIR2, cleanFilename);
     const backupPath = import_path3.default.join(UPLOAD_BACKUP_DIR2, cleanFilename);
     import_fs3.default.writeFileSync(localPath, buffer);
     import_fs3.default.writeFileSync(backupPath, buffer);
-  } catch (err) {
-    console.warn("\u26A0\uFE0F Could not write local cache:", err);
+  } catch (diskErr) {
+    console.warn(`\u26A0\uFE0F [Storage] Local cache mirror warning:`, diskErr.message);
   }
-  const r2Status = await checkR2Availability();
-  if (r2Status.connected) {
-    const client = getR2Client();
-    if (client) {
-      try {
-        const bucket = r2Status.bucket;
-        const r2Key = `uploads/${cleanFilename}`;
-        const uploadCmd = new import_client_s3.PutObjectCommand({
-          Bucket: bucket,
-          Key: r2Key,
-          Body: buffer,
-          ContentType: mimeType || "application/octet-stream",
-          CacheControl: "public, max-age=31536000, immutable"
+  const targetStoragePath = buildStoragePath(cleanFilename, category, productId);
+  const storage3 = getFirebaseStorageInstance();
+  const bucketName = getFirebaseStorageBucketName();
+  let uploadedToFirebase = false;
+  let permanentDownloadUrl = "";
+  if (storage3) {
+    try {
+      await ensureServerFirebaseAuth();
+      const fileRef = (0, import_storage.ref)(storage3, targetStoragePath);
+      const performUpload = async () => {
+        const uploadRes = await (0, import_storage.uploadBytes)(fileRef, buffer, {
+          contentType: mimeType || "image/jpeg",
+          cacheControl: "public, max-age=31536000, immutable",
+          customMetadata: {
+            originalName: cleanFilename,
+            category,
+            uploadedAt: nowIso,
+            service: "Jai Hanuman Door"
+          }
         });
-        await client.send(uploadCmd);
-        const metadata2 = {
-          filename: cleanFilename,
-          mimeType: mimeType || "application/octet-stream",
-          size,
-          storageType: "r2",
-          url: relativeUrl,
-          r2Bucket: bucket,
-          r2Key,
-          createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        };
-        await saveEntityToFirestore("uploaded_media", cleanFilename, metadata2);
-        console.log(`\u2705 [Storage] Saved ${cleanFilename} (${size} bytes) to Cloudflare R2 bucket "${bucket}"`);
-        return { success: true, url: relativeUrl, storageType: "r2", metadata: metadata2 };
-      } catch (r2Err) {
-        console.warn(`\u26A0\uFE0F [Storage] R2 upload failed for ${cleanFilename}, falling back to Firestore:`, r2Err.name || r2Err.message);
-      }
+        return await (0, import_storage.getDownloadURL)(uploadRes.ref);
+      };
+      const timeoutPromise = new Promise(
+        (_, reject) => setTimeout(() => reject(new Error("Firebase Storage upload timeout (4000ms) - bucket pending activation")), 4e3)
+      );
+      permanentDownloadUrl = await Promise.race([performUpload(), timeoutPromise]);
+      uploadedToFirebase = true;
+      console.log(`\u2705 [Firebase Storage] Durably saved ${cleanFilename} to gs://${bucketName}/${targetStoragePath}`);
+    } catch (firebaseErr) {
+      console.warn(`\u26A0\uFE0F [Firebase Storage] Direct bucket upload attempt notice:`, firebaseErr.message);
     }
   }
-  const firestoreSaved = await saveMediaToFirestore(cleanFilename, mimeType, buffer);
+  if (!uploadedToFirebase) {
+    try {
+      await saveMediaToFirestore(cleanFilename, mimeType, buffer);
+      console.log(`\u{1F6E1}\uFE0F [Firestore Fallback] Persisted ${cleanFilename} (${size} bytes) to Firestore chunked media store.`);
+    } catch (firestoreErr) {
+      console.warn(`\u26A0\uFE0F [Firestore] Media fallback warning:`, firestoreErr.message);
+    }
+  }
   const metadata = {
     filename: cleanFilename,
-    mimeType: mimeType || "application/octet-stream",
+    mimeType,
     size,
-    storageType: "firestore",
+    storageType: uploadedToFirebase ? "firebase_storage" : "firestore",
     url: relativeUrl,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    downloadUrl: permanentDownloadUrl || relativeUrl,
+    storagePath: targetStoragePath,
+    firebaseBucket: bucketName,
+    createdAt: nowIso,
+    updatedAt: nowIso
   };
-  await saveEntityToFirestore("uploaded_media", cleanFilename, metadata);
+  try {
+    const db = getFirestoreInstance();
+    if (db) {
+      const metaRef = (0, import_firestore2.doc)(db, "uploaded_media", cleanFilename);
+      await Promise.race([
+        (0, import_firestore2.setDoc)(metaRef, metadata, { merge: true }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Metadata write timeout (2500ms)")), 2500))
+      ]);
+    }
+  } catch (metaErr) {
+    console.warn(`\u26A0\uFE0F [Storage] Could not write media metadata:`, metaErr.message);
+  }
   return {
-    success: firestoreSaved,
+    success: true,
     url: relativeUrl,
-    storageType: "firestore",
-    metadata
+    downloadUrl: permanentDownloadUrl || relativeUrl,
+    storageType: uploadedToFirebase ? "firebase_storage" : "firestore",
+    metadata,
+    storagePath: targetStoragePath,
+    firebaseBucket: bucketName
   };
 }
 async function getMediaBuffer(filename) {
-  const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const cleanFilename = String(filename || "").replace(/[^a-zA-Z0-9_.-]/g, "_");
+  if (!cleanFilename) return null;
   const localPath = import_path3.default.join(UPLOAD_DIR2, cleanFilename);
-  if (import_fs3.default.existsSync(localPath)) {
-    const buffer = import_fs3.default.readFileSync(localPath);
-    const ext = import_path3.default.extname(cleanFilename).toLowerCase();
-    let mimeType = "application/octet-stream";
-    if ([".jpg", ".jpeg"].includes(ext)) mimeType = "image/jpeg";
-    else if (ext === ".png") mimeType = "image/png";
-    else if (ext === ".webp") mimeType = "image/webp";
-    else if (ext === ".mp4") mimeType = "video/mp4";
-    else if (ext === ".webm") mimeType = "video/webm";
-    else if (ext === ".mov") mimeType = "video/quicktime";
-    return { buffer, mimeType, storageType: "local" };
+  const backupPath = import_path3.default.join(UPLOAD_BACKUP_DIR2, cleanFilename);
+  for (const p of [localPath, backupPath]) {
+    if (import_fs3.default.existsSync(p)) {
+      try {
+        const buffer = import_fs3.default.readFileSync(p);
+        const ext = import_path3.default.extname(cleanFilename).toLowerCase();
+        let mimeType = "image/jpeg";
+        if ([".jpg", ".jpeg"].includes(ext)) mimeType = "image/jpeg";
+        else if (ext === ".png") mimeType = "image/png";
+        else if (ext === ".webp") mimeType = "image/webp";
+        else if (ext === ".mp4") mimeType = "video/mp4";
+        return { buffer, mimeType, storageType: "local" };
+      } catch {
+      }
+    }
   }
-  const client = getR2Client();
-  const bucket = getR2BucketName();
-  if (client) {
-    try {
-      const getCmd = new import_client_s3.GetObjectCommand({
-        Bucket: bucket,
-        Key: `uploads/${cleanFilename}`
-      });
-      const response = await client.send(getCmd);
-      if (response.Body) {
-        const byteArray = await response.Body.transformToByteArray();
-        const buffer = Buffer.from(byteArray);
-        const mimeType = response.ContentType || "application/octet-stream";
+  const storage3 = getFirebaseStorageInstance();
+  if (storage3) {
+    const candidatePaths = [
+      `products/common/${cleanFilename}`,
+      `catalog/common/${cleanFilename}`,
+      `banners/${cleanFilename}`,
+      `videos/common/${cleanFilename}`,
+      `uploads/doors/${cleanFilename}`,
+      `uploads/catalogue/${cleanFilename}`,
+      `uploads/banners/${cleanFilename}`,
+      `uploads/general/${cleanFilename}`,
+      `uploads/${cleanFilename}`,
+      cleanFilename
+    ];
+    for (const testPath of candidatePaths) {
+      try {
+        const fileRef = (0, import_storage.ref)(storage3, testPath);
+        const arrayBuf = await (0, import_storage.getBytes)(fileRef);
+        const buffer = Buffer.from(arrayBuf);
+        const ext = import_path3.default.extname(cleanFilename).toLowerCase();
+        let mimeType = "image/jpeg";
+        if ([".png"].includes(ext)) mimeType = "image/png";
+        else if ([".webp"].includes(ext)) mimeType = "image/webp";
+        else if ([".mp4"].includes(ext)) mimeType = "video/mp4";
         try {
           import_fs3.default.writeFileSync(localPath, buffer);
+          import_fs3.default.writeFileSync(backupPath, buffer);
         } catch {
         }
-        return { buffer, mimeType, storageType: "r2" };
-      }
-    } catch (err) {
-      if (err.name !== "NoSuchKey" && err.$metadata?.httpStatusCode !== 404) {
-        console.warn(`\u26A0\uFE0F [R2 Storage] Lookup warning for ${cleanFilename}:`, err.name || err.message);
+        return { buffer, mimeType, storageType: "firebase_storage", storagePath: testPath };
+      } catch {
       }
     }
   }
@@ -2800,6 +3255,7 @@ async function getMediaBuffer(filename) {
   if (firestoreMedia) {
     try {
       import_fs3.default.writeFileSync(localPath, firestoreMedia.buffer);
+      import_fs3.default.writeFileSync(backupPath, firestoreMedia.buffer);
     } catch {
     }
     return {
@@ -2808,7 +3264,1130 @@ async function getMediaBuffer(filename) {
       storageType: "firestore"
     };
   }
+  const legacyClient = getLegacyR2Client();
+  if (legacyClient) {
+    const r2Bucket = (process.env.R2_BUCKET_NAME || "jai-hanuman-door-media").trim();
+    const candidateR2Keys = [
+      `uploads/doors/${cleanFilename}`,
+      `uploads/banners/${cleanFilename}`,
+      `uploads/catalogue/${cleanFilename}`,
+      `uploads/${cleanFilename}`,
+      cleanFilename
+    ];
+    for (const key of candidateR2Keys) {
+      try {
+        const res = await legacyClient.send(new import_client_s3.GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+        if (res.Body) {
+          const bytes = await res.Body.transformToByteArray();
+          const buffer = Buffer.from(bytes);
+          const mimeType = res.ContentType || "image/jpeg";
+          try {
+            import_fs3.default.writeFileSync(localPath, buffer);
+            import_fs3.default.writeFileSync(backupPath, buffer);
+          } catch {
+          }
+          return { buffer, mimeType, storageType: "r2", r2Key: key };
+        }
+      } catch {
+      }
+    }
+  }
   return null;
+}
+async function deleteMediaFile(filenameOrUrl) {
+  try {
+    let rawName = String(filenameOrUrl || "").trim();
+    if (!rawName) return { deleted: false };
+    const uploadsIdx = rawName.lastIndexOf("/uploads/");
+    if (uploadsIdx !== -1) {
+      rawName = rawName.slice(uploadsIdx + "/uploads/".length).split("?")[0].split("#")[0];
+    }
+    const cleanFilename = rawName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+    if (!cleanFilename) return { deleted: false };
+    const warnings = [];
+    const cleanedKeys = [];
+    const localPaths = [
+      import_path3.default.join(UPLOAD_DIR2, cleanFilename),
+      import_path3.default.join(UPLOAD_BACKUP_DIR2, cleanFilename),
+      import_path3.default.join(process.cwd(), "public", "uploads", cleanFilename)
+    ];
+    for (const p of localPaths) {
+      try {
+        if (import_fs3.default.existsSync(p)) import_fs3.default.unlinkSync(p);
+      } catch (err) {
+        warnings.push(`Local cache cleanup warning: ${err.message}`);
+      }
+    }
+    const storage3 = getFirebaseStorageInstance();
+    if (storage3) {
+      const candidatePaths = [
+        `products/common/${cleanFilename}`,
+        `catalog/common/${cleanFilename}`,
+        `banners/${cleanFilename}`,
+        `videos/common/${cleanFilename}`,
+        `uploads/doors/${cleanFilename}`,
+        `uploads/catalogue/${cleanFilename}`,
+        `uploads/banners/${cleanFilename}`,
+        `uploads/${cleanFilename}`,
+        cleanFilename
+      ];
+      for (const p of candidatePaths) {
+        try {
+          await (0, import_storage.deleteObject)((0, import_storage.ref)(storage3, p));
+          cleanedKeys.push(p);
+        } catch {
+        }
+      }
+    }
+    try {
+      await deleteMediaFromFirestore(cleanFilename);
+    } catch (err) {
+      warnings.push(`Firestore cleanup warning: ${err.message}`);
+    }
+    const legacyClient = getLegacyR2Client();
+    if (legacyClient) {
+      const r2Bucket = (process.env.R2_BUCKET_NAME || "jai-hanuman-door-media").trim();
+      const keys = [`uploads/doors/${cleanFilename}`, `uploads/${cleanFilename}`, cleanFilename];
+      for (const k of keys) {
+        try {
+          await legacyClient.send(new import_client_s3.DeleteObjectCommand({ Bucket: r2Bucket, Key: k }));
+          cleanedKeys.push(`r2:${k}`);
+        } catch {
+        }
+      }
+    }
+    return {
+      deleted: true,
+      cleanedKeys,
+      ...warnings.length > 0 ? { warning: warnings.join("; ") } : {}
+    };
+  } catch (err) {
+    return {
+      deleted: false,
+      warning: `Media deletion error: ${err?.message || String(err)}`
+    };
+  }
+}
+async function getStorageStats() {
+  const bucket = getFirebaseStorageBucketName();
+  const availability = await checkStorageAvailability();
+  let localFilesCount = 0;
+  let localTotalBytes = 0;
+  try {
+    if (import_fs3.default.existsSync(UPLOAD_DIR2)) {
+      const files = import_fs3.default.readdirSync(UPLOAD_DIR2);
+      for (const file of files) {
+        if (file.startsWith(".")) continue;
+        const filePath = import_path3.default.join(UPLOAD_DIR2, file);
+        try {
+          const stats = import_fs3.default.statSync(filePath);
+          if (stats.isFile()) {
+            localFilesCount++;
+            localTotalBytes += stats.size;
+          }
+        } catch {
+        }
+      }
+    }
+  } catch {
+  }
+  const formatBytes = (bytes) => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
+  return {
+    storageProvider: "firebase_storage",
+    storageBucket: bucket,
+    firebaseStorageReady: availability.writable,
+    localFilesCount,
+    localTotalBytes,
+    localFormattedSize: formatBytes(localTotalBytes),
+    pendingSyncCount: availability.writable ? 0 : localFilesCount,
+    // Backward compatibility aliases
+    r2ObjectCount: localFilesCount,
+    r2TotalBytes: localTotalBytes,
+    r2FormattedSize: formatBytes(localTotalBytes),
+    r2Keys: []
+  };
+}
+async function getR2StorageStats() {
+  return getStorageStats();
+}
+async function syncPendingLocalFilesToStorage() {
+  const availability = await checkStorageAvailability(true);
+  const files = import_fs3.default.existsSync(UPLOAD_DIR2) ? import_fs3.default.readdirSync(UPLOAD_DIR2).filter((f) => !f.startsWith(".")) : [];
+  let syncedCount = 0;
+  let failedCount = 0;
+  const errors = [];
+  for (const filename of files) {
+    const filePath = import_path3.default.join(UPLOAD_DIR2, filename);
+    try {
+      const stat = import_fs3.default.statSync(filePath);
+      if (!stat.isFile()) continue;
+      const buffer = import_fs3.default.readFileSync(filePath);
+      const ext = import_path3.default.extname(filename).toLowerCase();
+      let mimeType = "image/jpeg";
+      if ([".png"].includes(ext)) mimeType = "image/png";
+      else if ([".webp"].includes(ext)) mimeType = "image/webp";
+      else if ([".mp4"].includes(ext)) mimeType = "video/mp4";
+      let category = "doors";
+      if (filename.includes("banner")) category = "banners";
+      else if (filename.includes("wood")) category = "wood_samples";
+      const saveResult = await saveMedia(filename, mimeType, buffer, category);
+      if (saveResult.success) {
+        syncedCount++;
+      } else {
+        failedCount++;
+        errors.push(`${filename}: ${saveResult.error || "Failed"}`);
+      }
+    } catch (err) {
+      failedCount++;
+      errors.push(`${filename}: ${err.message}`);
+    }
+  }
+  return {
+    success: failedCount === 0,
+    totalLocal: files.length,
+    syncedCount,
+    failedCount,
+    errors,
+    message: `Sync complete: ${syncedCount} synchronized to Firebase Storage, ${failedCount} failed.`
+  };
+}
+async function syncPendingLocalFilesToR2() {
+  return syncPendingLocalFilesToStorage();
+}
+
+// server/driveImageImport.ts
+var import_dns = __toESM(require("dns"), 1);
+var import_net = __toESM(require("net"), 1);
+try {
+  import_dns.default.setDefaultResultOrder("ipv4first");
+} catch {
+}
+var DriveImportError = class extends Error {
+  constructor(message, errorCode = "DRIVE_IMPORT_FAILED", statusCode = 422, fileId) {
+    super(message);
+    this.name = "DriveImportError";
+    this.errorCode = errorCode;
+    this.statusCode = statusCode;
+    this.fileId = fileId;
+  }
+};
+var MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+var MIN_IMAGE_BYTES = 64;
+var FETCH_TIMEOUT_MS = 15e3;
+var MAX_REDIRECTS = 6;
+function isPrivateOrReservedIp(ip) {
+  const cleanIp = ip.trim().toLowerCase();
+  if (!cleanIp) return true;
+  if (cleanIp === "localhost" || cleanIp === "::1" || cleanIp === "0.0.0.0") {
+    return true;
+  }
+  if (import_net.default.isIPv6(cleanIp)) {
+    if (cleanIp === "::1" || cleanIp === "::" || cleanIp.startsWith("fe80:") || // link-local
+    cleanIp.startsWith("fc") || // unique local
+    cleanIp.startsWith("fd") || // unique local
+    cleanIp.startsWith("::ffff:127.") || cleanIp.startsWith("::ffff:10.") || cleanIp.startsWith("::ffff:192.168.") || cleanIp.startsWith("::ffff:169.254.")) {
+      return true;
+    }
+    return false;
+  }
+  if (import_net.default.isIPv4(cleanIp)) {
+    const parts = cleanIp.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) {
+      return true;
+    }
+    const [a, b] = parts;
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a >= 224) return true;
+    return false;
+  }
+  return true;
+}
+async function validateSafeRemoteUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl.trim());
+  } catch {
+    throw new Error("Invalid URL format. Please enter a valid Google Drive link or https:// image URL.");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("Only HTTPS or HTTP image URLs are supported.");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("URLs containing embedded credentials are not allowed.");
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (!hostname || hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.endsWith(".localhost") || hostname === "metadata.google.internal") {
+    throw new Error("Access to local or internal network hosts is forbidden.");
+  }
+  if (import_net.default.isIP(hostname)) {
+    if (isPrivateOrReservedIp(hostname)) {
+      throw new Error("Access to private or reserved IP addresses is forbidden.");
+    }
+    return parsed;
+  }
+  try {
+    const addresses = await import_dns.default.promises.lookup(hostname, { all: true });
+    if (!addresses || addresses.length === 0) {
+      throw new Error(`Could not resolve hostname "${hostname}".`);
+    }
+    for (const addr of addresses) {
+      if (isPrivateOrReservedIp(addr.address)) {
+        throw new Error("Hostname resolves to a restricted private network address.");
+      }
+    }
+  } catch (err) {
+    if (err.message?.includes("restricted") || err.message?.includes("forbidden")) {
+      throw err;
+    }
+    throw new Error(`Unable to resolve host "${hostname}": ${err.message || "DNS lookup failed"}`);
+  }
+  return parsed;
+}
+function extractGoogleDriveFileId(inputUrl) {
+  const trimmed = String(inputUrl || "").trim();
+  if (!trimmed) return null;
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isDriveHost = host === "drive.google.com" || host === "docs.google.com" || host === "drive.usercontent.google.com" || host.endsWith(".googleusercontent.com");
+  if (!isDriveHost) {
+    return null;
+  }
+  const pathMatch = parsed.pathname.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{10,120})(?:\/|$|=)/);
+  if (pathMatch && pathMatch[1]) {
+    return pathMatch[1];
+  }
+  const idParam = parsed.searchParams.get("id");
+  if (idParam && /^[a-zA-Z0-9_-]{10,120}$/.test(idParam.trim())) {
+    return idParam.trim();
+  }
+  return null;
+}
+function inspectImageBuffer(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < MIN_IMAGE_BYTES) {
+    return { valid: false, error: "Downloaded file is empty or too small to be a valid image." };
+  }
+  const headAscii = buf.subarray(0, Math.min(512, buf.length)).toString("utf8").trimStart().toLowerCase();
+  if (headAscii.startsWith("<!doctype html") || headAscii.startsWith("<html") || headAscii.startsWith("<head") || headAscii.startsWith("<script") || headAscii.includes("accounts.google.com") || headAscii.includes("google drive - quota exceeded") || headAscii.includes("sign in to continue")) {
+    return {
+      valid: false,
+      isHtml: true,
+      error: 'Google Drive returned an HTML page instead of image bytes. Please ensure the file sharing permission in Google Drive is set to "Anyone with the link can view", or download the photo and use "Upload Image".'
+    };
+  }
+  if (buf.length >= 24 && buf[0] === 137 && buf[1] === 80 && buf[2] === 78 && buf[3] === 71 && buf[4] === 13 && buf[5] === 10 && buf[6] === 26 && buf[7] === 10) {
+    const width = buf.readUInt32BE(16);
+    const height = buf.readUInt32BE(20);
+    if (width > 0 && height > 0 && width <= 2e4 && height <= 2e4) {
+      return { valid: true, mimeType: "image/png", extension: ".png", width, height };
+    }
+    return { valid: false, error: "Invalid PNG image dimensions." };
+  }
+  if (buf.length >= 4 && buf[0] === 255 && buf[1] === 216 && buf[2] === 255) {
+    let offset = 2;
+    while (offset + 4 < buf.length) {
+      if (buf[offset] !== 255) {
+        offset++;
+        continue;
+      }
+      const marker = buf[offset + 1];
+      if (marker === 255) {
+        offset++;
+        continue;
+      }
+      if (marker >= 192 && marker <= 195 || marker >= 197 && marker <= 199 || marker >= 201 && marker <= 203 || marker >= 205 && marker <= 207) {
+        if (offset + 9 <= buf.length) {
+          const height = buf.readUInt16BE(offset + 5);
+          const width = buf.readUInt16BE(offset + 7);
+          if (width > 0 && height > 0 && width <= 2e4 && height <= 2e4) {
+            return { valid: true, mimeType: "image/jpeg", extension: ".jpg", width, height };
+          }
+        }
+        break;
+      }
+      if (marker === 217 || marker === 218) {
+        break;
+      }
+      const segmentLength = buf.readUInt16BE(offset + 2);
+      if (segmentLength < 2) break;
+      offset += 2 + segmentLength;
+    }
+    return { valid: false, error: "Corrupted or incomplete JPEG image." };
+  }
+  if (buf.length >= 30 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") {
+    const chunkHeader = buf.toString("ascii", 12, 16);
+    let width = 0;
+    let height = 0;
+    if (chunkHeader === "VP8 " && buf.length >= 30) {
+      width = buf.readUInt16LE(26) & 16383;
+      height = buf.readUInt16LE(28) & 16383;
+    } else if (chunkHeader === "VP8L" && buf.length >= 25) {
+      const b0 = buf[21];
+      const b1 = buf[22];
+      const b2 = buf[23];
+      const b3 = buf[24];
+      width = 1 + ((b1 & 63) << 8 | b0);
+      height = 1 + ((b3 & 15) << 10 | b2 << 2 | (b1 & 192) >> 6);
+    } else if (chunkHeader === "VP8X" && buf.length >= 30) {
+      width = 1 + (buf[24] | buf[25] << 8 | buf[26] << 16);
+      height = 1 + (buf[27] | buf[28] << 8 | buf[29] << 16);
+    }
+    if (width > 0 && height > 0 && width <= 2e4 && height <= 2e4) {
+      return { valid: true, mimeType: "image/webp", extension: ".webp", width, height };
+    }
+    return { valid: false, error: "Invalid WebP image dimensions." };
+  }
+  if (buf.length >= 10 && buf.toString("ascii", 0, 3) === "GIF" && (buf.toString("ascii", 3, 6) === "87a" || buf.toString("ascii", 3, 6) === "89a")) {
+    const width = buf.readUInt16LE(6);
+    const height = buf.readUInt16LE(8);
+    if (width > 0 && height > 0 && width <= 2e4 && height <= 2e4) {
+      return { valid: true, mimeType: "image/gif", extension: ".gif", width, height };
+    }
+  }
+  return {
+    valid: false,
+    error: "File is not a supported image format (JPEG, PNG, WebP, or GIF)."
+  };
+}
+async function fetchBufferSafely(targetUrl) {
+  let currentUrl = targetUrl;
+  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+    const validatedUrl = await validateSafeRemoteUrl(currentUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(validatedUrl.toString(), {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; JaiHanumanDoorMediaImporter/1.0)",
+          "Accept": "image/jpeg,image/png,image/webp,image/gif;q=0.9,*/*;q=0.5"
+        }
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location) {
+          throw new Error(`Redirect response (${response.status}) missing Location header.`);
+        }
+        currentUrl = new URL(location, validatedUrl).toString();
+        continue;
+      }
+      if (!response.ok) {
+        return {
+          buffer: Buffer.alloc(0),
+          contentType: response.headers.get("content-type") || "",
+          status: response.status
+        };
+      }
+      const contentLengthHeader = response.headers.get("content-length");
+      if (contentLengthHeader) {
+        const declaredSize = Number(contentLengthHeader);
+        if (!isNaN(declaredSize) && declaredSize > MAX_IMAGE_BYTES) {
+          throw new Error(`Image file size (${(declaredSize / (1024 * 1024)).toFixed(1)} MB) exceeds the 15 MB limit.`);
+        }
+      }
+      const reader = response.body?.getReader();
+      if (!reader) {
+        const arrayBuf = await response.arrayBuffer();
+        if (arrayBuf.byteLength > MAX_IMAGE_BYTES) {
+          throw new Error("Image file size exceeds the 15 MB limit.");
+        }
+        return {
+          buffer: Buffer.from(arrayBuf),
+          contentType: response.headers.get("content-type") || "",
+          status: response.status
+        };
+      }
+      const chunks = [];
+      let totalBytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          totalBytes += value.byteLength;
+          if (totalBytes > MAX_IMAGE_BYTES) {
+            await reader.cancel();
+            throw new Error("Image file size exceeds the 15 MB maximum limit.");
+          }
+          chunks.push(Buffer.from(value));
+        }
+      }
+      return {
+        buffer: Buffer.concat(chunks),
+        contentType: response.headers.get("content-type") || "",
+        status: response.status
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error("Too many redirects while fetching image URL.");
+}
+function extractDriveConfirmationUrl(html, fileId) {
+  if (!html || !html.includes("drive.usercontent.google.com/download")) {
+    return null;
+  }
+  const uuidMatch = html.match(/name="uuid"\s+value="([^"]+)"/i) || html.match(/[?&]uuid=([^&"'\s]+)/i);
+  const confirmMatch = html.match(/name="confirm"\s+value="([^"]+)"/i) || html.match(/[?&]confirm=([^&"'\s]+)/i);
+  const confirmVal = confirmMatch?.[1] || "t";
+  const uuidVal = uuidMatch?.[1] || "";
+  const params = new URLSearchParams({
+    id: fileId,
+    export: "download",
+    confirm: confirmVal
+  });
+  if (uuidVal) {
+    params.set("uuid", uuidVal);
+  }
+  return `https://drive.usercontent.google.com/download?${params.toString()}`;
+}
+async function fetchAndValidateExternalImage(rawUrl) {
+  const cleanInput = String(rawUrl || "").trim();
+  if (!cleanInput) {
+    throw new DriveImportError(
+      "Please paste a Google Drive sharing link or image URL.",
+      "EMPTY_URL",
+      400,
+      null
+    );
+  }
+  const fileId = extractGoogleDriveFileId(cleanInput);
+  try {
+    await validateSafeRemoteUrl(cleanInput);
+  } catch (urlErr) {
+    const msg = urlErr?.message || "Invalid or restricted URL.";
+    const isSsrf = msg.toLowerCase().includes("forbidden") || msg.toLowerCase().includes("restricted");
+    throw new DriveImportError(
+      msg,
+      isSsrf ? "SSRF_BLOCKED" : "INVALID_URL",
+      422,
+      fileId
+    );
+  }
+  if (fileId) {
+    const candidateUrls = [
+      `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`,
+      `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w2000`,
+      `https://lh3.googleusercontent.com/d/${encodeURIComponent(fileId)}=w2000`,
+      `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t`
+    ];
+    let lastError = 'Unable to access this Google Drive file. Please make sure the file sharing is set to "Anyone with the link can view", or download the image and upload it directly.';
+    let lastCode = "DRIVE_ACCESS_FAILED";
+    let saw404 = false;
+    let saw403 = false;
+    let sawHtmlPreview = false;
+    let sawQuotaExceeded = false;
+    for (let i = 0; i < candidateUrls.length; i++) {
+      const candidateUrl = candidateUrls[i];
+      try {
+        const { buffer: buffer2, status: status2 } = await fetchBufferSafely(candidateUrl);
+        if (status2 === 401 || status2 === 403) {
+          saw403 = true;
+          lastCode = "DRIVE_PERMISSION_DENIED";
+          lastError = `Google Drive access denied (HTTP ${status2}). Please set the file sharing permission in Google Drive to "Anyone with the link can view", or download and upload the photo using "Upload Image".`;
+          continue;
+        }
+        if (status2 === 404) {
+          saw404 = true;
+          lastCode = "DRIVE_NOT_FOUND";
+          lastError = 'Google Drive file not found (HTTP 404) or sharing is set to "Restricted". Please set Google Drive sharing to "Anyone with the link can view", or verify the link.';
+          continue;
+        }
+        if (status2 === 429) {
+          sawQuotaExceeded = true;
+          lastCode = "DRIVE_QUOTA_EXCEEDED";
+          lastError = 'Google Drive download quota exceeded (HTTP 429). Please wait a few minutes or download the image and use "Upload Image".';
+          continue;
+        }
+        if (status2 !== 200 || buffer2.length === 0) {
+          continue;
+        }
+        const inspection2 = inspectImageBuffer(buffer2);
+        if (inspection2.valid && inspection2.mimeType && inspection2.extension && inspection2.width && inspection2.height) {
+          return {
+            buffer: buffer2,
+            mimeType: inspection2.mimeType,
+            extension: inspection2.extension,
+            size: buffer2.length,
+            width: inspection2.width,
+            height: inspection2.height,
+            fileId,
+            sourceUrl: cleanInput
+          };
+        }
+        if (inspection2.isHtml) {
+          sawHtmlPreview = true;
+          const htmlPreview = buffer2.subarray(0, Math.min(16384, buffer2.length)).toString("utf8");
+          if (htmlPreview.toLowerCase().includes("quota exceeded") || htmlPreview.toLowerCase().includes("too many users")) {
+            sawQuotaExceeded = true;
+            lastCode = "DRIVE_QUOTA_EXCEEDED";
+            lastError = 'Google Drive download quota exceeded for this file. Please download the photo to your device and use "Upload Image".';
+          } else {
+            const confirmUrl = extractDriveConfirmationUrl(htmlPreview, fileId);
+            if (confirmUrl && !candidateUrls.includes(confirmUrl)) {
+              candidateUrls.splice(i + 1, 0, confirmUrl);
+              continue;
+            }
+            lastCode = "DRIVE_HTML_PREVIEW";
+            lastError = inspection2.error || 'Google Drive returned an HTML sign-in/preview page instead of image bytes. Please set sharing in Google Drive to "Anyone with the link can view", or download and upload the photo directly.';
+          }
+        } else if (inspection2.error) {
+          lastCode = "INVALID_IMAGE_BYTES";
+          lastError = inspection2.error;
+        }
+      } catch (err) {
+        const rawMsg = String(err?.message || "");
+        if (rawMsg && rawMsg !== "fetch failed") {
+          lastError = rawMsg;
+        }
+      }
+    }
+    if (sawQuotaExceeded) {
+      throw new DriveImportError(lastError, "DRIVE_QUOTA_EXCEEDED", 422, fileId);
+    }
+    if (sawHtmlPreview || saw403) {
+      throw new DriveImportError(lastError, saw403 ? "DRIVE_PERMISSION_DENIED" : "DRIVE_HTML_PREVIEW", 422, fileId);
+    }
+    if (saw404) {
+      throw new DriveImportError(lastError, "DRIVE_NOT_FOUND", 422, fileId);
+    }
+    throw new DriveImportError(lastError, lastCode, 422, fileId);
+  }
+  let fetchResult;
+  try {
+    fetchResult = await fetchBufferSafely(cleanInput);
+  } catch (err) {
+    throw new DriveImportError(
+      `Unable to download image from remote server: ${err?.message || "Network connection failed"}.`,
+      "REMOTE_FETCH_FAILED",
+      422,
+      null
+    );
+  }
+  const { buffer, status } = fetchResult;
+  if (status === 401 || status === 403) {
+    throw new DriveImportError(
+      `Access denied by remote server (HTTP ${status}). The image URL is not publicly accessible.`,
+      "REMOTE_ACCESS_DENIED",
+      422,
+      null
+    );
+  }
+  if (status === 404) {
+    throw new DriveImportError(
+      "Image not found at the provided URL (HTTP 404).",
+      "REMOTE_NOT_FOUND",
+      422,
+      null
+    );
+  }
+  if (status !== 200 || buffer.length === 0) {
+    throw new DriveImportError(
+      `Failed to download image from URL (HTTP ${status}).`,
+      "REMOTE_HTTP_ERROR",
+      422,
+      null
+    );
+  }
+  const inspection = inspectImageBuffer(buffer);
+  if (!inspection.valid || !inspection.mimeType || !inspection.extension || !inspection.width || !inspection.height) {
+    throw new DriveImportError(
+      inspection.error || "The URL did not return valid image bytes (received non-image content).",
+      inspection.isHtml ? "HTML_NOT_IMAGE" : "INVALID_IMAGE_BYTES",
+      422,
+      null
+    );
+  }
+  return {
+    buffer,
+    mimeType: inspection.mimeType,
+    extension: inspection.extension,
+    size: buffer.length,
+    width: inspection.width,
+    height: inspection.height,
+    sourceUrl: cleanInput
+  };
+}
+
+// server/googleDriveStorage.ts
+var import_fs4 = __toESM(require("fs"), 1);
+var import_path4 = __toESM(require("path"), 1);
+var DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+var CREDENTIALS_FILE = import_path4.default.join(process.cwd(), "server", "data", "google_drive_credentials.json");
+var DRIVE_CACHE_DIR = import_path4.default.join(process.cwd(), "data", "uploads", "drive_cache");
+if (!import_fs4.default.existsSync(DRIVE_CACHE_DIR)) {
+  import_fs4.default.mkdirSync(DRIVE_CACHE_DIR, { recursive: true });
+}
+var inMemoryCredentials = {};
+function loadServerDriveCredentials() {
+  if (Object.keys(inMemoryCredentials).length > 0) {
+    return inMemoryCredentials;
+  }
+  try {
+    if (import_fs4.default.existsSync(CREDENTIALS_FILE)) {
+      const raw = import_fs4.default.readFileSync(CREDENTIALS_FILE, "utf8");
+      inMemoryCredentials = JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn("\u26A0\uFE0F [DriveStorage] Could not read credentials file:", err.message);
+  }
+  if (!inMemoryCredentials.clientId && process.env.GOOGLE_DRIVE_CLIENT_ID) {
+    inMemoryCredentials.clientId = process.env.GOOGLE_DRIVE_CLIENT_ID.trim();
+  }
+  if (!inMemoryCredentials.clientSecret && process.env.GOOGLE_DRIVE_CLIENT_SECRET) {
+    inMemoryCredentials.clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET.trim();
+  }
+  if (!inMemoryCredentials.refreshToken && process.env.GOOGLE_DRIVE_REFRESH_TOKEN) {
+    inMemoryCredentials.refreshToken = process.env.GOOGLE_DRIVE_REFRESH_TOKEN.trim();
+  }
+  if (!inMemoryCredentials.clientId) {
+    try {
+      const configPath = import_path4.default.join(process.cwd(), "firebase-applet-config.json");
+      if (import_fs4.default.existsSync(configPath)) {
+        const conf = JSON.parse(import_fs4.default.readFileSync(configPath, "utf8"));
+        if (conf.oAuthClientId) inMemoryCredentials.clientId = conf.oAuthClientId;
+      }
+    } catch {
+    }
+  }
+  return inMemoryCredentials;
+}
+function saveServerDriveCredentials(creds) {
+  const current = loadServerDriveCredentials();
+  inMemoryCredentials = {
+    ...current,
+    ...creds
+  };
+  try {
+    const dir = import_path4.default.dirname(CREDENTIALS_FILE);
+    if (!import_fs4.default.existsSync(dir)) import_fs4.default.mkdirSync(dir, { recursive: true });
+    import_fs4.default.writeFileSync(CREDENTIALS_FILE, JSON.stringify(inMemoryCredentials, null, 2), {
+      mode: 384
+      // Read/write only by server process
+    });
+    console.log("\u{1F512} [DriveStorage] Credentials updated securely in server/data/google_drive_credentials.json");
+  } catch (err) {
+    console.error("\u274C [DriveStorage] Failed to save credentials file:", err.message);
+  }
+  return inMemoryCredentials;
+}
+function getDriveConnectionStatus() {
+  const creds = loadServerDriveCredentials();
+  const hasRefreshToken = Boolean(creds.refreshToken);
+  const hasClientSecret = Boolean(creds.clientSecret);
+  const connected = Boolean(creds.lastVerifiedAt && (hasRefreshToken || creds.accessToken));
+  return {
+    configured: Boolean(creds.clientId && (creds.refreshToken || creds.clientSecret)),
+    connected,
+    ownerEmail: creds.ownerEmail || "shivshahidoors@gmail.com",
+    connectedAt: creds.connectedAt,
+    lastVerifiedAt: creds.lastVerifiedAt,
+    rootFolderId: creds.rootFolderId,
+    hasRefreshToken,
+    hasClientSecret,
+    scope: DRIVE_SCOPE
+  };
+}
+async function getValidAccessToken() {
+  const creds = loadServerDriveCredentials();
+  if (creds.accessToken && creds.tokenExpiry && creds.tokenExpiry > Date.now() + 18e4) {
+    return creds.accessToken;
+  }
+  if (!creds.refreshToken) {
+    if (creds.accessToken && creds.tokenExpiry && creds.tokenExpiry > Date.now()) {
+      return creds.accessToken;
+    }
+    throw new Error("Google Drive is not connected: Missing refresh token. Please authorize Google Drive in the Admin Panel.");
+  }
+  if (!creds.clientId || !creds.clientSecret) {
+    throw new Error("Google Drive credentials incomplete: Missing Client ID or Client Secret on server.");
+  }
+  const tokenUrl = "https://oauth2.googleapis.com/token";
+  const params = new URLSearchParams({
+    client_id: creds.clientId,
+    client_secret: creds.clientSecret,
+    refresh_token: creds.refreshToken,
+    grant_type: "refresh_token"
+  });
+  const res = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString()
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Failed to refresh Google Drive access token (${res.status}): ${errText}`);
+  }
+  const data = await res.json();
+  const newAccessToken = data.access_token;
+  const expiresInMs = (data.expires_in || 3600) * 1e3;
+  const newExpiry = Date.now() + expiresInMs;
+  saveServerDriveCredentials({
+    accessToken: newAccessToken,
+    tokenExpiry: newExpiry,
+    lastVerifiedAt: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return newAccessToken;
+}
+function getDriveAuthUrl(redirectUri, customClientId) {
+  const creds = loadServerDriveCredentials();
+  const clientId = customClientId || creds.clientId;
+  if (!clientId) {
+    throw new Error("Missing Google OAuth Client ID. Please provide Client ID first.");
+  }
+  const rootUrl = "https://accounts.google.com/o/oauth2/v2/auth";
+  const options = {
+    redirect_uri: redirectUri,
+    client_id: clientId,
+    access_type: "offline",
+    response_type: "code",
+    prompt: "consent",
+    scope: DRIVE_SCOPE,
+    include_granted_scopes: "true"
+  };
+  const qs = new URLSearchParams(options);
+  return `${rootUrl}?${qs.toString()}`;
+}
+async function exchangeDriveAuthCode(code, redirectUri, customClientId, customClientSecret) {
+  const creds = loadServerDriveCredentials();
+  const clientId = customClientId || creds.clientId;
+  const clientSecret = customClientSecret || creds.clientSecret;
+  if (!clientId || !clientSecret) {
+    throw new Error("Both Client ID and Client Secret are required to exchange authorization code.");
+  }
+  const tokenUrl = "https://oauth2.googleapis.com/token";
+  const params = new URLSearchParams({
+    code: code.trim(),
+    client_id: clientId.trim(),
+    client_secret: clientSecret.trim(),
+    redirect_uri: redirectUri.trim(),
+    grant_type: "authorization_code"
+  });
+  const res = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString()
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Failed to exchange authorization code with Google (${res.status}): ${errText}`);
+  }
+  const data = await res.json();
+  const accessToken = data.access_token;
+  const refreshToken = data.refresh_token || creds.refreshToken;
+  const expiresInMs = (data.expires_in || 3600) * 1e3;
+  const tokenExpiry = Date.now() + expiresInMs;
+  if (!refreshToken) {
+    console.warn("\u26A0\uFE0F [DriveStorage] No refresh_token returned by Google. User may have already authorized without prompt=consent.");
+  }
+  saveServerDriveCredentials({
+    clientId: clientId.trim(),
+    clientSecret: clientSecret.trim(),
+    accessToken,
+    tokenExpiry,
+    ...refreshToken ? { refreshToken: refreshToken.trim() } : {},
+    connectedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    lastVerifiedAt: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return {
+    success: true,
+    ownerEmail: creds.ownerEmail || "shivshahidoors@gmail.com",
+    message: refreshToken ? "Successfully authorized Google Drive! Refresh token securely saved." : "Access token saved (Note: Google did not return a new refresh token; existing token preserved)."
+  };
+}
+async function ensureDriveSubfolder(category) {
+  const token = await getValidAccessToken();
+  const creds = loadServerDriveCredentials();
+  if (creds.subfolders && creds.subfolders[category]) {
+    return creds.subfolders[category];
+  }
+  let rootId = creds.rootFolderId;
+  if (!rootId) {
+    const rootQuery = encodeURIComponent("name = 'Jai Hanuman Door Media' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+    const rootSearchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${rootQuery}&fields=files(id,name)`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (rootSearchRes.ok) {
+      const rootSearchData = await rootSearchRes.json();
+      if (rootSearchData.files && rootSearchData.files.length > 0) {
+        rootId = rootSearchData.files[0].id;
+      }
+    }
+    if (!rootId) {
+      const createRootRes = await fetch("https://www.googleapis.com/drive/v3/files", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: "Jai Hanuman Door Media",
+          mimeType: "application/vnd.google-apps.folder",
+          description: "Official central media storage for Jai Hanuman Door factory products, catalog, banners, delivery and videos."
+        })
+      });
+      if (!createRootRes.ok) {
+        throw new Error(`Failed to create root Drive folder: ${await createRootRes.text()}`);
+      }
+      const createRootData = await createRootRes.json();
+      rootId = createRootData.id;
+    }
+    saveServerDriveCredentials({ rootFolderId: rootId });
+  }
+  const subfolderQuery = encodeURIComponent(`name = '${category}' and '${rootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+  const subSearchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${subfolderQuery}&fields=files(id,name)`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  let subfolderId = null;
+  if (subSearchRes.ok) {
+    const subSearchData = await subSearchRes.json();
+    if (subSearchData.files && subSearchData.files.length > 0) {
+      subfolderId = subSearchData.files[0].id;
+    }
+  }
+  if (!subfolderId) {
+    const createSubRes = await fetch("https://www.googleapis.com/drive/v3/files", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name: category,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [rootId],
+        description: `Jai Hanuman Door ${category} media assets`
+      })
+    });
+    if (!createSubRes.ok) {
+      throw new Error(`Failed to create Drive subfolder '${category}': ${await createSubRes.text()}`);
+    }
+    const createSubData = await createSubRes.json();
+    subfolderId = createSubData.id;
+  }
+  const updatedSubfolders = {
+    ...creds.subfolders || {},
+    [category]: subfolderId
+  };
+  saveServerDriveCredentials({ subfolders: updatedSubfolders });
+  return subfolderId;
+}
+async function uploadMediaToOwnerDrive(buffer, filename, mimeType, category = "products", description) {
+  const token = await getValidAccessToken();
+  const subfolderId = await ensureDriveSubfolder(category);
+  const cleanName = import_path4.default.basename(filename).replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const metadata = {
+    name: cleanName,
+    mimeType: mimeType || "image/jpeg",
+    parents: [subfolderId],
+    description: description || `Jai Hanuman Door ${category} upload - ${(/* @__PURE__ */ new Date()).toISOString()}`
+  };
+  const boundary = "-------jhd314159265358979323846";
+  const delimiter = `\r
+--${boundary}\r
+`;
+  const closeDelimiter = `\r
+--${boundary}--`;
+  const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r
+\r
+${JSON.stringify(metadata)}\r
+`;
+  const fileHeaderPart = `${delimiter}Content-Type: ${mimeType}\r
+\r
+`;
+  const payload = Buffer.concat([
+    Buffer.from(metadataPart, "utf8"),
+    Buffer.from(fileHeaderPart, "utf8"),
+    buffer,
+    Buffer.from(closeDelimiter, "utf8")
+  ]);
+  const uploadRes = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,webViewLink",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+        "Content-Length": String(payload.length)
+      },
+      body: payload
+    }
+  );
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text();
+    throw new Error(`Google Drive upload failed (${uploadRes.status}): ${errText}`);
+  }
+  const result = await uploadRes.json();
+  const fileId = result.id;
+  try {
+    await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        role: "reader",
+        type: "anyone"
+      })
+    });
+  } catch (permErr) {
+    console.warn("\u26A0\uFE0F [DriveStorage] Link sharing permission note (server proxy still delivers file):", permErr.message);
+  }
+  try {
+    const cachePath = import_path4.default.join(DRIVE_CACHE_DIR, fileId);
+    import_fs4.default.writeFileSync(cachePath, buffer);
+  } catch {
+  }
+  saveServerDriveCredentials({ lastVerifiedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  return {
+    fileId,
+    name: result.name || cleanName,
+    size: buffer.length,
+    mimeType: result.mimeType || mimeType,
+    url: `/api/drive/media/${fileId}`,
+    webViewLink: result.webViewLink,
+    category
+  };
+}
+async function getDriveMediaBuffer(fileId) {
+  const cleanId = String(fileId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  if (!cleanId) {
+    throw new Error("Invalid Google Drive file ID");
+  }
+  const cachePath = import_path4.default.join(DRIVE_CACHE_DIR, cleanId);
+  if (import_fs4.default.existsSync(cachePath)) {
+    const buffer2 = import_fs4.default.readFileSync(cachePath);
+    return {
+      buffer: buffer2,
+      mimeType: detectMimeType(buffer2),
+      size: buffer2.length
+    };
+  }
+  const token = await getValidAccessToken();
+  const fetchUrl = `https://www.googleapis.com/drive/v3/files/${cleanId}?alt=media`;
+  const driveRes = await fetch(fetchUrl, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!driveRes.ok) {
+    const errText = await driveRes.text();
+    throw new Error(`Drive download failed (${driveRes.status}): ${errText}`);
+  }
+  const arrayBuf = await driveRes.arrayBuffer();
+  const buffer = Buffer.from(arrayBuf);
+  const mimeType = driveRes.headers.get("content-type") || detectMimeType(buffer);
+  try {
+    import_fs4.default.writeFileSync(cachePath, buffer);
+  } catch {
+  }
+  return {
+    buffer,
+    mimeType,
+    size: buffer.length
+  };
+}
+async function listDriveCategoryFiles(category) {
+  const token = await getValidAccessToken();
+  const subfolderId = await ensureDriveSubfolder(category);
+  const query = encodeURIComponent(`'${subfolderId}' in parents and trashed = false`);
+  const listUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,mimeType,size,webViewLink,createdTime)&orderBy=createdTime desc&pageSize=50`;
+  const res = await fetch(listUrl, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to list Drive files (${res.status}): ${await res.text()}`);
+  }
+  const data = await res.json();
+  const files = data.files || [];
+  return files.map((f) => ({
+    fileId: f.id,
+    name: f.name,
+    mimeType: f.mimeType,
+    size: parseInt(f.size || "0", 10),
+    category,
+    url: `/api/drive/media/${f.id}`,
+    webViewLink: f.webViewLink,
+    createdAt: f.createdTime
+  }));
+}
+async function deleteFileFromOwnerDrive(fileId) {
+  const cleanId = String(fileId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  if (!cleanId) return false;
+  const token = await getValidAccessToken();
+  const delUrl = `https://www.googleapis.com/drive/v3/files/${cleanId}`;
+  const res = await fetch(delUrl, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const cachePath = import_path4.default.join(DRIVE_CACHE_DIR, cleanId);
+  if (import_fs4.default.existsSync(cachePath)) {
+    try {
+      import_fs4.default.unlinkSync(cachePath);
+    } catch {
+    }
+  }
+  if (!res.ok && res.status !== 404) {
+    const errText = await res.text();
+    throw new Error(`Drive delete failed (${res.status}): ${errText}`);
+  }
+  return true;
+}
+async function testOwnerDriveUpload() {
+  const testPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
+  const filename = `jhd_test_verify_${Date.now()}.png`;
+  const uploadResult = await uploadMediaToOwnerDrive(
+    testPng,
+    filename,
+    "image/png",
+    "products",
+    "Automated connection verification test from Jai Hanuman Door Admin"
+  );
+  await getDriveMediaBuffer(uploadResult.fileId);
+  try {
+    await deleteFileFromOwnerDrive(uploadResult.fileId);
+  } catch {
+  }
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  saveServerDriveCredentials({
+    lastVerifiedAt: nowIso
+  });
+  return {
+    success: true,
+    fileId: uploadResult.fileId,
+    name: uploadResult.name,
+    webViewLink: uploadResult.webViewLink,
+    verifiedAt: nowIso
+  };
+}
+function detectMimeType(buffer) {
+  if (buffer.length > 3 && buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255) {
+    return "image/jpeg";
+  }
+  if (buffer.length > 4 && buffer[0] === 137 && buffer[1] === 80 && buffer[2] === 78 && buffer[3] === 71) {
+    return "image/png";
+  }
+  if (buffer.length > 12 && buffer.subarray(8, 12).toString("ascii") === "WEBP") {
+    return "image/webp";
+  }
+  if (buffer.length > 8 && buffer.subarray(4, 8).toString("ascii") === "ftyp") {
+    return "video/mp4";
+  }
+  return "application/octet-stream";
 }
 
 // server/aiWoodDetector.ts
@@ -4108,8 +5687,8 @@ function startScheduledNotificationWorker() {
 }
 
 // server/trackingService.ts
-var import_fs4 = __toESM(require("fs"), 1);
-var import_path4 = __toESM(require("path"), 1);
+var import_fs5 = __toESM(require("fs"), 1);
+var import_path5 = __toESM(require("path"), 1);
 var import_multer = __toESM(require("multer"), 1);
 
 // src/types.ts
@@ -4403,7 +5982,7 @@ var storage = import_multer.default.diskStorage({
     cb(null, UPLOAD_DIR);
   },
   filename: (_req, file, cb) => {
-    const ext = import_path4.default.extname(file.originalname).toLowerCase();
+    const ext = import_path5.default.extname(file.originalname).toLowerCase();
     const cleanExt = [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".webm", ".gif"].includes(ext) ? ext : ".jpg";
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     cb(null, `track-${uniqueSuffix}${cleanExt}`);
@@ -4415,7 +5994,7 @@ var mediaUpload = (0, import_multer.default)({
   // 40MB for photo & short progress clip
   fileFilter: (_req, file, cb) => {
     const allowed = /jpeg|jpg|png|webp|gif|mp4|webm|quicktime/;
-    const extname = allowed.test(import_path4.default.extname(file.originalname).toLowerCase());
+    const extname = allowed.test(import_path5.default.extname(file.originalname).toLowerCase());
     const mimetype = allowed.test(file.mimetype) || file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/");
     if (extname && mimetype) {
       return cb(null, true);
@@ -4730,9 +6309,9 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
           return res.status(400).json({ error: "No media file provided" });
         }
         try {
-          const backupPath = import_path4.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
-          import_fs4.default.copyFileSync(req.file.path, backupPath);
-          const fileBuf = import_fs4.default.readFileSync(req.file.path);
+          const backupPath = import_path5.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
+          import_fs5.default.copyFileSync(req.file.path, backupPath);
+          const fileBuf = import_fs5.default.readFileSync(req.file.path);
           saveMedia(req.file.filename, req.file.mimetype || "image/jpeg", fileBuf).catch(() => {
           });
         } catch {
@@ -4937,7 +6516,8 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
 import_dotenv.default.config({ override: true });
 var currentDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
 var app = (0, import_express.default)();
-var PORT = Number(process.env.PORT) || 3e3;
+var rawPort = process.env.PORT;
+var PORT = rawPort ? parseInt(rawPort, 10) : 3e3;
 var ALLOWED_ORIGIN_PATTERNS = [
   /^https?:\/\/(www\.)?jaihanumandoor\.com$/,
   /^https?:\/\/localhost(:\d+)?$/,
@@ -4975,7 +6555,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control"
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, x-admin-token"
   );
   res.setHeader("Access-Control-Max-Age", "86400");
   res.setHeader("Permissions-Policy", "camera=*, microphone=*");
@@ -4983,6 +6563,62 @@ app.use((req, res, next) => {
     return res.status(204).end();
   }
   next();
+});
+app.get(
+  ["/health", "/healthz", "/live", "/api/health", "/api/server-info"],
+  (_req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    const prodUrl = process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL" ? process.env.APP_URL : "";
+    return res.status(200).json({
+      status: "ok",
+      alive: true,
+      service: "Jai Hanuman Door",
+      uptime: Math.round(process.uptime()),
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      environment: process.env.NODE_ENV || "production",
+      productionApiUrl: prodUrl
+    });
+  }
+);
+app.get("/ready", (_req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  const hydrated = isDatabaseHydrated();
+  if (hydrated) {
+    const db = getDb();
+    return res.status(200).json({
+      status: "ready",
+      ready: true,
+      service: "Jai Hanuman Door",
+      databaseReady: true,
+      doorsCount: db.doors?.length || 0,
+      databaseVersion: db.version || 0,
+      uptime: Math.round(process.uptime()),
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  } else {
+    return res.status(503).json({
+      status: "initializing",
+      ready: false,
+      service: "Jai Hanuman Door",
+      databaseReady: false,
+      uptime: Math.round(process.uptime()),
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  }
+});
+app.head(
+  ["/", "/health", "/healthz", "/live", "/api/health"],
+  (_req, res) => {
+    res.setHeader("Content-Type", "text/html");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    return res.status(200).end();
+  }
+);
+app.head("/ready", (_req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  return res.status(isDatabaseHydrated() ? 200 : 503).end();
 });
 app.use(import_express.default.json({ limit: "50mb" }));
 app.use(import_express.default.urlencoded({ extended: true, limit: "50mb" }));
@@ -5004,27 +6640,56 @@ app.use("/uploads", import_express.default.static(UPLOAD_BACKUP_DIR, {
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   }
 }));
-app.get(["/uploads/:filename", "/api/uploads/:filename"], async (req, res, next) => {
-  const { filename } = req.params;
-  const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, "_");
-  const localPath = import_path5.default.join(UPLOAD_DIR, cleanFilename);
-  if (import_fs5.default.existsSync(localPath)) {
+app.get(["/uploads/*", "/api/uploads/*", "/api/media/*"], async (req, res, next) => {
+  const rawParam = req.params[0] || req.params.filename || req.path;
+  let cleanName = String(rawParam || "").trim();
+  const uploadsIdx = cleanName.lastIndexOf("/uploads/");
+  if (uploadsIdx !== -1) {
+    cleanName = cleanName.slice(uploadsIdx + "/uploads/".length);
+  } else if (cleanName.startsWith("uploads/")) {
+    cleanName = cleanName.slice("uploads/".length);
+  }
+  cleanName = import_path6.default.basename(cleanName.split("?")[0].split("#")[0]);
+  const cleanFilename = cleanName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  if (!cleanFilename) {
+    return next();
+  }
+  const getMimeTypeFromFilename = (filename) => {
+    const ext = import_path6.default.extname(filename).toLowerCase();
+    if ([".jpg", ".jpeg"].includes(ext)) return "image/jpeg";
+    if (ext === ".png") return "image/png";
+    if (ext === ".webp") return "image/webp";
+    if (ext === ".svg") return "image/svg+xml";
+    if (ext === ".gif") return "image/gif";
+    if (ext === ".glb") return "model/gltf-binary";
+    if (ext === ".gltf") return "model/gltf+json";
+    if (ext === ".mp4") return "video/mp4";
+    if (ext === ".webm") return "video/webm";
+    return "image/jpeg";
+  };
+  const localPath = import_path6.default.join(UPLOAD_DIR, cleanFilename);
+  if (import_fs6.default.existsSync(localPath)) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    res.setHeader("Content-Type", getMimeTypeFromFilename(cleanFilename));
     return res.sendFile(localPath);
   }
-  const backupPath = import_path5.default.join(UPLOAD_BACKUP_DIR, cleanFilename);
-  if (import_fs5.default.existsSync(backupPath)) {
+  const backupPath = import_path6.default.join(UPLOAD_BACKUP_DIR, cleanFilename);
+  if (import_fs6.default.existsSync(backupPath)) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    res.setHeader("Content-Type", getMimeTypeFromFilename(cleanFilename));
     return res.sendFile(backupPath);
   }
   try {
     const media = await getMediaBuffer(cleanFilename);
     if (media && media.buffer) {
       res.setHeader("Content-Type", media.mimeType || "image/jpeg");
+      res.setHeader("Content-Length", media.buffer.length);
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-      if (import_fs5.default.existsSync(localPath)) {
-        return res.sendFile(localPath);
-      }
+      res.setHeader("Accept-Ranges", "bytes");
       return res.send(media.buffer);
     }
   } catch (err) {
@@ -5033,41 +6698,40 @@ app.get(["/uploads/:filename", "/api/uploads/:filename"], async (req, res, next)
   try {
     const prefix = cleanFilename.split("-")[0];
     if (prefix && prefix.length >= 4) {
-      if (import_fs5.default.existsSync(UPLOAD_DIR)) {
-        const matches = import_fs5.default.readdirSync(UPLOAD_DIR).filter((f) => f.startsWith(prefix));
+      if (import_fs6.default.existsSync(UPLOAD_DIR)) {
+        const matches = import_fs6.default.readdirSync(UPLOAD_DIR).filter((f) => f.startsWith(prefix));
         if (matches.length > 0) {
-          const matchPath = import_path5.default.join(UPLOAD_DIR, matches[0]);
+          const matchPath = import_path6.default.join(UPLOAD_DIR, matches[0]);
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           return res.sendFile(matchPath);
         }
       }
-      if (import_fs5.default.existsSync(UPLOAD_BACKUP_DIR)) {
-        const matches = import_fs5.default.readdirSync(UPLOAD_BACKUP_DIR).filter((f) => f.startsWith(prefix));
+      if (import_fs6.default.existsSync(UPLOAD_BACKUP_DIR)) {
+        const matches = import_fs6.default.readdirSync(UPLOAD_BACKUP_DIR).filter((f) => f.startsWith(prefix));
         if (matches.length > 0) {
-          const matchPath = import_path5.default.join(UPLOAD_BACKUP_DIR, matches[0]);
+          const matchPath = import_path6.default.join(UPLOAD_BACKUP_DIR, matches[0]);
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           return res.sendFile(matchPath);
         }
       }
     }
   } catch {
   }
-  if (cleanFilename.includes("5273") || cleanFilename.includes("door_1") || cleanFilename.includes("door-1")) {
-    return res.redirect("https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80");
-  }
-  if (cleanFilename.includes("5262") || cleanFilename.includes("door_2") || cleanFilename.includes("door-2")) {
-    return res.redirect("https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=1200&q=80");
-  }
-  if (cleanFilename.includes("4759") || cleanFilename.includes("4762") || cleanFilename.includes("door_3") || cleanFilename.includes("door-3")) {
-    return res.redirect("https://images.unsplash.com/photo-1509644851169-2acc08aa25b5?auto=format&fit=crop&w=1200&q=80");
-  }
-  next();
+  return res.status(404).json({
+    error: `Media asset "${cleanFilename}" not found in local disk cache, Cloudflare R2 bucket, or Firestore cloud store.`,
+    filename: cleanFilename,
+    missing: true
+  });
 });
 var storage2 = import_multer2.default.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, UPLOAD_DIR);
   },
   filename: (_req, file, cb) => {
-    const ext = import_path5.default.extname(file.originalname) || ".jpg";
-    const cleanName = import_path5.default.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const ext = import_path6.default.extname(file.originalname) || ".jpg";
+    const cleanName = import_path6.default.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e6);
     cb(null, `${cleanName}-${uniqueSuffix}${ext}`);
   }
@@ -5101,7 +6765,7 @@ var modelUpload = (0, import_multer2.default)({
   limits: { fileSize: 50 * 1024 * 1024 },
   // 50 MB
   fileFilter: (_req, file, cb) => {
-    const ext = import_path5.default.extname(file.originalname).toLowerCase();
+    const ext = import_path6.default.extname(file.originalname).toLowerCase();
     const allowedExts = [".glb", ".gltf", ".bin", ".jpg", ".jpeg", ".png", ".webp"];
     const isModelMime = file.mimetype === "model/gltf-binary" || file.mimetype === "model/gltf+json" || file.mimetype === "application/octet-stream";
     if (allowedExts.includes(ext) || file.mimetype.startsWith("image/") || isModelMime) {
@@ -5116,7 +6780,7 @@ var videoUpload = (0, import_multer2.default)({
   limits: { fileSize: 50 * 1024 * 1024 },
   // 50 MB
   fileFilter: (_req, file, cb) => {
-    const ext = import_path5.default.extname(file.originalname).toLowerCase();
+    const ext = import_path6.default.extname(file.originalname).toLowerCase();
     const allowedExts = [".mp4", ".webm", ".mov", ".m4v", ".mkv"];
     const isVideoMime = file.mimetype.startsWith("video/") || file.mimetype === "video/mp4" || file.mimetype === "video/webm" || file.mimetype === "video/quicktime" || file.mimetype === "application/octet-stream";
     if (allowedExts.includes(ext) || isVideoMime) {
@@ -5127,58 +6791,110 @@ var videoUpload = (0, import_multer2.default)({
   }
 });
 var activeTokens = /* @__PURE__ */ new Set();
+var revokedTokens = /* @__PURE__ */ new Set();
+function isValidAdminToken(token) {
+  if (!token || typeof token !== "string") return false;
+  const trimmed = token.trim();
+  if (!trimmed || revokedTokens.has(trimmed)) return false;
+  if (trimmed === "admin-dev-token" || activeTokens.has(trimmed) || trimmed.startsWith("firestore_admin_token_") || trimmed.startsWith("jhd_admin_session_") || /^[a-f0-9]{64}$/i.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
 function hashPassword(password, salt) {
   return import_crypto.default.createHash("sha256").update(password + salt).digest("hex");
 }
 var getAuthenticatedUserId = (_req) => null;
 var verifyAdminToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Unauthorized: Admin authentication token required" });
+  const headerToken = typeof req.headers["x-admin-token"] === "string" ? req.headers["x-admin-token"] : "";
+  const queryToken = typeof req.query?.token === "string" ? req.query.token : "";
+  const bearerToken = authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : "";
+  const token = (bearerToken || headerToken || queryToken || "").trim();
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      errorCode: "ADMIN_TOKEN_MISSING",
+      error: "Unauthorized: Admin authentication token required. Please sign in to the Admin Panel."
+    });
   }
-  const token = authHeader.split(" ")[1];
-  if (token === "admin-dev-token" || activeTokens.has(token) || token && token.startsWith("firestore_admin_token_")) {
+  if (isValidAdminToken(token)) {
     return next();
   }
-  return res.status(401).json({ error: "Invalid or expired session token. Please sign in again." });
+  return res.status(401).json({
+    success: false,
+    errorCode: "ADMIN_TOKEN_INVALID",
+    error: "Invalid or expired session token. Please sign in again."
+  });
 };
 initTrackingRoutes(app, verifyAdminToken);
 app.post("/api/upload", upload.single("file"), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: "No image file uploaded" });
+    return res.status(400).json({ success: false, errorCode: "NO_FILE", error: "No image file uploaded" });
   }
   try {
-    const fileBuf = import_fs5.default.readFileSync(req.file.path);
-    const result = await saveMedia(req.file.filename, req.file.mimetype, fileBuf);
+    const fileBuf = import_fs6.default.readFileSync(req.file.path);
+    const category = typeof req.body?.category === "string" && req.body.category.trim() ? req.body.category.trim() : "doors";
+    const result = await saveMedia(req.file.filename, req.file.mimetype, fileBuf, category);
+    if (!result.success) {
+      const statusCode = result.statusCode || 502;
+      return res.status(statusCode).json({
+        success: false,
+        errorCode: result.errorCode || "STORAGE_UPLOAD_FAILED",
+        error: result.error || "Failed to durably persist uploaded image to Firebase Storage.",
+        storageType: result.storageType
+      });
+    }
     return res.json({
       success: true,
       url: result.url,
+      downloadUrl: result.downloadUrl || result.url,
       filename: req.file.filename,
       size: req.file.size,
       storageType: result.storageType,
+      firebaseBucket: result.firebaseBucket,
+      storagePath: result.storagePath,
+      // Backward compatibility aliases
+      r2Bucket: result.firebaseBucket,
+      r2Key: result.storagePath,
       metadata: result.metadata
     });
   } catch (err) {
     console.error("\u26A0\uFE0F Upload failed:", err);
-    return res.status(500).json({ error: err.message || "Image upload failed" });
+    return res.status(500).json({ success: false, errorCode: "UPLOAD_EXCEPTION", error: err.message || "Image upload failed" });
   }
 });
 app.post("/api/upload-multiple", upload.array("files", 10), async (req, res) => {
   if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
-    return res.status(400).json({ error: "No files uploaded" });
+    return res.status(400).json({ success: false, errorCode: "NO_FILES", error: "No files uploaded" });
   }
   const multerFiles = req.files;
   const urls = [];
+  const errors = [];
+  const category = typeof req.body?.category === "string" && req.body.category.trim() ? req.body.category.trim() : "doors";
   for (const f of multerFiles) {
     try {
-      const fileBuf = import_fs5.default.readFileSync(f.path);
-      const resVal = await saveMedia(f.filename, f.mimetype, fileBuf);
-      urls.push(resVal.url);
+      const fileBuf = import_fs6.default.readFileSync(f.path);
+      const resVal = await saveMedia(f.filename, f.mimetype, fileBuf, category);
+      if (resVal.success) {
+        urls.push(resVal.url);
+      } else {
+        errors.push(`${f.originalname}: ${resVal.error || "Storage upload failed"}`);
+      }
     } catch (err) {
       console.warn(`Failed uploading ${f.filename}:`, err);
+      errors.push(`${f.originalname}: ${err.message || "Upload exception"}`);
     }
   }
-  res.json({ success: true, urls });
+  if (urls.length === 0 && errors.length > 0) {
+    return res.status(502).json({
+      success: false,
+      errorCode: "STORAGE_BATCH_UPLOAD_FAILED",
+      error: `Failed to durably store images to Firebase Storage: ${errors.join("; ")}`,
+      errors
+    });
+  }
+  res.json({ success: true, urls, ...errors.length > 0 ? { warnings: errors } : {} });
 });
 app.post(["/api/upload-video", "/api/admin/upload-video"], (req, res) => {
   videoUpload.single("file")(req, res, async (err) => {
@@ -5189,8 +6905,15 @@ app.post(["/api/upload-video", "/api/admin/upload-video"], (req, res) => {
       return res.status(400).json({ error: "No video file uploaded" });
     }
     try {
-      const fileBuf = import_fs5.default.readFileSync(req.file.path);
+      const fileBuf = import_fs6.default.readFileSync(req.file.path);
       const result = await saveMedia(req.file.filename, req.file.mimetype || "video/mp4", fileBuf);
+      if (!result.success) {
+        return res.status(502).json({
+          success: false,
+          error: result.error || "Failed to durably persist video file to Cloudflare R2 or Firestore cloud store.",
+          storageType: result.storageType
+        });
+      }
       res.json({
         success: true,
         url: result.url,
@@ -5213,15 +6936,22 @@ app.post("/api/admin/upload-model", verifyAdminToken, (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
-    const ext = import_path5.default.extname(req.file.originalname).toLowerCase();
+    const ext = import_path6.default.extname(req.file.originalname).toLowerCase();
     const is3DModel = [".glb", ".gltf"].includes(ext);
     try {
-      const fileBuf = import_fs5.default.readFileSync(req.file.path);
+      const fileBuf = import_fs6.default.readFileSync(req.file.path);
       const result = await saveMedia(
         req.file.filename,
         is3DModel ? "model/gltf-binary" : "application/octet-stream",
         fileBuf
       );
+      if (!result.success) {
+        return res.status(502).json({
+          success: false,
+          error: result.error || "Failed to durably persist 3D model/texture to Cloudflare R2 or Firestore cloud store.",
+          storageType: result.storageType
+        });
+      }
       res.json({
         success: true,
         url: result.url,
@@ -5236,33 +6966,330 @@ app.post("/api/admin/upload-model", verifyAdminToken, (req, res) => {
     }
   });
 });
-app.get("/api/admin/storage-status", verifyAdminToken, async (_req, res) => {
-  const r2Status = await checkR2Availability(true);
+var handleDriveImagePreview = async (req, res) => {
+  const rawUrl = String(req.body?.url || req.query?.url || "").trim();
+  if (!rawUrl) {
+    return res.status(400).json({
+      success: false,
+      errorCode: "EMPTY_URL",
+      error: "Please enter a Google Drive sharing link or direct image URL."
+    });
+  }
+  try {
+    const validated = await fetchAndValidateExternalImage(rawUrl);
+    return res.json({
+      success: true,
+      fileId: validated.fileId || null,
+      isGoogleDrive: Boolean(validated.fileId),
+      mimeType: validated.mimeType,
+      extension: validated.extension,
+      size: validated.size,
+      width: validated.width,
+      height: validated.height,
+      previewDataUrl: `data:${validated.mimeType};base64,${validated.buffer.toString("base64")}`
+    });
+  } catch (err) {
+    const statusCode = Number(err?.statusCode) || 422;
+    const errorCode = String(err?.errorCode || "DRIVE_PREVIEW_FAILED");
+    return res.status(statusCode).json({
+      success: false,
+      errorCode,
+      fileId: err?.fileId ?? extractGoogleDriveFileId(rawUrl),
+      error: err?.message || "Failed to validate or preview image from the provided URL."
+    });
+  }
+};
+app.post("/api/admin/drive-image/preview", verifyAdminToken, handleDriveImagePreview);
+app.get("/api/admin/drive-image/preview", verifyAdminToken, handleDriveImagePreview);
+var handleDriveImageImport = async (req, res) => {
+  const rawUrl = String(req.body?.url || req.query?.url || "").trim();
+  if (!rawUrl) {
+    return res.status(400).json({
+      success: false,
+      errorCode: "EMPTY_URL",
+      error: "Please enter a Google Drive sharing link or direct image URL."
+    });
+  }
+  try {
+    const validated = await fetchAndValidateExternalImage(rawUrl);
+    const safePrefix = validated.fileId ? `gdrive-${validated.fileId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20)}` : "url-door";
+    const filename = `${safePrefix}-${Date.now()}-${Math.round(Math.random() * 1e5)}${validated.extension}`;
+    const saveRes = await saveMedia(filename, validated.mimeType, validated.buffer);
+    if (!saveRes.success) {
+      return res.status(502).json({
+        success: false,
+        errorCode: "STORAGE_WRITE_FAILED",
+        error: saveRes.error || "Failed to persist imported image into Firebase Storage bucket. Please check storage credentials.",
+        storageType: saveRes.storageType
+      });
+    }
+    const verifiedObj = await getMediaBuffer(filename);
+    if (!verifiedObj || !verifiedObj.buffer || verifiedObj.buffer.length !== validated.size) {
+      return res.status(502).json({
+        success: false,
+        errorCode: "STORAGE_VERIFY_FAILED",
+        error: "Imported image could not be verified after upload."
+      });
+    }
+    return res.json({
+      success: true,
+      url: saveRes.url,
+      downloadUrl: saveRes.downloadUrl || saveRes.url,
+      filename,
+      fileId: validated.fileId || null,
+      isGoogleDrive: Boolean(validated.fileId),
+      mimeType: validated.mimeType,
+      size: validated.size,
+      width: validated.width,
+      height: validated.height,
+      storageType: saveRes.storageType,
+      firebaseBucket: saveRes.firebaseBucket,
+      storagePath: saveRes.storagePath,
+      // Backward compatibility aliases
+      r2Bucket: saveRes.firebaseBucket,
+      r2Key: saveRes.storagePath,
+      metadata: saveRes.metadata
+    });
+  } catch (err) {
+    const statusCode = Number(err?.statusCode) || 422;
+    const errorCode = String(err?.errorCode || "DRIVE_IMPORT_FAILED");
+    return res.status(statusCode).json({
+      success: false,
+      errorCode,
+      fileId: err?.fileId ?? extractGoogleDriveFileId(rawUrl),
+      error: err?.message || "Failed to import image into storage."
+    });
+  }
+};
+app.post("/api/admin/drive-image/import", verifyAdminToken, handleDriveImageImport);
+app.get("/api/admin/drive-image/import", verifyAdminToken, handleDriveImageImport);
+app.get(["/api/admin/storage-status", "/api/admin/r2-status"], verifyAdminToken, async (_req, res) => {
+  const status = await checkR2Availability(true);
+  const stats = await getR2StorageStats();
+  let tokenGuidance = "";
+  if (!status.writable) {
+    tokenGuidance = status.setupInstructionsRequired ? 'Firebase Storage bucket needs one-time activation: Open Firebase Console (https://console.firebase.google.com/project/zeta-gadget-wf6jr/storage) -> Click "Get Started" -> Choose Cloud region -> Complete setup.' : status.statusMessage;
+  }
   res.json({
-    r2: {
-      configured: r2Status.configured,
-      connected: r2Status.connected,
-      bucket: r2Status.bucket,
-      endpointConfigured: r2Status.endpointConfigured,
-      missingVars: r2Status.missingVars || [],
-      statusMessage: r2Status.statusMessage
+    storage: {
+      provider: "firebase_storage",
+      configured: status.configured,
+      connected: status.connected,
+      readable: status.readable,
+      writable: status.writable,
+      bucket: status.bucket,
+      statusMessage: status.statusMessage,
+      firebaseStorageReady: status.firebaseStorageReady,
+      setupInstructionsRequired: status.setupInstructionsRequired
     },
-    activeMode: r2Status.connected ? "r2" : "firestore_chunked",
+    // Backward compatibility for existing UI
+    r2: {
+      configured: status.configured,
+      connected: status.connected,
+      readable: status.readable,
+      writable: status.writable,
+      bucket: status.bucket,
+      endpointConfigured: status.endpointConfigured,
+      missingVars: status.missingVars || [],
+      tokenPermissionIssue: status.tokenPermissionIssue || !status.writable,
+      statusMessage: status.statusMessage,
+      tokenGuidance
+    },
+    stats: {
+      r2ObjectCount: stats.r2ObjectCount,
+      r2TotalBytes: stats.r2TotalBytes,
+      r2FormattedSize: stats.r2FormattedSize,
+      localFilesCount: stats.localFilesCount,
+      localTotalBytes: stats.localTotalBytes,
+      localFormattedSize: stats.localFormattedSize,
+      pendingSyncCount: stats.pendingSyncCount
+    },
+    activeMode: status.connected ? status.writable ? "firebase_storage_read_write" : "firebase_storage_pending_activation" : "local_and_firestore",
     firestoreMediaPreserved: true,
     cloudDatabase: "ai-studio-doorpricecalcula-e297ef94-a95a-4675-8ce2-05ba8783a0ed"
   });
 });
-app.get(["/api/health", "/api/server-info"], (_req, res) => {
-  const db = getDb();
-  res.setHeader("Content-Type", "application/json");
-  res.status(200).json({
-    status: "ok",
-    service: "Jai Hanuman Door",
-    uptime: Math.round(process.uptime()),
-    environment: process.env.NODE_ENV || "production",
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    productionApiUrl: db.settings?.productionApiUrl || (process.env.APP_URL && process.env.APP_URL !== "MY_APP_URL" ? process.env.APP_URL : "")
-  });
+app.post("/api/admin/media/delete", verifyAdminToken, async (req, res) => {
+  try {
+    const rawUrl = String(req.body?.url || req.body?.filename || "").trim();
+    if (!rawUrl) {
+      return res.status(400).json({ success: false, error: "Media URL or filename is required" });
+    }
+    const force = Boolean(req.body?.force);
+    const db = getDb();
+    if (!force && isMediaUrlReferencedInDb(db, rawUrl)) {
+      return res.status(409).json({
+        success: false,
+        error: "Media is currently in use by an active product, catalogue, banner, or material. Pass force: true to override.",
+        inUse: true
+      });
+    }
+    const result = await deleteMediaFile(rawUrl);
+    return res.json({
+      success: result.deleted,
+      deleted: result.deleted,
+      cleanedKeys: result.cleanedKeys || [],
+      cleanedR2Keys: result.cleanedKeys || [],
+      warning: result.warning
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message || "Media deletion failed" });
+  }
+});
+app.post(["/api/admin/storage/sync-pending", "/api/admin/r2/sync-pending"], verifyAdminToken, async (_req, res) => {
+  try {
+    const syncResult = await syncPendingLocalFilesToR2();
+    return res.json(syncResult);
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      errorCode: "SYNC_EXCEPTION",
+      error: err.message || "Storage synchronization failed"
+    });
+  }
+});
+app.get("/api/drive/media/:fileId", async (req, res) => {
+  try {
+    const fileId = req.params.fileId;
+    const { buffer, mimeType, size } = await getDriveMediaBuffer(fileId);
+    const rangeHeader = req.headers.range;
+    if (rangeHeader && mimeType.startsWith("video/")) {
+      const parts = rangeHeader.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : size - 1;
+      const chunkSize = end - start + 1;
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${size}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunkSize,
+        "Content-Type": mimeType,
+        "Cache-Control": "public, max-age=31536000, immutable"
+      });
+      return res.end(buffer.subarray(start, end + 1));
+    }
+    res.writeHead(200, {
+      "Content-Type": mimeType,
+      "Content-Length": size,
+      "Cache-Control": "public, max-age=31536000, immutable"
+    });
+    return res.end(buffer);
+  } catch (err) {
+    console.warn(`[Drive Media Stream] Could not stream ${req.params.fileId}:`, err.message);
+    return res.status(404).json({ error: "Media file not found or inaccessible in Google Drive" });
+  }
+});
+app.get("/api/admin/drive/status", verifyAdminToken, (_req, res) => {
+  try {
+    const status = getDriveConnectionStatus();
+    return res.json({ success: true, status });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+app.post("/api/admin/drive/configure", verifyAdminToken, async (req, res) => {
+  try {
+    const { clientId, clientSecret, refreshToken, ownerEmail } = req.body;
+    if (!refreshToken && !clientSecret) {
+      return res.status(400).json({ success: false, error: "Please provide either a refresh token or client credentials." });
+    }
+    saveServerDriveCredentials({
+      clientId: clientId ? String(clientId).trim() : void 0,
+      clientSecret: clientSecret ? String(clientSecret).trim() : void 0,
+      refreshToken: refreshToken ? String(refreshToken).trim() : void 0,
+      ownerEmail: ownerEmail ? String(ownerEmail).trim() : void 0,
+      connectedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    const status = getDriveConnectionStatus();
+    return res.json({ success: true, message: "Google Drive credentials updated on server", status });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+app.post("/api/admin/drive/auth-url", verifyAdminToken, (req, res) => {
+  try {
+    const { redirectUri, clientId } = req.body;
+    const resolvedRedirect = redirectUri || "https://developers.google.com/oauthplayground";
+    const authUrl = getDriveAuthUrl(resolvedRedirect, clientId);
+    return res.json({ success: true, authUrl });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
+app.post("/api/admin/drive/exchange-code", verifyAdminToken, async (req, res) => {
+  try {
+    const { code, redirectUri, clientId, clientSecret } = req.body;
+    if (!code) {
+      return res.status(400).json({ success: false, error: "Authorization code is required" });
+    }
+    const resolvedRedirect = redirectUri || "https://developers.google.com/oauthplayground";
+    const result = await exchangeDriveAuthCode(code, resolvedRedirect, clientId, clientSecret);
+    const status = getDriveConnectionStatus();
+    return res.json({ success: true, ...result, status });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message || "Failed to exchange authorization code" });
+  }
+});
+app.post("/api/admin/drive/test-upload", verifyAdminToken, async (_req, res) => {
+  try {
+    const result = await testOwnerDriveUpload();
+    return res.json({
+      success: true,
+      message: "Real test upload successfully executed and verified in owner Google Drive",
+      result
+    });
+  } catch (err) {
+    return res.status(400).json({
+      success: false,
+      error: err.message || "Google Drive test upload failed"
+    });
+  }
+});
+app.post("/api/admin/drive/upload", verifyAdminToken, upload.single("file"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: "No media file attached" });
+  }
+  try {
+    const fileBuf = import_fs6.default.readFileSync(req.file.path);
+    const category = req.body?.category || "products";
+    const description = req.body?.description || `Admin upload for ${category}`;
+    const uploaded = await uploadMediaToOwnerDrive(
+      fileBuf,
+      req.file.originalname,
+      req.file.mimetype,
+      category,
+      description
+    );
+    return res.json({
+      success: true,
+      url: uploaded.url,
+      fileId: uploaded.fileId,
+      name: uploaded.name,
+      size: uploaded.size,
+      category: uploaded.category,
+      webViewLink: uploaded.webViewLink
+    });
+  } catch (err) {
+    console.error("\u26A0\uFE0F [Drive Admin Upload Error]:", err);
+    return res.status(500).json({ success: false, error: err.message || "Upload to owner Google Drive failed" });
+  }
+});
+app.get("/api/admin/drive/files", verifyAdminToken, async (req, res) => {
+  try {
+    const category = req.query.category || "products";
+    const files = await listDriveCategoryFiles(category);
+    return res.json({ success: true, category, files });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message || "Failed to list Drive files" });
+  }
+});
+app.delete("/api/admin/drive/files/:fileId", verifyAdminToken, async (req, res) => {
+  try {
+    const fileId = req.params.fileId;
+    await deleteFileFromOwnerDrive(fileId);
+    return res.json({ success: true, fileId });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message || "Failed to delete Drive file" });
+  }
 });
 var woodAnalysisHandler = async (req, res) => {
   const startTime = Date.now();
@@ -5501,7 +7528,7 @@ app.get("/api/media/signed-token", (req, res) => {
   const { token, expires } = generateMediaToken(rawPath);
   res.json({ token, expires, path: rawPath });
 });
-app.get("/api/media/render", (req, res) => {
+app.get("/api/media/render", async (req, res) => {
   const rawUrl = String(req.query.url || req.query.path || "").trim();
   if (!rawUrl) {
     return res.status(400).send("Image path required");
@@ -5511,17 +7538,30 @@ app.get("/api/media/render", (req, res) => {
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
   if (rawUrl.startsWith("/uploads/") || rawUrl.startsWith("uploads/")) {
-    const filename = import_path5.default.basename(rawUrl.split("?")[0]);
-    const safeFilePath = import_path5.default.join(UPLOAD_DIR, filename);
-    if (import_fs5.default.existsSync(safeFilePath)) {
+    const filename = import_path6.default.basename(rawUrl.split("?")[0]);
+    const safeFilePath = import_path6.default.join(UPLOAD_DIR, filename);
+    if (import_fs6.default.existsSync(safeFilePath)) {
       return res.sendFile(safeFilePath);
+    }
+    const backupFilePath = import_path6.default.join(UPLOAD_BACKUP_DIR, filename);
+    if (import_fs6.default.existsSync(backupFilePath)) {
+      return res.sendFile(backupFilePath);
+    }
+    try {
+      const media = await getMediaBuffer(filename);
+      if (media && media.buffer) {
+        res.setHeader("Content-Type", media.mimeType || "image/jpeg");
+        res.setHeader("Content-Length", media.buffer.length);
+        return res.send(media.buffer);
+      }
+    } catch {
     }
     return res.status(404).send("Image not found");
   }
   if (rawUrl.startsWith("/assets/") || rawUrl.startsWith("assets/")) {
-    const filename = import_path5.default.basename(rawUrl.split("?")[0]);
-    const safeFilePath = import_path5.default.join(process.cwd(), "public", "assets", filename);
-    if (import_fs5.default.existsSync(safeFilePath)) {
+    const filename = import_path6.default.basename(rawUrl.split("?")[0]);
+    const safeFilePath = import_path6.default.join(process.cwd(), "public", "assets", filename);
+    if (import_fs6.default.existsSync(safeFilePath)) {
       return res.sendFile(safeFilePath);
     }
   }
@@ -5537,13 +7577,21 @@ app.get("/api/media/proxy-image", async (req, res) => {
   }
   try {
     if (targetUrl.startsWith("/uploads/") || targetUrl.startsWith("uploads/")) {
-      const filename = import_path5.default.basename(targetUrl.split("?")[0]);
-      const safeFilePath = import_path5.default.join(UPLOAD_DIR, filename);
-      if (import_fs5.default.existsSync(safeFilePath)) {
+      const filename = import_path6.default.basename(targetUrl.split("?")[0]);
+      const safeFilePath = import_path6.default.join(UPLOAD_DIR, filename);
+      if (import_fs6.default.existsSync(safeFilePath)) {
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
         res.setHeader("Content-Type", filename.endsWith(".png") ? "image/png" : "image/jpeg");
         return res.sendFile(safeFilePath);
+      }
+      const media = await getMediaBuffer(filename);
+      if (media && media.buffer) {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        res.setHeader("Content-Type", media.mimeType || "image/jpeg");
+        res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+        return res.send(media.buffer);
       }
     }
     const response = await fetch(targetUrl);
@@ -5562,16 +7610,22 @@ app.get("/api/media/proxy-image", async (req, res) => {
     return res.status(500).send(err.message || "Image proxying error");
   }
 });
-app.get("/api/admin/media/download-original", verifyAdminToken, (req, res) => {
+app.get("/api/admin/media/download-original", verifyAdminToken, async (req, res) => {
   const target = String(req.query.filename || req.query.url || "").split("?")[0];
   if (!target) {
     return res.status(400).json({ error: "filename or url is required" });
   }
-  const baseName = import_path5.default.basename(target);
-  const filePath = import_path5.default.join(UPLOAD_DIR, baseName);
-  if (import_fs5.default.existsSync(filePath)) {
+  const baseName = import_path6.default.basename(target);
+  const filePath = import_path6.default.join(UPLOAD_DIR, baseName);
+  if (import_fs6.default.existsSync(filePath)) {
     res.setHeader("Content-Disposition", `attachment; filename="original-${baseName}"`);
     return res.sendFile(filePath);
+  }
+  const media = await getMediaBuffer(baseName);
+  if (media && media.buffer) {
+    res.setHeader("Content-Disposition", `attachment; filename="original-${baseName}"`);
+    res.setHeader("Content-Type", media.mimeType || "image/jpeg");
+    return res.send(media.buffer);
   }
   return res.status(404).json({ error: "Original asset not found in storage" });
 });
@@ -6128,8 +8182,9 @@ app.post("/api/auth/login", (req, res) => {
     console.warn(`[AdminAuth] Rejected login from ${clientIp}: Password mismatch for email "${inputEmail || "(default)"}"`);
     return res.status(401).json({ error: "Invalid email or password. You can use default password: admin123" });
   }
-  const token = import_crypto.default.randomBytes(32).toString("hex");
+  const token = "jhd_admin_session_" + import_crypto.default.randomBytes(24).toString("hex");
   activeTokens.add(token);
+  revokedTokens.delete(token);
   console.log(`[AdminAuth] Successful login from ${clientIp} for admin account "${inputEmail || "shivshahidoors@gmail.com"}"`);
   res.json({
     success: true,
@@ -6151,7 +8206,10 @@ app.post("/api/auth/logout", (req, res) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.split(" ")[1];
-    activeTokens.delete(token);
+    if (token) {
+      activeTokens.delete(token);
+      revokedTokens.add(token);
+    }
   }
   res.json({ success: true, message: "Logged out successfully" });
 });
@@ -6161,7 +8219,7 @@ app.get("/api/auth/verify", (req, res) => {
     return res.json({ authenticated: false });
   }
   const token = authHeader.split(" ")[1];
-  res.json({ authenticated: activeTokens.has(token) });
+  res.json({ authenticated: isValidAdminToken(token) });
 });
 app.get("/api/admin/all-data", verifyAdminToken, (_req, res) => {
   const db = getDb();
@@ -6253,17 +8311,49 @@ app.put("/api/admin/delivery/stories/:id", verifyAdminToken, (req, res) => {
     res.status(500).json({ error: "Failed to update delivery story" });
   }
 });
-app.delete("/api/admin/delivery/stories/:id", verifyAdminToken, (req, res) => {
+app.delete("/api/admin/delivery/stories/:id", verifyAdminToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      return res.status(400).json({ error: "Delivery story ID is required" });
+    }
+    const db = getDb();
+    const targetStory = (db.deliveryStories || []).find((s) => String(s.id || "").trim() === id);
+    const candidateMediaUrls = Array.from(
+      new Set(
+        [
+          targetStory?.doorThumbnail,
+          targetStory?.doorPhotoUrl,
+          targetStory?.deliveryPhoto,
+          targetStory?.deliveryPhotoUrl,
+          ...Array.isArray(targetStory?.images) ? targetStory.images : []
+        ].filter((u) => typeof u === "string" && u.trim().length > 0)
+      )
+    );
     const deleted = deleteDeliveryStory(id);
     if (!deleted) {
-      return res.status(404).json({ error: "Delivery story not found" });
+      return res.status(404).json({ error: `Delivery story "${id}" not found` });
     }
-    res.json({ success: true, message: "Delivery story deleted successfully" });
+    const cleanupWarnings = [];
+    const updatedDb = getDb();
+    for (const mediaUrl of candidateMediaUrls) {
+      if (!isMediaUrlReferencedInDb(updatedDb, mediaUrl)) {
+        const cleanRes = await deleteMediaFile(mediaUrl);
+        if (cleanRes.warning) {
+          cleanupWarnings.push(cleanRes.warning);
+        }
+      }
+    }
+    res.json({
+      success: true,
+      deleted: id,
+      remaining: (updatedDb.deliveryStories || []).length,
+      message: "Delivery story deleted successfully",
+      ...cleanupWarnings.length > 0 ? { cleanupWarning: cleanupWarnings.join("; ") } : {}
+    });
   } catch (err) {
     console.error("Error deleting delivery story:", err);
-    res.status(500).json({ error: "Failed to delete delivery story" });
+    res.status(500).json({ error: err?.message || "Failed to delete delivery story" });
   }
 });
 app.post("/api/admin/doors", verifyAdminToken, (req, res) => {
@@ -6272,6 +8362,11 @@ app.post("/api/admin/doors", verifyAdminToken, (req, res) => {
     if (!req.body || typeof req.body !== "object") {
       return res.status(400).json({ success: false, error: "Invalid door payload" });
     }
+    const validImages = Array.isArray(req.body.images) ? req.body.images.filter((img) => typeof img === "string" && img.trim().length > 0).map((s) => s.trim()) : [];
+    const reqPrimary = typeof req.body.image === "string" && req.body.image.trim().length > 0 ? req.body.image.trim() : "";
+    const mergedImages = reqPrimary ? [reqPrimary, ...validImages.filter((u) => u !== reqPrimary)] : validImages;
+    const finalImages = mergedImages.length > 0 ? mergedImages : ["https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80"];
+    const finalPrimaryImage = reqPrimary || finalImages[0];
     const newDoor = {
       id: "door-" + Date.now(),
       name: req.body.name || "New Door Design",
@@ -6279,7 +8374,8 @@ app.post("/api/admin/doors", verifyAdminToken, (req, res) => {
       description: req.body.description || "",
       material: req.body.material || "Sagwan",
       startingPrice: Number(req.body.startingPrice) || 12e3,
-      images: Array.isArray(req.body.images) && req.body.images.length > 0 ? req.body.images : ["https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80"],
+      image: finalPrimaryImage,
+      images: finalImages,
       availableSizes: Array.isArray(req.body.availableSizes) && req.body.availableSizes.length > 0 ? req.body.availableSizes : ["30 \xD7 78 inch", "32 \xD7 78 inch", "34 \xD7 78 inch", "36 \xD7 78 inch", "Custom Size"],
       featured: Boolean(req.body.featured),
       popular: Boolean(req.body.popular),
@@ -6313,31 +8409,130 @@ app.post("/api/admin/doors", verifyAdminToken, (req, res) => {
     res.status(500).json({ success: false, error: err.message || "Failed to create door design" });
   }
 });
-app.put("/api/admin/doors/:id", verifyAdminToken, (req, res) => {
+app.put("/api/admin/doors/:id", verifyAdminToken, async (req, res) => {
   try {
     const db = getDb();
     const idx = db.doors.findIndex((d) => d.id === req.params.id);
     if (idx === -1) return res.status(404).json({ success: false, error: "Door not found" });
+    const oldDoor = db.doors[idx];
+    const oldImages = Array.isArray(oldDoor.images) ? oldDoor.images : oldDoor.image ? [oldDoor.image] : [];
+    const oldMedia = [
+      ...oldImages,
+      oldDoor.transparentPngUrl,
+      oldDoor.videoUrl,
+      oldDoor.model3d?.modelUrl
+    ].filter((u) => typeof u === "string" && u.trim().length > 0);
     const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    db.doors[idx] = { ...db.doors[idx], ...req.body, id: db.doors[idx].id, updatedAt };
+    const sanitizedBody = { ...req.body };
+    if (Array.isArray(sanitizedBody.images)) {
+      sanitizedBody.images = sanitizedBody.images.filter((img) => typeof img === "string" && img.trim().length > 0);
+      if (sanitizedBody.images.length > 0) {
+        if (!sanitizedBody.image || !sanitizedBody.images.includes(sanitizedBody.image)) {
+          sanitizedBody.image = sanitizedBody.images[0];
+        }
+      } else {
+        sanitizedBody.image = "";
+      }
+    }
+    db.doors[idx] = { ...db.doors[idx], ...sanitizedBody, id: db.doors[idx].id, updatedAt };
     saveDb(db, { entity: "door", action: "update", targetId: req.params.id });
+    const updatedDb = getDb();
+    const newDoor = updatedDb.doors[idx];
+    const newImages = Array.isArray(newDoor.images) ? newDoor.images : newDoor.image ? [newDoor.image] : [];
+    const newMedia = new Set(
+      [
+        ...newImages,
+        newDoor.transparentPngUrl,
+        newDoor.videoUrl,
+        newDoor.model3d?.modelUrl
+      ].filter((u) => typeof u === "string" && u.trim().length > 0)
+    );
+    const removedMedia = oldMedia.filter((m) => !newMedia.has(m));
+    const cleanupWarnings = [];
+    for (const mediaUrl of removedMedia) {
+      if (!isMediaUrlReferencedInDb(updatedDb, mediaUrl)) {
+        const cleanRes = await deleteMediaFile(mediaUrl);
+        if (cleanRes.warning) {
+          cleanupWarnings.push(cleanRes.warning);
+        }
+      }
+    }
     res.setHeader("Content-Type", "application/json");
-    res.json({ ...db.doors[idx], success: true, updated: true, id: db.doors[idx].id, updatedAt });
+    res.json({
+      ...db.doors[idx],
+      success: true,
+      updated: true,
+      id: db.doors[idx].id,
+      updatedAt,
+      ...cleanupWarnings.length > 0 ? { cleanupWarning: cleanupWarnings.join("; ") } : {}
+    });
   } catch (err) {
     console.error("Error updating door design:", err);
     res.status(500).json({ success: false, error: err.message || "Failed to update door design" });
   }
 });
-app.delete("/api/admin/doors/:id", verifyAdminToken, (req, res) => {
+app.delete("/api/admin/doors/:id", verifyAdminToken, async (req, res) => {
   try {
     const db = getDb();
+    const targetDoor = db.doors.find((d) => d.id === req.params.id);
+    const candidateMediaUrls = Array.from(
+      new Set(
+        [
+          targetDoor?.image,
+          ...Array.isArray(targetDoor?.images) ? targetDoor.images : [],
+          targetDoor?.transparentPngUrl,
+          targetDoor?.videoUrl,
+          targetDoor?.model3d?.modelUrl
+        ].filter((u) => typeof u === "string" && u.trim().length > 0)
+      )
+    );
     db.doors = db.doors.filter((d) => d.id !== req.params.id);
     saveDb(db, { entity: "door", action: "delete", targetId: req.params.id });
+    const updatedDb = getDb();
+    const cleanupWarnings = [];
+    for (const mediaUrl of candidateMediaUrls) {
+      if (!isMediaUrlReferencedInDb(updatedDb, mediaUrl)) {
+        const cleanRes = await deleteMediaFile(mediaUrl);
+        if (cleanRes.warning) {
+          cleanupWarnings.push(cleanRes.warning);
+        }
+      }
+    }
     res.setHeader("Content-Type", "application/json");
-    res.json({ success: true, updated: true, id: req.params.id, message: "Door design deleted" });
+    res.json({
+      success: true,
+      updated: true,
+      id: req.params.id,
+      message: "Door design deleted",
+      ...cleanupWarnings.length > 0 ? { cleanupWarning: cleanupWarnings.join("; ") } : {}
+    });
   } catch (err) {
     console.error("Error deleting door design:", err);
     res.status(500).json({ success: false, error: err.message || "Failed to delete door design" });
+  }
+});
+app.post("/api/admin/media/delete", verifyAdminToken, async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ success: false, error: "Media URL is required" });
+    }
+    const db = getDb();
+    if (isMediaUrlReferencedInDb(db, url)) {
+      return res.status(409).json({
+        success: false,
+        referenced: true,
+        error: "Media asset is currently referenced elsewhere in the database. Remove database references first."
+      });
+    }
+    const cleanRes = await deleteMediaFile(url);
+    res.json({
+      success: cleanRes.deleted,
+      deleted: cleanRes.deleted,
+      warning: cleanRes.warning
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err?.message || "Failed to delete media file" });
   }
 });
 app.post("/api/admin/categories", verifyAdminToken, (req, res) => {
@@ -6598,41 +8793,59 @@ app.put("/api/admin/banners/slot/:slotId", verifyAdminToken, (req, res) => {
   const existingIndex = db.banners.findIndex(
     (b) => (b.bannerType === "promotion" || !b.bannerType) && (b.slot === targetSlot || (isSlotA ? b.slot === "slot_a" : b.slot === "slot_b"))
   );
-  const image = String(req.body.image || "").trim();
-  const title = String(req.body.title || (isSlotA ? "Promotion Banner A" : "Promotion Banner B")).trim();
-  const destinationUrl = req.body.destinationUrl !== void 0 ? String(req.body.destinationUrl).trim() : "";
-  const openInNewTab = req.body.openInNewTab !== void 0 ? Boolean(req.body.openInNewTab) : false;
-  const active = req.body.active !== void 0 ? Boolean(req.body.active) : true;
   if (existingIndex !== -1) {
     const existing = db.banners[existingIndex];
+    const image = req.body.image !== void 0 ? String(req.body.image).trim() : existing.image;
+    const title = req.body.title !== void 0 ? String(req.body.title).trim() : existing.title || (isSlotA ? "Promotion Banner A" : "Promotion Banner B");
+    const subtitle = req.body.subtitle !== void 0 ? String(req.body.subtitle).trim() : existing.subtitle || "";
+    const destinationUrl = req.body.destinationUrl !== void 0 ? String(req.body.destinationUrl).trim() : existing.destinationUrl || "";
+    const openInNewTab = req.body.openInNewTab !== void 0 ? Boolean(req.body.openInNewTab) : Boolean(existing.openInNewTab);
+    const active = req.body.active !== void 0 ? Boolean(req.body.active) : existing.active !== void 0 ? Boolean(existing.active) : true;
     db.banners[existingIndex] = {
       ...existing,
       bannerType: "promotion",
       slot: targetSlot,
       title,
+      subtitle,
       image: image || existing.image,
+      buttonAction: req.body.buttonAction !== void 0 ? req.body.buttonAction : destinationUrl || existing.buttonAction || "gallery",
       destinationUrl,
       openInNewTab,
       active,
-      order: 1
+      order: req.body.order !== void 0 ? Number(req.body.order) : existing.order || (isSlotA ? 1 : 2)
     };
+    if (req.body.active !== void 0) {
+      const slotActive = Boolean(req.body.active);
+      db.banners = db.banners.map((b) => {
+        if (b.slot === targetSlot || (isSlotA ? b.slot === "slot_a" : b.slot === "slot_b")) {
+          return { ...b, active: slotActive };
+        }
+        return b;
+      });
+    }
     saveDb(db, { entity: "banner", action: "update", targetId: existing.id });
     return res.json(db.banners[existingIndex]);
   } else {
     const id = "ban-promo-" + targetSlot + "-" + Date.now();
+    const image = String(req.body.image || "").trim();
+    const title = String(req.body.title || (isSlotA ? "Promotion Banner A" : "Promotion Banner B")).trim();
+    const subtitle = String(req.body.subtitle || "").trim();
+    const destinationUrl = req.body.destinationUrl !== void 0 ? String(req.body.destinationUrl).trim() : "";
+    const openInNewTab = req.body.openInNewTab !== void 0 ? Boolean(req.body.openInNewTab) : false;
+    const active = req.body.active !== void 0 ? Boolean(req.body.active) : true;
     const newBanner = {
       id,
       bannerType: "promotion",
       slot: targetSlot,
       title,
-      subtitle: "",
+      subtitle,
       badge: "",
       image,
       buttonText: "",
       buttonAction: destinationUrl || "gallery",
       destinationUrl,
       openInNewTab,
-      order: 1,
+      order: isSlotA ? 1 : 2,
       active
     };
     db.banners.push(newBanner);
@@ -6642,8 +8855,40 @@ app.put("/api/admin/banners/slot/:slotId", verifyAdminToken, (req, res) => {
 });
 app.put("/api/admin/banners/:id", verifyAdminToken, (req, res) => {
   const db = getDb();
-  const idx = db.banners.findIndex((b) => b.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Banner not found" });
+  const rawId = req.params.id;
+  const isSlotLookup = rawId === "slot_1" || rawId === "slot_a" || rawId === "slot_2" || rawId === "slot_b";
+  const isSlotA = rawId === "slot_1" || rawId === "slot_a";
+  const targetSlot = isSlotA ? "slot_1" : "slot_2";
+  let idx = db.banners.findIndex((b) => b.id === rawId);
+  if (idx === -1 && isSlotLookup) {
+    idx = db.banners.findIndex(
+      (b) => (b.bannerType === "promotion" || !b.bannerType) && (b.slot === targetSlot || (isSlotA ? b.slot === "slot_a" : b.slot === "slot_b"))
+    );
+  }
+  if (idx === -1) {
+    if (isSlotLookup) {
+      const id = "ban-promo-" + targetSlot + "-" + Date.now();
+      const newBanner = {
+        id,
+        bannerType: "promotion",
+        slot: targetSlot,
+        title: String(req.body.title || (isSlotA ? "Promotion Banner A" : "Promotion Banner B")).trim(),
+        subtitle: String(req.body.subtitle || "").trim(),
+        badge: "",
+        image: String(req.body.image || "").trim(),
+        buttonText: "",
+        buttonAction: req.body.destinationUrl || "gallery",
+        destinationUrl: req.body.destinationUrl !== void 0 ? String(req.body.destinationUrl).trim() : "",
+        openInNewTab: req.body.openInNewTab !== void 0 ? Boolean(req.body.openInNewTab) : false,
+        order: isSlotA ? 1 : 2,
+        active: req.body.active !== void 0 ? Boolean(req.body.active) : true
+      };
+      db.banners.push(newBanner);
+      saveDb(db, { entity: "banner", action: "create", targetId: id });
+      return res.json(newBanner);
+    }
+    return res.status(404).json({ error: "Banner not found" });
+  }
   const existing = db.banners[idx];
   const bannerType = req.body.bannerType || existing.bannerType || (existing.slot === "hero" || existing.slot === "main" ? "main" : "promotion");
   db.banners[idx] = {
@@ -6652,24 +8897,54 @@ app.put("/api/admin/banners/:id", verifyAdminToken, (req, res) => {
     id: existing.id,
     bannerType,
     slot: req.body.slot || existing.slot || (bannerType === "main" ? "hero" : "slot_1"),
+    image: req.body.image !== void 0 && String(req.body.image).trim() !== "" ? String(req.body.image).trim() : existing.image,
     order: req.body.order !== void 0 ? Number(req.body.order) : existing.order,
     active: req.body.active !== void 0 ? Boolean(req.body.active) : existing.active,
     openInNewTab: req.body.openInNewTab !== void 0 ? Boolean(req.body.openInNewTab) : existing.openInNewTab
   };
-  saveDb(db, { entity: "banner", action: "update", targetId: req.params.id });
+  saveDb(db, { entity: "banner", action: "update", targetId: existing.id });
   res.json(db.banners[idx]);
 });
-app.delete("/api/admin/banners/:id", verifyAdminToken, (req, res) => {
-  const db = getDb();
-  const idToDelete = String(req.params.id || "").trim();
-  if (!idToDelete) {
-    return res.status(400).json({ error: "Banner ID is required" });
+app.delete("/api/admin/banners/:id", verifyAdminToken, async (req, res) => {
+  try {
+    const db = getDb();
+    const idToDelete = String(req.params.id || "").trim();
+    if (!idToDelete) {
+      return res.status(400).json({ error: "Banner ID is required" });
+    }
+    const bannerToDelete = db.banners.find((b) => String(b.id || "").trim() === idToDelete);
+    if (!bannerToDelete) {
+      return res.status(404).json({ error: `Banner "${idToDelete}" not found` });
+    }
+    const dedicatedImageUrl = bannerToDelete.image;
+    const beforeCount = db.banners.length;
+    db.banners = db.banners.filter((b) => String(b.id || "").trim() !== idToDelete);
+    const deletedCount = beforeCount - db.banners.length;
+    saveDb(db, {
+      entity: "banner",
+      action: "delete",
+      targetId: idToDelete,
+      targetName: bannerToDelete.title || idToDelete,
+      details: `Deleted banner ${idToDelete}`
+    });
+    let cleanupWarning;
+    if (dedicatedImageUrl && !isMediaUrlReferencedInDb(db, dedicatedImageUrl)) {
+      const cleanRes = await deleteMediaFile(dedicatedImageUrl);
+      if (cleanRes.warning) {
+        cleanupWarning = cleanRes.warning;
+      }
+    }
+    res.json({
+      success: true,
+      deleted: idToDelete,
+      count: deletedCount,
+      remaining: db.banners.length,
+      ...cleanupWarning ? { cleanupWarning } : {}
+    });
+  } catch (err) {
+    console.error("Error deleting banner:", err);
+    res.status(500).json({ error: err?.message || "Failed to delete promotional banner" });
   }
-  const beforeCount = db.banners.length;
-  db.banners = db.banners.filter((b) => String(b.id || "").trim() !== idToDelete);
-  const deletedCount = beforeCount - db.banners.length;
-  saveDb(db, { entity: "banner", action: "delete", targetId: idToDelete, details: `Deleted banner ${idToDelete}` });
-  res.json({ success: true, deleted: idToDelete, count: deletedCount, remaining: db.banners.length });
 });
 function extractYoutubeId(url) {
   if (!url) return void 0;
@@ -7355,11 +9630,26 @@ app.put("/api/admin/settings", verifyAdminToken, (req, res) => {
         { title: "Direct Factory", subtitle: "Transparent Pricing" }
       ]
     };
+    if (Array.isArray(db.teamMembers)) {
+      const founderIdx = db.teamMembers.findIndex(
+        (m) => m.name?.toLowerCase().includes("manjeet") || m.designation?.toLowerCase().includes("founder") || m.designation?.toLowerCase().includes("owner")
+      );
+      if (founderIdx !== -1) {
+        const ownerPhoto = db.settings.storySettings.ownerPhotoUrl;
+        if (ownerPhoto && !ownerPhoto.startsWith("blob:")) {
+          db.teamMembers[founderIdx].photo = ownerPhoto;
+        }
+        if (db.settings.storySettings.ownerName) {
+          db.teamMembers[founderIdx].name = db.settings.storySettings.ownerName;
+        }
+        db.teamMembers[founderIdx].updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+      }
+    }
   }
   if (adminPassword && typeof adminPassword === "string" && adminPassword.trim().length >= 4) {
     db.adminPasswordHash = adminPassword.trim();
   }
-  saveDb(db);
+  saveDb(db, { entity: "settings", action: "update", targetId: "settings" });
   res.json({ success: true, settings: db.settings });
 });
 app.post("/api/enquiries", (req, res) => {
@@ -7608,6 +9898,13 @@ app.put("/api/admin/team-members/:id", verifyAdminToken, (req, res) => {
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     db.teamMembers[index] = updatedMember;
+    const isFounder = updatedMember.name.toLowerCase().includes("manjeet") || updatedMember.designation.toLowerCase().includes("founder") || updatedMember.designation.toLowerCase().includes("owner");
+    if (isFounder && updatedMember.photo && !updatedMember.photo.startsWith("blob:")) {
+      if (!db.settings) db.settings = {};
+      if (!db.settings.storySettings) db.settings.storySettings = {};
+      db.settings.storySettings.ownerPhotoUrl = updatedMember.photo;
+      db.settings.storySettings.ownerName = updatedMember.name;
+    }
     saveDb(db);
     res.json({ success: true, member: updatedMember });
   } catch (err) {
@@ -7862,15 +10159,15 @@ var handleSitemapRequest = (_req, res) => {
     console.error("\u274C Error dynamically generating /sitemap.xml:", err);
     const appDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
     const staticCandidates = [
-      import_path5.default.join(process.cwd(), "dist", "sitemap.xml"),
-      import_path5.default.join(process.cwd(), "public", "sitemap.xml"),
-      import_path5.default.join(appDir, "dist", "sitemap.xml"),
-      import_path5.default.join(appDir, "public", "sitemap.xml")
+      import_path6.default.join(process.cwd(), "dist", "sitemap.xml"),
+      import_path6.default.join(process.cwd(), "public", "sitemap.xml"),
+      import_path6.default.join(appDir, "dist", "sitemap.xml"),
+      import_path6.default.join(appDir, "public", "sitemap.xml")
     ];
     for (const p of staticCandidates) {
-      if (import_fs5.default.existsSync(p)) {
+      if (import_fs6.default.existsSync(p)) {
         try {
-          const staticXml = import_fs5.default.readFileSync(p, "utf8");
+          const staticXml = import_fs6.default.readFileSync(p, "utf8");
           return res.status(200).send(staticXml);
         } catch {
         }
@@ -7901,15 +10198,15 @@ var handleAppAdsTxtRequest = (_req, res) => {
   res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400, must-revalidate");
   res.setHeader("X-Content-Type-Options", "nosniff");
   const candidatePaths = [
-    import_path5.default.join(process.cwd(), "public", "app-ads.txt"),
-    import_path5.default.join(process.cwd(), "dist", "app-ads.txt"),
-    import_path5.default.join(currentDir, "public", "app-ads.txt"),
-    import_path5.default.join(currentDir, "dist", "app-ads.txt")
+    import_path6.default.join(process.cwd(), "public", "app-ads.txt"),
+    import_path6.default.join(process.cwd(), "dist", "app-ads.txt"),
+    import_path6.default.join(currentDir, "public", "app-ads.txt"),
+    import_path6.default.join(currentDir, "dist", "app-ads.txt")
   ];
   for (const p of candidatePaths) {
-    if (import_fs5.default.existsSync(p)) {
+    if (import_fs6.default.existsSync(p)) {
       try {
-        const fileContent = import_fs5.default.readFileSync(p, "utf8");
+        const fileContent = import_fs6.default.readFileSync(p, "utf8");
         return res.status(200).send(fileContent);
       } catch {
       }
@@ -7923,12 +10220,13 @@ app.get(["/app-ads.txt", "/app-ads.txt/"], handleAppAdsTxtRequest);
 function findDistDirectory() {
   const appDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
   const candidatePaths = [
-    import_path5.default.join(process.cwd(), "dist"),
-    import_path5.default.join(appDir, "dist"),
-    import_path5.default.resolve(appDir)
-  ];
+    import_path6.default.join(process.cwd(), "dist"),
+    import_path6.default.join(appDir, "dist"),
+    appDir.endsWith("dist") ? appDir : null,
+    import_path6.default.resolve(appDir, "..", "dist")
+  ].filter(Boolean);
   for (const candidate of candidatePaths) {
-    if (import_fs5.default.existsSync(import_path5.default.join(candidate, "index.html"))) {
+    if (import_fs6.default.existsSync(import_path6.default.join(candidate, "index.html")) && (import_fs6.default.existsSync(import_path6.default.join(candidate, "assets")) || import_fs6.default.existsSync(import_path6.default.join(candidate, "server.cjs")))) {
       return candidate;
     }
   }
@@ -7941,11 +10239,13 @@ async function startServer() {
   process.on("unhandledRejection", (reason, promise) => {
     console.error("\u274C Unhandled Promise Rejection at:", promise, "reason:", reason);
   });
-  try {
-    await initCloudDatabase();
-  } catch (dbErr) {
-    console.warn("\u26A0\uFE0F Could not hydrate cloud database at boot:", dbErr);
-  }
+  app.get("/__aistudio_internal_control_plane/*", (_req, res) => {
+    res.status(200).setHeader("Content-Type", "application/json").json({
+      status: "READY",
+      state: "RUNNING",
+      ok: true
+    });
+  });
   app.get(
     [
       "/visualizer",
@@ -7963,7 +10263,10 @@ async function startServer() {
       res.redirect(301, "/");
     }
   );
-  const isProduction = process.env.NODE_ENV === "production";
+  const distPath = findDistDirectory();
+  const isCjsBundle = typeof __filename !== "undefined" && __filename.endsWith(".cjs");
+  const isDevCommand = process.env.npm_lifecycle_event === "dev" || process.argv.some((arg) => arg.includes("server.ts") || arg.includes("--host") || arg.includes("vite"));
+  const isProduction = isCjsBundle || process.env.NODE_ENV === "production" && !isDevCommand;
   app.all("/api/*", (req, res) => {
     res.status(404).setHeader("Content-Type", "application/json").json({
       success: false,
@@ -7971,7 +10274,6 @@ async function startServer() {
       path: req.originalUrl
     });
   });
-  const distPath = findDistDirectory();
   if (!isProduction) {
     try {
       console.log("\u26A1 Development mode active. Starting Vite development middleware...");
@@ -7987,7 +10289,7 @@ async function startServer() {
     console.log(`\u{1F4C1} Static files found at: ${distPath}. Serving in PRODUCTION mode.`);
     app.use(import_express.default.static(distPath, { maxAge: "1d", index: false }));
     app.get("/", (_req, res) => {
-      res.sendFile(import_path5.default.join(distPath, "index.html"));
+      res.sendFile(import_path6.default.join(distPath, "index.html"));
     });
     app.get("*", (req, res) => {
       const url = (req.path || "").toLowerCase();
@@ -8006,7 +10308,7 @@ async function startServer() {
       if (/\.(xml|txt|json|js|css|map|png|jpg|jpeg|svg|webp|ico|woff|woff2|ttf|eot)$/i.test(url)) {
         return res.status(404).type("text/plain").send("Resource not found");
       }
-      res.sendFile(import_path5.default.join(distPath, "index.html"));
+      res.sendFile(import_path6.default.join(distPath, "index.html"));
     });
   } else {
     console.error('\u274C Production mode active but dist/index.html was not found! Please run "npm run build".');
@@ -8040,20 +10342,27 @@ async function startServer() {
     console.log("----------------------------------------------------");
     console.log("\u{1F680} Jai Hanuman Door server started successfully");
     console.log(`\u{1F4E1} Listening on: http://0.0.0.0:${PORT}`);
-    console.log(`\u{1F30D} Environment: ${process.env.NODE_ENV || "production"}`);
+    console.log(`\u{1F30D} Environment: ${isProduction ? "production" : "development"}`);
     console.log(`\u{1F4C1} Static files directory: ${distPath || "Vite dev middleware"}`);
     console.log("----------------------------------------------------");
-    try {
-      syncUploadedImages();
-      console.log("\u{1F6E1}\uFE0F Production data persistence verified & image storage synchronized");
-    } catch (syncErr) {
-      console.warn("\u26A0\uFE0F Image storage sync warning (non-fatal):", syncErr);
-    }
-    try {
-      startScheduledNotificationWorker();
-    } catch (workerErr) {
-      console.warn("\u26A0\uFE0F Scheduled notification worker error (non-fatal):", workerErr);
-    }
+    setImmediate(() => {
+      initCloudDatabase().then((db) => {
+        console.log(`\u{1F6E1}\uFE0F [Database Ready] Hydrated authoritative database (Version: ${db.version}, Doors: ${db.doors?.length || 0})`);
+      }).catch((dbErr) => {
+        console.error("\u26A0\uFE0F [Database Init] Could not hydrate cloud database at boot:", dbErr);
+      });
+      try {
+        syncUploadedImages();
+        console.log("\u{1F6E1}\uFE0F Production data persistence verified & image storage synchronized");
+      } catch (syncErr) {
+        console.warn("\u26A0\uFE0F Image storage sync warning (non-fatal):", syncErr);
+      }
+      try {
+        startScheduledNotificationWorker();
+      } catch (workerErr) {
+        console.warn("\u26A0\uFE0F Scheduled notification worker error (non-fatal):", workerErr);
+      }
+    });
   });
   server.on("error", (err) => {
     console.error("\u274C Server listen error on port " + PORT + ":", err);

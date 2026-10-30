@@ -1340,7 +1340,7 @@ function uploadFileWithProgress(
   endpoint: string,
   fileToUpload: File,
   onProgress?: (percent: number) => void,
-  timeoutMs = 20000
+  timeoutMs = 60000
 ): Promise<{ ok: boolean; status: number; data?: any; error?: string; isHtml?: boolean }> {
   return new Promise((resolve, reject) => {
     const fullUrl = resolveApiUrl(endpoint);
@@ -1351,12 +1351,13 @@ function uploadFileWithProgress(
     const token = getAdminToken();
     if (token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.setRequestHeader('x-admin-token', token);
     }
 
     if (xhr.upload && onProgress) {
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable && event.total > 0) {
-          const pct = Math.min(95, Math.max(20, Math.round(20 + (event.loaded / event.total) * 75)));
+          const pct = Math.min(98, Math.max(10, Math.round((event.loaded / event.total) * 100)));
           onProgress(pct);
         }
       };
@@ -1401,15 +1402,29 @@ function uploadFileWithProgress(
     };
 
     xhr.onerror = () => {
-      reject(new Error('Network error during image upload'));
+      reject(new Error(`Network error during upload to ${fullUrl} (HTTP ${xhr.status || 0}). Please check backend server status and network connectivity.`));
     };
 
     xhr.ontimeout = () => {
-      reject(new Error(`Image upload timed out after ${Math.round(timeoutMs / 1000)} seconds`));
+      reject(new Error(`Upload timed out after ${Math.round(timeoutMs / 1000)} seconds`));
     };
 
     const formData = new FormData();
-    formData.append('file', fileToUpload, fileToUpload.name);
+    // Resolve safe filename with proper extension if fileToUpload.name is missing, empty, or 'blob' on Android WebView
+    let safeName = (fileToUpload.name && fileToUpload.name !== 'blob' && fileToUpload.name.trim())
+      ? fileToUpload.name.trim()
+      : '';
+    if (!safeName) {
+      const ext = fileToUpload.type?.includes('png')
+        ? '.png'
+        : fileToUpload.type?.includes('webp')
+        ? '.webp'
+        : fileToUpload.type?.includes('video') || fileToUpload.type?.includes('mp4')
+        ? '.mp4'
+        : '.jpg';
+      safeName = `android_upload_${Date.now()}${ext}`;
+    }
+    formData.append('file', fileToUpload, safeName);
     xhr.send(formData);
   });
 }
@@ -1677,14 +1692,45 @@ export async function importDriveOrExternalImageToStorage(url: string): Promise<
 
 export const importDriveOrExternalImageToR2 = importDriveOrExternalImageToStorage;
 
-export async function uploadVideo(file: File): Promise<{ url: string; filename?: string; size?: number }> {
+export async function uploadVideo(
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<{ url: string; filename?: string; size?: number }> {
+  if (!file) {
+    throw new Error('No video file provided for upload.');
+  }
+
+  try {
+    const uploadRes = await uploadFileWithProgress(
+      '/api/upload-video',
+      file,
+      onProgress,
+      180000 // 3 minutes timeout for video files
+    );
+
+    if (uploadRes.ok && uploadRes.data && uploadRes.data.url) {
+      return {
+        url: resolveImageUrl(uploadRes.data.url),
+        filename: uploadRes.data.filename || file.name,
+        size: uploadRes.data.size || file.size,
+      };
+    } else {
+      throw new Error(uploadRes.error || uploadRes.data?.error || 'Video upload failed on server.');
+    }
+  } catch (err: any) {
+    console.warn('[AdminUpload] Video progress upload failed, trying standard fetch fallback:', err.message);
+  }
+
+  // Fallback via apiFetch
   const formData = new FormData();
-  formData.append('file', file);
+  let safeName = (file.name && file.name !== 'blob' && file.name.trim()) ? file.name.trim() : `android_video_${Date.now()}.mp4`;
+  formData.append('file', file, safeName);
 
   const token = getAdminToken();
   const headers: Record<string, string> = {};
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+    headers['x-admin-token'] = token;
   }
 
   const res = await apiFetch('/api/upload-video', {
@@ -1697,7 +1743,10 @@ export async function uploadVideo(file: File): Promise<{ url: string; filename?:
   if (!parsed.success || !parsed.data) {
     throw new Error(parsed.error || 'Product video upload failed');
   }
-  return parsed.data;
+  return {
+    ...parsed.data,
+    url: resolveImageUrl(parsed.data.url),
+  };
 }
 
 export async function upload3DModel(file: File): Promise<{

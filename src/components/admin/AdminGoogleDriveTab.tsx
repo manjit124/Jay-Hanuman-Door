@@ -19,7 +19,7 @@ import {
   Loader2,
   ArrowRight,
 } from 'lucide-react';
-import { getAdminAuthHeaders } from '../../lib/api.ts';
+import { getAdminAuthHeaders, apiFetch } from '../../lib/api.ts';
 
 type DriveCategory = 'products' | 'catalog' | 'banners' | 'delivery' | 'videos';
 
@@ -83,7 +83,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
   const fetchStatus = async () => {
     try {
       setLoadingStatus(true);
-      const res = await fetch('/api/admin/drive/status', {
+      const res = await apiFetch('/api/admin/drive/status', {
         headers: getAdminAuthHeaders(),
       });
       const data = await res.json();
@@ -100,7 +100,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
   const fetchCategoryFiles = async (cat: DriveCategory) => {
     try {
       setLoadingFiles(true);
-      const res = await fetch(`/api/admin/drive/files?category=${cat}`, {
+      const res = await apiFetch(`/api/admin/drive/files?category=${cat}`, {
         headers: getAdminAuthHeaders(),
       });
       const data = await res.json();
@@ -126,7 +126,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
     setConfigError(null);
 
     try {
-      const res = await fetch('/api/admin/drive/configure', {
+      const res = await apiFetch('/api/admin/drive/configure', {
         method: 'POST',
         headers: {
           ...getAdminAuthHeaders(),
@@ -163,7 +163,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
     setTestError(null);
 
     try {
-      const res = await fetch('/api/admin/drive/test-upload', {
+      const res = await apiFetch('/api/admin/drive/test-upload', {
         method: 'POST',
         headers: getAdminAuthHeaders(),
       });
@@ -193,11 +193,14 @@ export const AdminGoogleDriveTab: React.FC = () => {
 
     try {
       const formData = new FormData();
-      formData.append('file', uploadFile);
+      let safeName = (uploadFile.name && uploadFile.name !== 'blob' && uploadFile.name.trim())
+        ? uploadFile.name.trim()
+        : `drive_upload_${Date.now()}`;
+      formData.append('file', uploadFile, safeName);
       formData.append('category', activeCategory);
       formData.append('description', description.trim() || `${activeCategory} upload`);
 
-      const res = await fetch('/api/admin/drive/upload', {
+      const res = await apiFetch('/api/admin/drive/upload', {
         method: 'POST',
         headers: getAdminAuthHeaders(),
         body: formData,
@@ -226,7 +229,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
 
     setDeletingId(fileId);
     try {
-      const res = await fetch(`/api/admin/drive/files/${fileId}`, {
+      const res = await apiFetch(`/api/admin/drive/files/${fileId}`, {
         method: 'DELETE',
         headers: getAdminAuthHeaders(),
       });

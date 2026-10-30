@@ -598,8 +598,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
 
     setUploadingVideo(true);
+    setUploadProgress(5);
     try {
-      const res = await uploadVideo(file);
+      const res = await uploadVideo(file, (pct) => setUploadProgress(pct));
       if (editingDoor) {
         setEditingDoor({ ...editingDoor, videoUrl: res.url });
       }
@@ -608,6 +609,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       alert(err.message || 'Video upload failed');
     } finally {
       setUploadingVideo(false);
+      setUploadProgress(null);
+      e.target.value = '';
     }
   };
 
