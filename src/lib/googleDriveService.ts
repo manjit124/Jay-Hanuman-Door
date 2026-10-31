@@ -83,47 +83,65 @@ export function disconnectDrive(): void {
 }
 
 /**
- * Finds or creates a designated folder in the user's Google Drive.
+ * Finds or creates nested folders in Google Drive (e.g. "Jai Hanuman Door Media/products").
  */
+export async function ensureDriveFolderPath(folderPath: string, accessToken: string): Promise<string> {
+  const parts = folderPath.split('/').map(p => p.trim()).filter(Boolean);
+  if (parts.length === 0) return 'root';
+
+  let parentId = 'root';
+  for (const folderName of parts) {
+    const parentClause = parentId === 'root' ? '' : ` and '${parentId}' in parents`;
+    const query = encodeURIComponent(`name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false${parentClause}`);
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`;
+
+    const searchRes = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!searchRes.ok) {
+      const errText = await searchRes.text();
+      throw new Error(`Failed to search Google Drive folder (${folderName}): ${errText}`);
+    }
+
+    const searchData = await searchRes.json();
+    if (searchData.files && searchData.files.length > 0) {
+      parentId = searchData.files[0].id;
+    } else {
+      // Create subfolder
+      const bodyPayload: any = {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        description: `Jai Hanuman Door folder: ${folderName}`,
+      };
+      if (parentId !== 'root') {
+        bodyPayload.parents = [parentId];
+      }
+
+      const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(bodyPayload),
+      });
+
+      if (!createRes.ok) {
+        const errText = await createRes.text();
+        throw new Error(`Failed to create Google Drive folder "${folderName}": ${errText}`);
+      }
+
+      const folderData = await createRes.json();
+      parentId = folderData.id;
+    }
+  }
+
+  return parentId;
+}
+
 export async function ensureDriveFolder(folderName: string, accessToken: string): Promise<string> {
-  const query = encodeURIComponent(`name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
-  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`;
-
-  const searchRes = await fetch(searchUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  if (!searchRes.ok) {
-    const errText = await searchRes.text();
-    throw new Error(`Failed to search Google Drive folders: ${errText}`);
-  }
-
-  const searchData = await searchRes.json();
-  if (searchData.files && searchData.files.length > 0) {
-    return searchData.files[0].id;
-  }
-
-  // Create folder
-  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: folderName,
-      mimeType: 'application/vnd.google-apps.folder',
-      description: 'Official Jai Hanuman Door exported quotations, estimates, and catalogs',
-    }),
-  });
-
-  if (!createRes.ok) {
-    const errText = await createRes.text();
-    throw new Error(`Failed to create Google Drive folder "${folderName}": ${errText}`);
-  }
-
-  const folderData = await createRes.json();
-  return folderData.id;
+  return ensureDriveFolderPath(folderName, accessToken);
 }
 
 export interface DriveUploadResult {
@@ -131,26 +149,49 @@ export interface DriveUploadResult {
   name: string;
   webViewLink?: string;
   webContentLink?: string;
+  directUrl: string;
 }
 
 /**
- * Uploads a file (PDF or JSON blob) to Google Drive using multipart upload.
+ * Sets file permission to public ('anyone' reader) so uploaded media can render
+ * directly in the application without requiring Google login.
+ */
+export async function makeDriveFilePublic(fileId: string, accessToken: string): Promise<void> {
+  try {
+    await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        role: 'reader',
+        type: 'anyone',
+      }),
+    });
+  } catch (err: any) {
+    console.warn('[GoogleDrive] Could not set public permission on Drive file:', err.message);
+  }
+}
+
+/**
+ * Uploads a file (photo, video, PDF or JSON blob) to Google Drive using multipart upload.
  */
 export async function uploadBlobToDrive(
   blob: Blob,
   filename: string,
   mimeType: string,
-  folderName: string = 'Jai Hanuman Door Quotes',
+  folderName: string = 'Jai Hanuman Door Media/products',
   description?: string
 ): Promise<DriveUploadResult> {
   const { token } = await getDriveAccessToken();
-  const folderId = await ensureDriveFolder(folderName, token);
+  const folderId = await ensureDriveFolderPath(folderName, token);
 
   const metadata = {
     name: filename,
     mimeType: mimeType,
     parents: [folderId],
-    description: description || `Exported from Jai Hanuman Door on ${new Date().toLocaleString()}`,
+    description: description || `Uploaded to Jai Hanuman Door Media on ${new Date().toLocaleString()}`,
   };
 
   const boundary = '-------314159265358979323846';
@@ -189,11 +230,21 @@ export async function uploadBlobToDrive(
   }
 
   const result = await uploadRes.json();
+
+  // Make file publicly readable so images and videos display everywhere
+  await makeDriveFilePublic(result.id, token);
+
+  const isVideo = mimeType.startsWith('video/') || filename.toLowerCase().endsWith('.mp4');
+  const directUrl = isVideo
+    ? `https://drive.google.com/uc?export=view&id=${result.id}`
+    : `https://lh3.googleusercontent.com/d/${result.id}`;
+
   return {
     fileId: result.id,
     name: result.name,
     webViewLink: result.webViewLink,
     webContentLink: result.webContentLink,
+    directUrl,
   };
 }
 

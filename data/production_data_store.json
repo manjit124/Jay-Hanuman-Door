@@ -1627,9 +1627,25 @@
       "responseTimeMs": 23694
     }
   ],
-  "version": 216,
-  "lastModified": "2026-10-28T12:06:30.187Z",
+  "version": 218,
+  "lastModified": "2026-10-31T15:19:10.691Z",
   "auditLogs": [
+    {
+      "id": "audit-1793459950691-g7gj7",
+      "entity": "door",
+      "action": "delete",
+      "targetId": "door-1793459950455",
+      "timestamp": "2026-10-31T15:19:10.691Z",
+      "success": true
+    },
+    {
+      "id": "audit-1793459950455-8jmop",
+      "entity": "door",
+      "action": "create",
+      "targetId": "door-1793459950455",
+      "timestamp": "2026-10-31T15:19:10.455Z",
+      "success": true
+    },
     {
       "id": "audit-1793175268967-t3dqt",
       "entity": "door",

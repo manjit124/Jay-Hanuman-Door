@@ -98,6 +98,7 @@ import {
   adminLogoutViaFirebase,
   uploadDirectFirebaseStorage,
 } from './firestoreClient.ts';
+import { uploadBlobToDrive } from './googleDriveService.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
 const CUSTOM_API_URL_KEY = 'jai_custom_api_base_url';
@@ -675,12 +676,21 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   let nativeController: AbortController | null = null;
   let nativeTimeoutId: any = null;
 
-  if (isNative && !options.signal && !url.includes('/api/upload') && !url.includes('video')) {
+  const isHeavyMediaEndpoint =
+    url.includes('/api/upload') ||
+    url.includes('video') ||
+    url.includes('drive-image') ||
+    url.includes('import') ||
+    url.includes('preview') ||
+    url.includes('/api/admin/all-data');
+
+  if (!options.signal) {
     nativeController = new AbortController();
     fetchOpts.signal = nativeController.signal;
+    const timeoutMs = isHeavyMediaEndpoint ? 45000 : (isNative ? 8000 : 25000);
     nativeTimeoutId = setTimeout(() => {
       try { nativeController?.abort(); } catch {}
-    }, 3500);
+    }, timeoutMs);
   }
 
   try {
@@ -1498,75 +1508,44 @@ export async function uploadImage(
 
   options.onProgress?.(20, 'uploading');
 
-  // 2. Upload the OPTIMIZED binary file directly to /api/upload with progress & timeout
-  let lastUploadError = '';
+  // 2. Upload photo directly to Google Drive (Owner's Central Permanent Media Storage)
   try {
-    const isNative = isCapacitorOrNative();
-    const uploadRes = await uploadFileWithProgress(
-      '/api/upload',
+    options.onProgress?.(40, 'uploading');
+    const filename = (optimization.file.name && optimization.file.name !== 'blob' && optimization.file.name.trim())
+      ? optimization.file.name.trim()
+      : `door_photo_${Date.now()}.jpg`;
+    const mimeType = optimization.file.type || 'image/jpeg';
+
+    const driveRes = await uploadBlobToDrive(
       optimization.file,
-      (pct) => options.onProgress?.(pct, 'uploading'),
-      isNative ? 6000 : 20000
+      filename,
+      mimeType,
+      'Jai Hanuman Door Media/products',
+      `Admin photo upload: ${filename}`
     );
 
-    if (uploadRes.ok && uploadRes.data?.url) {
-      const serverUrl = String(uploadRes.data.url).trim();
-      const totalDurationMs = Math.round(
-        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart
-      );
-      options.onProgress?.(100, 'uploading');
-
-      console.info(
-        `[AdminUpload] Photo uploaded via server API in ${totalDurationMs}ms | Original: ${(optimization.originalSize / 1024).toFixed(1)}KB -> Optimized: ${(optimization.optimizedSize / 1024).toFixed(1)}KB (${optimization.width}x${optimization.height}) | URL: ${serverUrl}`
-      );
-
-      const finalRes: UploadedImageResponse = {
-        url: isNative && serverUrl.startsWith('/') ? resolveImageUrl(serverUrl) : serverUrl,
-        originalSize: optimization.originalSize,
-        optimizedSize: optimization.optimizedSize,
-        width: optimization.width,
-        height: optimization.height,
-        durationMs: totalDurationMs,
-      };
-
-      try { uploadSessionCache.set(cacheKey, finalRes); } catch {}
-      return finalRes;
-    } else {
-      lastUploadError = uploadRes.error || `Server upload HTTP ${uploadRes.status}`;
-      console.warn('[AdminUpload] Server API upload unreachable, trying direct permanent Firebase Storage:', lastUploadError);
-    }
-  } catch (err: any) {
-    lastUploadError = err.message || 'Server network connection error';
-    console.warn('[AdminUpload] Server API upload error, trying direct permanent Firebase Storage:', lastUploadError);
-  }
-
-  // 3. Direct Permanent Firebase Cloud Storage Upload
-  try {
-    options.onProgress?.(50, 'uploading');
-    const directStorageRes = await uploadDirectFirebaseStorage(optimization.file, 'uploads');
     const totalDurationMs = Math.round(
       (typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart
     );
     options.onProgress?.(100, 'uploading');
 
-    console.info(
-      `[AdminUpload] Photo uploaded directly to permanent Firebase Cloud Storage in ${totalDurationMs}ms | URL: ${directStorageRes.url}`
-    );
+    console.info(`[AdminUpload] Photo saved permanently to Google Drive (${totalDurationMs}ms): ${driveRes.directUrl}`);
 
-    const permanentRes: UploadedImageResponse = {
-      url: directStorageRes.url,
+    const finalRes: UploadedImageResponse = {
+      url: driveRes.directUrl,
       originalSize: optimization.originalSize,
-      optimizedSize: directStorageRes.size || optimization.optimizedSize,
+      optimizedSize: optimization.optimizedSize,
       width: optimization.width,
       height: optimization.height,
       durationMs: totalDurationMs,
     };
 
-    try { uploadSessionCache.set(cacheKey, permanentRes); } catch {}
-    return permanentRes;
-  } catch (storageErr: any) {
-    const errorDetail = storageErr.message || lastUploadError || 'Permanent Cloud Storage upload failed.';
-    throw new Error(`Permanent photo upload failed: ${errorDetail}`);
+    try { uploadSessionCache.set(cacheKey, finalRes); } catch {}
+    return finalRes;
+  } catch (driveErr: any) {
+    const msg = driveErr?.message || String(driveErr);
+    console.error('[AdminUpload] Google Drive photo upload failed:', msg);
+    throw new Error(`Google Drive photo upload failed: ${msg}`);
   }
 }
 
@@ -1723,70 +1702,30 @@ export async function uploadVideo(
   }
 
   try {
-    const uploadRes = await uploadFileWithProgress(
-      '/api/upload-video',
+    onProgress?.(20);
+    const filename = file.name && file.name !== 'blob' ? file.name : `product_video_${Date.now()}.mp4`;
+    const mimeType = file.type || 'video/mp4';
+
+    const driveRes = await uploadBlobToDrive(
       file,
-      onProgress,
-      180000 // 3 minutes timeout for video files
+      filename,
+      mimeType,
+      'Jai Hanuman Door Media/videos',
+      `Admin product video upload: ${filename}`
     );
 
-    if (uploadRes.ok && uploadRes.data && uploadRes.data.url) {
-      return {
-        url: resolveImageUrl(uploadRes.data.url),
-        filename: uploadRes.data.filename || file.name,
-        size: uploadRes.data.size || file.size,
-      };
-    } else {
-      throw new Error(uploadRes.error || uploadRes.data?.error || 'Video upload failed on server.');
-    }
-  } catch (err: any) {
-    console.warn('[AdminUpload] Video progress upload failed, trying standard fetch fallback:', err.message);
-  }
-
-  // Fallback via apiFetch or direct permanent Firebase Storage
-  let lastVideoError = '';
-  try {
-    const formData = new FormData();
-    let safeName = (file.name && file.name !== 'blob' && file.name.trim()) ? file.name.trim() : `android_video_${Date.now()}.mp4`;
-    formData.append('file', file, safeName);
-
-    const token = getAdminToken();
-    const headers: Record<string, string> = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-      headers['x-admin-token'] = token;
-    }
-
-    const res = await apiFetch('/api/upload-video', {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-
-    const parsed = await parseSafeJsonResponse<{ url: string; filename?: string; size?: number }>(res, 'Product video upload');
-    if (parsed.success && parsed.data && parsed.data.url) {
-      return {
-        ...parsed.data,
-        url: resolveImageUrl(parsed.data.url),
-      };
-    }
-    lastVideoError = parsed.error || `Server returned status ${res.status}`;
-  } catch (apiErr: any) {
-    lastVideoError = apiErr.message || 'API video fetch failed';
-  }
-
-  // Direct Permanent Firebase Cloud Storage Upload for Videos
-  try {
-    onProgress?.(50);
-    const directRes = await uploadDirectFirebaseStorage(file, 'videos');
     onProgress?.(100);
+    console.info(`[AdminUpload] Video saved permanently to Google Drive: ${driveRes.directUrl}`);
+
     return {
-      url: directRes.url,
-      filename: directRes.filename,
-      size: directRes.size,
+      url: driveRes.directUrl,
+      filename: driveRes.name,
+      size: file.size,
     };
-  } catch (storageErr: any) {
-    throw new Error(`Permanent video upload failed: ${storageErr.message || lastVideoError}`);
+  } catch (driveErr: any) {
+    const errorMsg = driveErr?.message || String(driveErr);
+    console.error('[AdminUpload] Google Drive video upload error:', errorMsg);
+    throw new Error(`Google Drive video upload failed: ${errorMsg}`);
   }
 }
 

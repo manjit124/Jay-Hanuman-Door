@@ -1645,59 +1645,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </button>
                     </div>
 
-                    {/* Firebase Storage Persistent Storage Status Card */}
+                    {/* Google Drive Central Media Storage Status Card */}
                     {r2StorageStatus && (
-                      <div className={`p-3.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
-                        (r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable)
-                          ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
-                          : 'bg-amber-50 border-amber-300 text-amber-950'
-                      }`}>
+                      <div className="p-3.5 rounded-xl border border-emerald-300 bg-emerald-50/70 text-emerald-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
                         <div className="flex items-start sm:items-center gap-3">
-                          <HardDrive className={`w-5 h-5 shrink-0 mt-0.5 sm:mt-0 ${(r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) ? 'text-emerald-600' : 'text-amber-600'}`} />
+                          <HardDrive className="w-5 h-5 shrink-0 mt-0.5 sm:mt-0 text-emerald-600" />
                           <div className="space-y-0.5">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-bold">Firebase Storage Bucket: {r2StorageStatus.storage?.bucket || r2StorageStatus.r2.bucket}</span>
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                                (r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-200 text-amber-900'
-                              }`}>
-                                {(r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) ? 'Read & Write Active' : 'Setup Required'}
+                              <span className="font-bold">Google Drive Storage: "Jai Hanuman Door Media"</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-emerald-200 text-emerald-900">
+                                Active Permanent Storage
                               </span>
                             </div>
                             <p className="text-[11px] text-stone-600">
-                              {r2StorageStatus.stats
-                                ? `Storage Cloud Store: ${r2StorageStatus.stats.r2FormattedSize} (${r2StorageStatus.stats.r2ObjectCount} objects) • Local Container: ${r2StorageStatus.stats.localFormattedSize} (${r2StorageStatus.stats.localFilesCount} files, ${r2StorageStatus.stats.pendingSyncCount} pending sync)`
-                                : (r2StorageStatus.storage?.statusMessage || r2StorageStatus.r2.statusMessage)}
+                              All product photos, videos, banners, and catalog graphics are saved permanently to Google Drive under "Jai Hanuman Door Media/products" &amp; "videos".
                             </p>
-                            {!(r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) && (
-                              <p className="text-[11px] text-amber-900 font-semibold bg-amber-100/60 p-2 rounded-lg border border-amber-200 mt-1 leading-relaxed">
-                                🚨 {r2StorageStatus.storage?.statusMessage || r2StorageStatus.r2.tokenGuidance || 'To activate Firebase Storage, open Firebase Console -> Build -> Storage -> Click "Get Started".'}
-                              </p>
-                            )}
                           </div>
                         </div>
-
-                        {(r2StorageStatus.storage?.writable ?? r2StorageStatus.r2.writable) && r2StorageStatus.stats && r2StorageStatus.stats.pendingSyncCount > 0 && (
-                          <button
-                            type="button"
-                            disabled={isSyncingR2}
-                            onClick={async () => {
-                              setIsSyncingR2(true);
-                              try {
-                                const res = await triggerR2SyncPending();
-                                showToast(res.message);
-                                await loadStorageStatus();
-                              } catch (err: any) {
-                                alert(err.message || 'Sync failed');
-                              } finally {
-                                setIsSyncingR2(false);
-                              }
-                            }}
-                            className="px-3.5 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 shrink-0 transition cursor-pointer disabled:opacity-50 shadow-xs"
-                          >
-                            {isSyncingR2 ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                            <span>{isSyncingR2 ? 'Syncing to Storage...' : `Sync ${r2StorageStatus.stats.pendingSyncCount} Pending to Firebase Storage`}</span>
-                          </button>
-                        )}
                       </div>
                     )}
 
@@ -2167,12 +2131,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   />
                                 </label>
                                 <span className="text-[11px] text-[#666666]">
-                                  Auto-optimizes camera photos (1680px HD) and saves to Firebase Storage
+                                  Auto-optimizes camera photos (1680px HD) and saves permanently to Google Drive
                                 </span>
                               </div>
                             </div>
 
-                            {/* Option 2: Google Drive Image URL / Direct Image URL Import to Firebase Storage */}
+                            {/* Option 2: Google Drive Image URL / Direct Image URL Import */}
                             <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-2.5">
                               <div className="flex flex-wrap items-center justify-between gap-1">
                                 <label className="text-xs font-bold text-[#1A1A1A] flex items-center gap-1.5">
@@ -2258,9 +2222,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                         setDriveImageUrlInput('');
                                         setDriveImagePreview(null);
                                         setDriveImportSuccessMsg(
-                                          `Imported to Firebase Storage (${imported.width}×${imported.height}px, ${Math.max(1, Math.round(imported.size / 1024))} KB) and set as Primary Product Photo.`
+                                          `Imported to Google Drive (${imported.width}×${imported.height}px, ${Math.max(1, Math.round(imported.size / 1024))} KB) and set as Primary Product Photo.`
                                         );
-                                        showToast('Image imported to Firebase Storage and attached to product!');
+                                        showToast('Image imported to Google Drive and attached to product!');
                                       } catch (err: any) {
                                         const rawMsg = String(err?.message || err || '').trim();
                                         const cleanMsg =
@@ -4366,7 +4330,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     1. Main Banner Image (Device Upload or URL)
                                   </label>
                                   <p className="text-[11px] text-[#666666]">
-                                    Upload artwork from phone/PC. Stored in Firebase Storage.
+                                    Upload artwork from phone/PC. Stored permanently in Google Drive.
                                   </p>
                                 </div>
                                 {bannerDimensions && (
@@ -4925,7 +4889,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     Promotional Banner Image (Phone/PC or URL)
                                   </label>
                                   <p className="text-[11px] text-[#666666]">
-                                    Upload complete promotional graphic (recommended ratio: ~3:1, e.g. 1500 × 500 px). Stored permanently in Firebase Storage / Cloud media storage.
+                                    Upload complete promotional graphic (recommended ratio: ~3:1, e.g. 1500 × 500 px). Stored permanently in Google Drive.
                                   </p>
                                 </div>
                                 {bannerDimensions && (
@@ -4940,7 +4904,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   {uploadingImage ? (
                                     <>
                                       <Loader2 className="w-4 h-4 animate-spin" />
-                                      <span>Uploading to Firebase Storage...</span>
+                                      <span>Uploading to Google Drive...</span>
                                     </>
                                   ) : (
                                     <>
