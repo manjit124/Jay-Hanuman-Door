@@ -3145,12 +3145,13 @@ async function saveMedia(filename, mimeType, buffer, category = "doors", product
         });
         return await (0, import_storage.getDownloadURL)(uploadRes.ref);
       };
+      const uploadTimeoutMs = isVideoOrModel ? 9e4 : 8e3;
       const timeoutPromise = new Promise(
-        (_, reject) => setTimeout(() => reject(new Error("Firebase Storage upload timeout (4000ms) - bucket pending activation")), 4e3)
+        (_, reject) => setTimeout(() => reject(new Error(`Firebase Storage upload timeout (${uploadTimeoutMs}ms)`)), uploadTimeoutMs)
       );
       permanentDownloadUrl = await Promise.race([performUpload(), timeoutPromise]);
       uploadedToFirebase = true;
-      console.log(`\u2705 [Firebase Storage] Durably saved ${cleanFilename} to gs://${bucketName}/${targetStoragePath}`);
+      console.log(`\u2705 [Firebase Storage] Durably saved ${cleanFilename} (${(size / 1024).toFixed(1)} KB) to gs://${bucketName}/${targetStoragePath}`);
     } catch (firebaseErr) {
       console.warn(`\u26A0\uFE0F [Firebase Storage] Direct bucket upload attempt notice:`, firebaseErr.message);
     }

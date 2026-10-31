@@ -56,21 +56,23 @@ import {
 } from 'lucide-react';
 import { ProtectedImage } from './ProtectedImage.tsx';
 import { DEFAULT_CONTENT_PROTECTION } from '../lib/contentProtection.ts';
-import { AdminNotificationsTab } from './AdminNotificationsTab.tsx';
-import { AdminTeamTab } from './AdminTeamTab.tsx';
-import { AdminArticlesTab } from './AdminArticlesTab.tsx';
-import { AdminLegalTab } from './admin/AdminLegalTab.tsx';
-import { AdminEnquiriesTab } from './admin/AdminEnquiriesTab.tsx';
-import { AdminBackupRestore } from './admin/AdminBackupRestore.tsx';
-import { AdminWoodDetectorTab } from './admin/AdminWoodDetectorTab.tsx';
 import { adMobService } from '../lib/admob/admobService.ts';
-import { AdminOrderTrackingTab } from './admin/AdminOrderTrackingTab.tsx';
-import { AdminVisualizerTab } from './admin/AdminVisualizerTab.tsx';
-import { AdminBrandStoryTab } from './AdminBrandStoryTab.tsx';
-import { AdminDeliveryTab } from './admin/AdminDeliveryTab.tsx';
-import { AdminChaukhatTab } from './admin/AdminChaukhatTab.tsx';
-import { AdminAdMobTab } from './admin/AdminAdMobTab.tsx';
-import { AdminGoogleDriveTab } from './admin/AdminGoogleDriveTab.tsx';
+
+// Lazy-loaded sub-tab modules to optimize initial Admin Panel modal open speed
+const AdminNotificationsTab = React.lazy(() => import('./AdminNotificationsTab.tsx').then(m => ({ default: m.AdminNotificationsTab })));
+const AdminTeamTab = React.lazy(() => import('./AdminTeamTab.tsx').then(m => ({ default: m.AdminTeamTab })));
+const AdminArticlesTab = React.lazy(() => import('./AdminArticlesTab.tsx').then(m => ({ default: m.AdminArticlesTab })));
+const AdminLegalTab = React.lazy(() => import('./admin/AdminLegalTab.tsx').then(m => ({ default: m.AdminLegalTab })));
+const AdminEnquiriesTab = React.lazy(() => import('./admin/AdminEnquiriesTab.tsx').then(m => ({ default: m.AdminEnquiriesTab })));
+const AdminBackupRestore = React.lazy(() => import('./admin/AdminBackupRestore.tsx').then(m => ({ default: m.AdminBackupRestore })));
+const AdminWoodDetectorTab = React.lazy(() => import('./admin/AdminWoodDetectorTab.tsx').then(m => ({ default: m.AdminWoodDetectorTab })));
+const AdminOrderTrackingTab = React.lazy(() => import('./admin/AdminOrderTrackingTab.tsx').then(m => ({ default: m.AdminOrderTrackingTab })));
+const AdminVisualizerTab = React.lazy(() => import('./admin/AdminVisualizerTab.tsx').then(m => ({ default: m.AdminVisualizerTab })));
+const AdminBrandStoryTab = React.lazy(() => import('./AdminBrandStoryTab.tsx').then(m => ({ default: m.AdminBrandStoryTab })));
+const AdminDeliveryTab = React.lazy(() => import('./admin/AdminDeliveryTab.tsx').then(m => ({ default: m.AdminDeliveryTab })));
+const AdminChaukhatTab = React.lazy(() => import('./admin/AdminChaukhatTab.tsx').then(m => ({ default: m.AdminChaukhatTab })));
+const AdminAdMobTab = React.lazy(() => import('./admin/AdminAdMobTab.tsx').then(m => ({ default: m.AdminAdMobTab })));
+const AdminGoogleDriveTab = React.lazy(() => import('./admin/AdminGoogleDriveTab.tsx').then(m => ({ default: m.AdminGoogleDriveTab })));
 import {
   Door,
   Category,
@@ -541,7 +543,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // Direct File Upload helper (supports single or multi-file selection with browser compression & progress)
+  // Direct File Upload helper (supports single or multi-file selection with parallel browser compression & progress)
   const handleFileUploadHelper = async (
     e: React.ChangeEvent<HTMLInputElement>,
     onSuccess: (url: string, allUrls?: string[]) => void
@@ -554,26 +556,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const uploadedUrls: string[] = [];
     let totalSavedBytes = 0;
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const res = await uploadImage(file, {
-          maxDimension: 1680,
-          quality: 0.82,
-          onProgress: (pct) => {
-            const overall = Math.round(((i + pct / 100) / files.length) * 100);
-            setUploadProgress(overall);
-          },
-        });
-        uploadedUrls.push(res.url);
-        if (res.originalSize && res.optimizedSize && res.originalSize > res.optimizedSize) {
-          totalSavedBytes += res.originalSize - res.optimizedSize;
+      // Process up to 3 photo uploads concurrently for 3x speed boost
+      const CONCURRENCY = 3;
+      let completedWeight = 0;
+      for (let i = 0; i < files.length; i += CONCURRENCY) {
+        const chunk = files.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(
+          chunk.map(async file => {
+            const res = await uploadImage(file, {
+              maxDimension: 1680,
+              quality: 0.82,
+              onProgress: (pct) => {
+                const currentWeight = completedWeight + (pct / 100) / files.length;
+                setUploadProgress(Math.min(98, Math.round(currentWeight * 100)));
+              },
+            });
+            return res;
+          })
+        );
+        completedWeight += chunk.length / files.length;
+        for (const res of results) {
+          uploadedUrls.push(res.url);
+          if (res.originalSize && res.optimizedSize && res.originalSize > res.optimizedSize) {
+            totalSavedBytes += res.originalSize - res.optimizedSize;
+          }
+          onSuccess(res.url, uploadedUrls);
         }
-        onSuccess(res.url, uploadedUrls);
       }
       const savedKb = Math.round(totalSavedBytes / 1024);
       showToast(
         files.length > 1
-          ? `${files.length} photos uploaded${savedKb > 20 ? ` (saved ${savedKb} KB)` : ''}`
+          ? `${files.length} photos uploaded in parallel${savedKb > 20 ? ` (saved ${savedKb} KB)` : ''}`
           : `Image uploaded${savedKb > 20 ? ` (optimized by ${savedKb} KB)` : ' successfully'}`
       );
     } catch (err: any) {
@@ -6545,129 +6558,140 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 )}
 
-                {/* Push Notifications Admin Tab */}
-                {activeTab === 'notifications' && (
-                  <AdminNotificationsTab
-                    doors={doors}
-                    onShowToast={showToast}
-                  />
-                )}
+                {/* React.Suspense boundary for lazy sub-tab modules */}
+                <React.Suspense
+                  fallback={
+                    <div className="p-8 sm:p-12 text-center bg-[#F8F8F6] rounded-2xl border border-[#E5E5E5] space-y-3 animate-pulse">
+                      <Loader2 className="w-8 h-8 mx-auto text-[#C89211] animate-spin" />
+                      <p className="text-xs font-bold text-[#1A1A1A]">Loading Admin Control Module...</p>
+                      <p className="text-[11px] text-[#666666]">Optimizing assets and fetching cloud data</p>
+                    </div>
+                  }
+                >
+                  {/* Push Notifications Admin Tab */}
+                  {activeTab === 'notifications' && (
+                    <AdminNotificationsTab
+                      doors={doors}
+                      onShowToast={showToast}
+                    />
+                  )}
 
-                {/* Team & Leadership Admin Tab */}
-                {activeTab === 'team' && (
-                  <AdminTeamTab
-                    teamMembers={teamMembers}
-                    onReload={async () => {
-                      await loadData();
-                      onDataUpdated();
-                    }}
-                    settings={settings || undefined}
-                  />
-                )}
+                  {/* Team & Leadership Admin Tab */}
+                  {activeTab === 'team' && (
+                    <AdminTeamTab
+                      teamMembers={teamMembers}
+                      onReload={async () => {
+                        await loadData();
+                        onDataUpdated();
+                      }}
+                      settings={settings || undefined}
+                    />
+                  )}
 
-                {/* Brand & Company Story Admin Tab */}
-                {activeTab === 'story' && (
-                  <AdminBrandStoryTab
-                    settings={settings}
-                    onDataUpdated={async () => {
-                      await loadData();
-                      onDataUpdated();
-                    }}
-                    showToast={showToast}
-                  />
-                )}
+                  {/* Brand & Company Story Admin Tab */}
+                  {activeTab === 'story' && (
+                    <AdminBrandStoryTab
+                      settings={settings}
+                      onDataUpdated={async () => {
+                        await loadData();
+                        onDataUpdated();
+                      }}
+                      showToast={showToast}
+                    />
+                  )}
 
-                {/* Customer Inquiries Admin Tab */}
-                {activeTab === 'enquiries' && (
-                  <AdminEnquiriesTab
-                    onShowToast={showToast}
-                  />
-                )}
+                  {/* Customer Inquiries Admin Tab */}
+                  {activeTab === 'enquiries' && (
+                    <AdminEnquiriesTab
+                      onShowToast={showToast}
+                    />
+                  )}
 
-                {/* Legal & Info Pages Admin Tab */}
-                {activeTab === 'legal' && (
-                  <AdminLegalTab
-                    settings={settings}
-                    onSaved={async () => {
-                      await loadData();
-                      onDataUpdated();
-                    }}
-                    onShowToast={showToast}
-                  />
-                )}
+                  {/* Legal & Info Pages Admin Tab */}
+                  {activeTab === 'legal' && (
+                    <AdminLegalTab
+                      settings={settings}
+                      onSaved={async () => {
+                        await loadData();
+                        onDataUpdated();
+                      }}
+                      onShowToast={showToast}
+                    />
+                  )}
 
-                {/* Data Backup & Persistence Tab */}
-                {activeTab === 'backup' && (
-                  <AdminBackupRestore
-                    onDataRestored={async () => {
-                      await loadData();
-                      onDataUpdated();
-                    }}
-                    showToast={showToast}
-                  />
-                )}
+                  {/* Data Backup & Persistence Tab */}
+                  {activeTab === 'backup' && (
+                    <AdminBackupRestore
+                      onDataRestored={async () => {
+                        await loadData();
+                        onDataUpdated();
+                      }}
+                      showToast={showToast}
+                    />
+                  )}
 
-                {/* AI Wood Detector Management Tab */}
-                {activeTab === 'wood-detector' && (
-                  <AdminWoodDetectorTab
-                    settings={settings}
-                    onSettingsUpdated={async () => {
-                      await loadData();
-                      onDataUpdated();
-                    }}
-                  />
-                )}
+                  {/* AI Wood Detector Management Tab */}
+                  {activeTab === 'wood-detector' && (
+                    <AdminWoodDetectorTab
+                      settings={settings}
+                      onSettingsUpdated={async () => {
+                        await loadData();
+                        onDataUpdated();
+                      }}
+                    />
+                  )}
 
-                {/* Order Tracking & Manufacturing Progress Admin Tab */}
-                {activeTab === 'tracking' && (
-                  <AdminOrderTrackingTab
-                    quotes={quotes}
-                    officialWhatsApp={settings?.whatsappNumber || '7887412884'}
-                  />
-                )}
+                  {/* Order Tracking & Manufacturing Progress Admin Tab */}
+                  {activeTab === 'tracking' && (
+                    <AdminOrderTrackingTab
+                      quotes={quotes}
+                      officialWhatsApp={settings?.whatsappNumber || '7887412884'}
+                    />
+                  )}
 
-                {/* All India Delivery & Customer Stories Admin Tab */}
-                {activeTab === 'delivery' && (
-                  <AdminDeliveryTab
-                    states={deliveryStates}
-                    stories={deliveryStories}
-                    onRefresh={async () => {
-                      await loadData();
-                      onDataUpdated();
-                    }}
-                    showToast={showToast}
-                  />
-                )}
+                  {/* All India Delivery & Customer Stories Admin Tab */}
+                  {activeTab === 'delivery' && (
+                    <AdminDeliveryTab
+                      states={deliveryStates}
+                      stories={deliveryStories}
+                      onRefresh={async () => {
+                        await loadData();
+                        onDataUpdated();
+                      }}
+                      showToast={showToast}
+                    />
+                  )}
 
-                {/* 3D & AR Design Management Tab */}
-                {activeTab === 'visualizer' && (
-                  <AdminVisualizerTab
-                    doors={doors}
-                    onDoorUpdated={async () => {
-                      await loadData();
-                      onDataUpdated();
-                    }}
-                    showToast={showToast}
-                  />
-                )}
+                  {/* 3D & AR Design Management Tab */}
+                  {activeTab === 'visualizer' && (
+                    <AdminVisualizerTab
+                      doors={doors}
+                      onDoorUpdated={async () => {
+                        await loadData();
+                        onDataUpdated();
+                      }}
+                      showToast={showToast}
+                    />
+                  )}
 
-                {/* Google AdMob Monetization Admin Tab */}
-                {activeTab === 'admob' && (
-                  <AdminAdMobTab
-                    settings={settings || undefined}
-                    onUpdateSettings={async (newSettings) => {
-                      await updateSettings(newSettings);
-                      await loadData();
-                      onDataUpdated();
-                      showToast('AdMob settings saved successfully');
-                    }}
-                  />
-                )}
+                  {/* Google AdMob Monetization Admin Tab */}
+                  {activeTab === 'admob' && (
+                    <AdminAdMobTab
+                      settings={settings || undefined}
+                      onUpdateSettings={async (newSettings) => {
+                        await updateSettings(newSettings);
+                        await loadData();
+                        onDataUpdated();
+                        showToast('AdMob settings saved successfully');
+                      }}
+                    />
+                  )}
 
-                {/* Owner Google Drive Central Media Storage Admin Tab */}
-                {activeTab === 'googledrive' && (
-                  <AdminGoogleDriveTab />
-                )}
+                  {/* Owner Google Drive Central Media Storage Admin Tab */}
+                  {activeTab === 'googledrive' && (
+                    <AdminGoogleDriveTab />
+                  )}
+                </React.Suspense>
 
               </div>
             </>

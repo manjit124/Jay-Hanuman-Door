@@ -1116,9 +1116,9 @@ function canvasHasTransparency(ctx: CanvasRenderingContext2D, width: number, hei
 
 /**
  * Decodes an image file efficiently in the browser using native createImageBitmap (respecting EXIF orientation)
- * with a fast object-URL fallback. Avoids slow FileReader.readAsDataURL base64 allocation on multi-megabyte files.
+ * with hardware-accelerated downscaling and a fast object-URL fallback.
  */
-async function decodeImageSource(file: File): Promise<{
+async function decodeImageSource(file: File, targetMaxDim?: number): Promise<{
   source: CanvasImageSource;
   width: number;
   height: number;
@@ -1126,7 +1126,12 @@ async function decodeImageSource(file: File): Promise<{
 }> {
   if (typeof window !== 'undefined' && typeof createImageBitmap === 'function') {
     try {
-      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' } as any);
+      const bitmapOpts: ImageBitmapOptions = { imageOrientation: 'from-image' };
+      if (targetMaxDim && targetMaxDim > 0) {
+        bitmapOpts.resizeWidth = targetMaxDim;
+        bitmapOpts.resizeQuality = 'high';
+      }
+      const bitmap = await createImageBitmap(file, bitmapOpts);
       return {
         source: bitmap,
         width: bitmap.width,
@@ -1193,7 +1198,7 @@ export async function optimizeImageForUpload(
     };
   }
 
-  const decoded = await decodeImageSource(file);
+  const decoded = await decodeImageSource(file, maxDimension);
   try {
     const origWidth = decoded.width;
     const origHeight = decoded.height;

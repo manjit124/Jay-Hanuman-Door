@@ -392,13 +392,14 @@ export async function saveMedia(
         return await getDownloadURL(uploadRes.ref);
       };
 
+      const uploadTimeoutMs = isVideoOrModel ? 90000 : 8000;
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Firebase Storage upload timeout (4000ms) - bucket pending activation')), 4000)
+        setTimeout(() => reject(new Error(`Firebase Storage upload timeout (${uploadTimeoutMs}ms)`)), uploadTimeoutMs)
       );
 
       permanentDownloadUrl = await Promise.race([performUpload(), timeoutPromise]);
       uploadedToFirebase = true;
-      console.log(`✅ [Firebase Storage] Durably saved ${cleanFilename} to gs://${bucketName}/${targetStoragePath}`);
+      console.log(`✅ [Firebase Storage] Durably saved ${cleanFilename} (${(size / 1024).toFixed(1)} KB) to gs://${bucketName}/${targetStoragePath}`);
     } catch (firebaseErr: any) {
       console.warn(`⚠️ [Firebase Storage] Direct bucket upload attempt notice:`, firebaseErr.message);
     }
