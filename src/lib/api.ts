@@ -96,6 +96,7 @@ import {
   isClientAdminAuthorized,
   ensureFirebaseAuthSession,
   adminLogoutViaFirebase,
+  uploadDirectFirebaseStorage,
 } from './firestoreClient.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
@@ -416,7 +417,7 @@ export function getApiBaseUrl(): string {
   if (cachedProd) return cachedProd;
 
   if (isCapacitorOrNative()) {
-    return 'https://ais-pre-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app';
+    return 'https://ais-dev-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app';
   }
 
   return '';
@@ -616,14 +617,17 @@ export async function fetchWithRetry(
   url: string,
   options: RequestInit = {},
   retries = 3,
-  backoffMs = 350
+  backoffMs = 300
 ): Promise<Response> {
   const fullUrl = resolveApiUrl(url);
+  const isNative = isCapacitorOrNative();
+  const effectiveTimeout = isNative ? 3000 : 15000;
+  const maxAttempts = isNative ? 1 : retries;
 
   let lastError: any = null;
-  for (let attempt = 0; attempt < retries; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
     const signal = options.signal || controller.signal;
 
     try {
@@ -634,7 +638,7 @@ export async function fetchWithRetry(
       clearTimeout(timeoutId);
 
       // Retry on 502/503/504 (transient server/proxy gateway errors)
-      if ((response.status === 502 || response.status === 503 || response.status === 504) && attempt < retries - 1) {
+      if ((response.status === 502 || response.status === 503 || response.status === 504) && attempt < maxAttempts - 1) {
         await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, attempt)));
         continue;
       }
@@ -643,7 +647,7 @@ export async function fetchWithRetry(
     } catch (err: any) {
       clearTimeout(timeoutId);
       lastError = err;
-      if (attempt < retries - 1) {
+      if (attempt < maxAttempts - 1) {
         await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, attempt)));
       }
     }
@@ -661,17 +665,33 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   const cleanRelative = url.startsWith('/') ? url : `/${url}`;
   const fullUrl = resolveApiUrl(url);
   const isSameOrigin = fullUrl.startsWith('/');
+  const isNative = isCapacitorOrNative();
+
   const fetchOpts: RequestInit = {
     ...(isSameOrigin ? { credentials: 'same-origin' } : {}),
     ...options,
   };
 
+  let nativeController: AbortController | null = null;
+  let nativeTimeoutId: any = null;
+
+  if (isNative && !options.signal && !url.includes('/api/upload') && !url.includes('video')) {
+    nativeController = new AbortController();
+    fetchOpts.signal = nativeController.signal;
+    nativeTimeoutId = setTimeout(() => {
+      try { nativeController?.abort(); } catch {}
+    }, 3500);
+  }
+
   try {
-    return await fetch(fullUrl, fetchOpts);
+    const res = await fetch(fullUrl, fetchOpts);
+    if (nativeTimeoutId) clearTimeout(nativeTimeoutId);
+    return res;
   } catch (err: any) {
+    if (nativeTimeoutId) clearTimeout(nativeTimeoutId);
     // If a custom or external base URL was prepended and threw Failed to fetch,
     // clear any stale custom base URL and retry against same-origin relative path
-    if (fullUrl !== cleanRelative && typeof window !== 'undefined' && !isCapacitorOrNative()) {
+    if (fullUrl !== cleanRelative && typeof window !== 'undefined' && !isNative) {
       try {
         localStorage.removeItem(CUSTOM_API_URL_KEY);
       } catch {}
@@ -1479,12 +1499,14 @@ export async function uploadImage(
   options.onProgress?.(20, 'uploading');
 
   // 2. Upload the OPTIMIZED binary file directly to /api/upload with progress & timeout
+  let lastUploadError = '';
   try {
+    const isNative = isCapacitorOrNative();
     const uploadRes = await uploadFileWithProgress(
       '/api/upload',
       optimization.file,
       (pct) => options.onProgress?.(pct, 'uploading'),
-      20000
+      isNative ? 6000 : 20000
     );
 
     if (uploadRes.ok && uploadRes.data?.url) {
@@ -1495,61 +1517,56 @@ export async function uploadImage(
       options.onProgress?.(100, 'uploading');
 
       console.info(
-        `[AdminUpload] Photo uploaded in ${totalDurationMs}ms | Original: ${(optimization.originalSize / 1024).toFixed(1)}KB -> Optimized: ${(optimization.optimizedSize / 1024).toFixed(1)}KB (${optimization.width}x${optimization.height}) | URL: ${serverUrl}`
+        `[AdminUpload] Photo uploaded via server API in ${totalDurationMs}ms | Original: ${(optimization.originalSize / 1024).toFixed(1)}KB -> Optimized: ${(optimization.optimizedSize / 1024).toFixed(1)}KB (${optimization.width}x${optimization.height}) | URL: ${serverUrl}`
       );
 
-      // If running inside native Capacitor APK and server returned a relative path, resolve with base URL
-      if (isCapacitorOrNative() && serverUrl.startsWith('/')) {
-        return {
-          url: resolveImageUrl(serverUrl),
-          originalSize: optimization.originalSize,
-          optimizedSize: optimization.optimizedSize,
-          width: optimization.width,
-          height: optimization.height,
-          durationMs: totalDurationMs,
-        };
-      }
-
-      return {
-        url: serverUrl,
+      const finalRes: UploadedImageResponse = {
+        url: isNative && serverUrl.startsWith('/') ? resolveImageUrl(serverUrl) : serverUrl,
         originalSize: optimization.originalSize,
         optimizedSize: optimization.optimizedSize,
         width: optimization.width,
         height: optimization.height,
         durationMs: totalDurationMs,
       };
+
+      try { uploadSessionCache.set(cacheKey, finalRes); } catch {}
+      return finalRes;
     } else {
-      // Server responded with an explicit error (e.g. durable storage failed or permissions error)
-      throw new Error(uploadRes.error || uploadRes.data?.error || 'Durable upload to cloud storage failed');
+      lastUploadError = uploadRes.error || `Server upload HTTP ${uploadRes.status}`;
+      console.warn('[AdminUpload] Server API upload unreachable, trying direct permanent Firebase Storage:', lastUploadError);
     }
   } catch (err: any) {
-    if (err.message && !err.message.includes('Network error')) {
-      throw err;
-    }
-    console.warn('[AdminUpload] Direct server upload unreachable, using client offline fallback:', err.message);
+    lastUploadError = err.message || 'Server network connection error';
+    console.warn('[AdminUpload] Server API upload error, trying direct permanent Firebase Storage:', lastUploadError);
   }
 
-  // 3. Resilient Fallback (only when backend server is unreachable, e.g., standalone offline Android APK)
+  // 3. Direct Permanent Firebase Cloud Storage Upload
   try {
-    const fallbackDataUrl = await compressImageToDataUrl(
-      optimization.file,
-      Math.min(options.maxDimension ?? 1000, 1000),
-      0.80
-    );
+    options.onProgress?.(50, 'uploading');
+    const directStorageRes = await uploadDirectFirebaseStorage(optimization.file, 'uploads');
     const totalDurationMs = Math.round(
       (typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart
     );
     options.onProgress?.(100, 'uploading');
-    return {
-      url: fallbackDataUrl,
+
+    console.info(
+      `[AdminUpload] Photo uploaded directly to permanent Firebase Cloud Storage in ${totalDurationMs}ms | URL: ${directStorageRes.url}`
+    );
+
+    const permanentRes: UploadedImageResponse = {
+      url: directStorageRes.url,
       originalSize: optimization.originalSize,
-      optimizedSize: optimization.optimizedSize,
+      optimizedSize: directStorageRes.size || optimization.optimizedSize,
       width: optimization.width,
       height: optimization.height,
       durationMs: totalDurationMs,
     };
-  } catch (fallbackErr: any) {
-    throw new Error(fallbackErr.message || 'Failed to process and upload image.');
+
+    try { uploadSessionCache.set(cacheKey, permanentRes); } catch {}
+    return permanentRes;
+  } catch (storageErr: any) {
+    const errorDetail = storageErr.message || lastUploadError || 'Permanent Cloud Storage upload failed.';
+    throw new Error(`Permanent photo upload failed: ${errorDetail}`);
   }
 }
 
@@ -1726,32 +1743,51 @@ export async function uploadVideo(
     console.warn('[AdminUpload] Video progress upload failed, trying standard fetch fallback:', err.message);
   }
 
-  // Fallback via apiFetch
-  const formData = new FormData();
-  let safeName = (file.name && file.name !== 'blob' && file.name.trim()) ? file.name.trim() : `android_video_${Date.now()}.mp4`;
-  formData.append('file', file, safeName);
+  // Fallback via apiFetch or direct permanent Firebase Storage
+  let lastVideoError = '';
+  try {
+    const formData = new FormData();
+    let safeName = (file.name && file.name !== 'blob' && file.name.trim()) ? file.name.trim() : `android_video_${Date.now()}.mp4`;
+    formData.append('file', file, safeName);
 
-  const token = getAdminToken();
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-    headers['x-admin-token'] = token;
+    const token = getAdminToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['x-admin-token'] = token;
+    }
+
+    const res = await apiFetch('/api/upload-video', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    const parsed = await parseSafeJsonResponse<{ url: string; filename?: string; size?: number }>(res, 'Product video upload');
+    if (parsed.success && parsed.data && parsed.data.url) {
+      return {
+        ...parsed.data,
+        url: resolveImageUrl(parsed.data.url),
+      };
+    }
+    lastVideoError = parsed.error || `Server returned status ${res.status}`;
+  } catch (apiErr: any) {
+    lastVideoError = apiErr.message || 'API video fetch failed';
   }
 
-  const res = await apiFetch('/api/upload-video', {
-    method: 'POST',
-    headers,
-    body: formData,
-  });
-
-  const parsed = await parseSafeJsonResponse<{ url: string; filename?: string; size?: number }>(res, 'Product video upload');
-  if (!parsed.success || !parsed.data) {
-    throw new Error(parsed.error || 'Product video upload failed');
+  // Direct Permanent Firebase Cloud Storage Upload for Videos
+  try {
+    onProgress?.(50);
+    const directRes = await uploadDirectFirebaseStorage(file, 'videos');
+    onProgress?.(100);
+    return {
+      url: directRes.url,
+      filename: directRes.filename,
+      size: directRes.size,
+    };
+  } catch (storageErr: any) {
+    throw new Error(`Permanent video upload failed: ${storageErr.message || lastVideoError}`);
   }
-  return {
-    ...parsed.data,
-    url: resolveImageUrl(parsed.data.url),
-  };
 }
 
 export async function upload3DModel(file: File): Promise<{
@@ -1921,6 +1957,8 @@ export async function checkAdminAuth(): Promise<boolean> {
   return isTokenValid;
 }
 
+const ADMIN_DATA_CACHE_KEY = 'shivshahi_admin_all_data_cache_v1';
+
 export async function fetchAdminAllData(): Promise<{
   doors: Door[];
   categories: Category[];
@@ -1936,25 +1974,14 @@ export async function fetchAdminAllData(): Promise<{
   deliveryStates?: IndiaDeliveryState[];
   deliveryStories?: DeliveryStory[];
 }> {
-  try {
-    const res = await apiFetch('/api/admin/all-data', {
-      headers: authHeaders(),
-    });
-    const parsed = await parseSafeJsonResponse<any>(res, 'Fetch Admin All Data');
-    if (parsed.success && parsed.data && Array.isArray(parsed.data.doors)) {
-      return parsed.data;
-    }
-  } catch (err: any) {
-    console.warn('[AdminAPI] Server /api/admin/all-data unreachable, trying cloud database fallback...', err.message);
-  }
+  const isNative = isCapacitorOrNative();
 
-  // Fallback: If token exists and server is unreachable, load directly from Firestore or master default catalog
-  const token = getAdminToken();
-  if (token) {
+  // Fast-path: On native Android APK, fetch directly from Cloud Firestore first (or instant local cache)
+  if (isNative) {
     try {
       const cloudData = await fetchDirectFirestoreData();
       if (cloudData && Array.isArray(cloudData.doors)) {
-        return {
+        const result = {
           doors: cloudData.doors || [],
           categories: cloudData.categories || [],
           materials: cloudData.materials || [],
@@ -1964,17 +1991,73 @@ export async function fetchAdminAllData(): Promise<{
           banners: cloudData.banners || [],
           articles: cloudData.articles || [],
           quotes: cloudData.quotes || [],
-          settings: cloudData.settings || {},
+          settings: cloudData.settings || DEFAULT_SETTINGS,
           teamMembers: cloudData.teamMembers || [],
           deliveryStates: cloudData.deliveryStates || DEFAULT_INDIA_STATES,
           deliveryStories: cloudData.deliveryStories || DEFAULT_DELIVERY_STORIES,
         };
+        try { localStorage.setItem(ADMIN_DATA_CACHE_KEY, JSON.stringify(result)); } catch {}
+        return result;
+      }
+    } catch (fsErr: any) {
+      console.warn('[AdminAPI] Native Firestore fetch warning:', fsErr.message);
+    }
+  }
+
+  // 1. Server HTTP Endpoint
+  try {
+    const res = await apiFetch('/api/admin/all-data', {
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse<any>(res, 'Fetch Admin All Data');
+    if (parsed.success && parsed.data && Array.isArray(parsed.data.doors)) {
+      try { localStorage.setItem(ADMIN_DATA_CACHE_KEY, JSON.stringify(parsed.data)); } catch {}
+      return parsed.data;
+    }
+  } catch (err: any) {
+    console.warn('[AdminAPI] Server /api/admin/all-data unreachable, trying cloud database fallback...', err.message);
+  }
+
+  // 2. Direct Firestore fallback
+  const token = getAdminToken();
+  if (token) {
+    try {
+      const cloudData = await fetchDirectFirestoreData();
+      if (cloudData && Array.isArray(cloudData.doors)) {
+        const result = {
+          doors: cloudData.doors || [],
+          categories: cloudData.categories || [],
+          materials: cloudData.materials || [],
+          finishes: cloudData.finishes || [],
+          frames: cloudData.frames || [],
+          hardware: cloudData.hardware || [],
+          banners: cloudData.banners || [],
+          articles: cloudData.articles || [],
+          quotes: cloudData.quotes || [],
+          settings: cloudData.settings || DEFAULT_SETTINGS,
+          teamMembers: cloudData.teamMembers || [],
+          deliveryStates: cloudData.deliveryStates || DEFAULT_INDIA_STATES,
+          deliveryStories: cloudData.deliveryStories || DEFAULT_DELIVERY_STORIES,
+        };
+        try { localStorage.setItem(ADMIN_DATA_CACHE_KEY, JSON.stringify(result)); } catch {}
+        return result;
       }
     } catch (fsErr: any) {
       console.warn('[AdminAPI] Firestore fallback error:', fsErr.message);
     }
 
-    // Guaranteed fallback dataset when server/Firestore is unreachable on mobile APK
+    // Check cached admin data
+    try {
+      const cached = localStorage.getItem(ADMIN_DATA_CACHE_KEY);
+      if (cached) {
+        const parsedCache = JSON.parse(cached);
+        if (parsedCache && Array.isArray(parsedCache.doors)) {
+          return parsedCache;
+        }
+      }
+    } catch {}
+
+    // Guaranteed fallback dataset
     return {
       doors: DEFAULT_DOORS,
       categories: DEFAULT_CATEGORIES,
