@@ -1178,11 +1178,11 @@ const multipartOrJson = (req: express.Request, res: express.Response, next: expr
   }
 };
 
-// Mount Wood Detection on /api/wood-analysis, /api/ai/detect-wood, and aliases
-app.post(['/api/wood-analysis', '/api/ai/detect-wood', '/api/ai/detect-wood-species', '/api/detect-wood'], multipartOrJson, woodAnalysisHandler);
+// Mount Wood Detection on /api/wood-analysis, /api/ai/detect-wood, /api/wood-detector, and aliases
+app.post(['/api/wood-analysis', '/api/ai/detect-wood', '/api/ai/detect-wood-species', '/api/detect-wood', '/api/wood-detector', '/api/gemini/wood-detector', '/api/ai/wood-detector'], multipartOrJson, woodAnalysisHandler);
 
 // Health check endpoints for wood detector
-app.get(['/api/wood-analysis', '/api/ai/detect-wood', '/api/ai/detect-wood-species', '/api/detect-wood'], (_req, res) => {
+app.get(['/api/wood-analysis', '/api/ai/detect-wood', '/api/ai/detect-wood-species', '/api/detect-wood', '/api/wood-detector', '/api/gemini/wood-detector', '/api/ai/wood-detector'], (_req, res) => {
   res.json({
     status: 'ok',
     service: 'Jai Hanuman Door - AI Wood Detector',

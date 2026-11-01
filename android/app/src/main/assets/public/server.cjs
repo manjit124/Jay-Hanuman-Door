@@ -7402,8 +7402,8 @@ var multipartOrJson = (req, res, next) => {
     next();
   }
 };
-app.post(["/api/wood-analysis", "/api/ai/detect-wood", "/api/ai/detect-wood-species", "/api/detect-wood"], multipartOrJson, woodAnalysisHandler);
-app.get(["/api/wood-analysis", "/api/ai/detect-wood", "/api/ai/detect-wood-species", "/api/detect-wood"], (_req, res) => {
+app.post(["/api/wood-analysis", "/api/ai/detect-wood", "/api/ai/detect-wood-species", "/api/detect-wood", "/api/wood-detector", "/api/gemini/wood-detector", "/api/ai/wood-detector"], multipartOrJson, woodAnalysisHandler);
+app.get(["/api/wood-analysis", "/api/ai/detect-wood", "/api/ai/detect-wood-species", "/api/detect-wood", "/api/wood-detector", "/api/gemini/wood-detector", "/api/ai/wood-detector"], (_req, res) => {
   res.json({
     status: "ok",
     service: "Jai Hanuman Door - AI Wood Detector",
