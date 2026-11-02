@@ -1487,6 +1487,22 @@
   "articleShares": [],
   "aiWoodDetectorLogs": [
     {
+      "id": "scan-1793608432948-5v4xt",
+      "timestamp": "2026-11-02T08:33:52.948Z",
+      "likelyWoodType": "Sagwan (Teak)",
+      "confidenceLevel": "Moderate",
+      "success": true,
+      "responseTimeMs": 3951
+    },
+    {
+      "id": "scan-1793608383969-0ughh",
+      "timestamp": "2026-11-02T08:33:03.969Z",
+      "likelyWoodType": "Sagwan (Teak)",
+      "confidenceLevel": "Moderate",
+      "success": true,
+      "responseTimeMs": 23784
+    },
+    {
       "id": "scan-1791213505453-wvtca",
       "timestamp": "2026-10-05T15:18:25.453Z",
       "likelyWoodType": "Sheesham",
@@ -1627,8 +1643,8 @@
       "responseTimeMs": 23694
     }
   ],
-  "version": 218,
-  "lastModified": "2026-10-31T15:19:10.691Z",
+  "version": 220,
+  "lastModified": "2026-11-02T08:33:52.948Z",
   "auditLogs": [
     {
       "id": "audit-1793459950691-g7gj7",

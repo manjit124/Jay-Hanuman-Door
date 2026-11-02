@@ -83,34 +83,54 @@ You MUST examine and cross-reference ALL of the following 10 visual dimensions:
 10. JUNGLE WOOD ASSESSMENT: Remember "Jungle Wood" is a regional commercial trade term for mixed local hardwoods (Babool, Rubberwood, Silver Oak, Eucalyptus, etc.), NOT a single species. It often has irregular grain and is heavily stained to imitate Teak or Sheesham.
 
 =============================================================================
-CRITICAL ANTI-FALSE-SAGWAN (TEAK) ENFORCEMENT RULES:
+CRITICAL ANTI-FALSE-SAGWAN (TEAK) & ACCURACY ENFORCEMENT RULES:
 =============================================================================
-- DO NOT identify a door as Sagwan (Teak) simply because it is golden-brown, shiny, or has an ornamental carving! Stained Sal and Jungle Wood are frequently polished in golden-yellow tints.
-- True Sagwan MUST show observable ring-porous or semi-ring-porous pore arrangements and characteristic longitudinal grain lines.
-- If the wood has a coarse, interlocking fibrous texture or deep reddish-brown undertone under the finish, it is much more likely Saal (Sal) or a mixed dense hardwood, NOT Sagwan.
-- If the pore structure is completely obscured by thick dark polish, paint, low resolution, or glare, you MUST LOWER the confidence to "Low" and state that polish prevents definitive visual identification.
-- If visual evidence is insufficient or contradictory, set "likely_wood_type" to "Unable to identify reliably" (or "Wood species could not be reliably identified from these photos.") and recommend an unpolished close-up.
-- NEVER claim that a photograph can certify 100% genuine Sagwan. Always clearly distinguish between "Visual similarity to Sagwan", "Likely Sagwan based on visible evidence", and "Physical laboratory/microscopic confirmation".
+1. THREE MANDATORY CLASSIFICATION CATEGORIES (wood_category):
+   A) "Sagwan / Sagwani (Teak)":
+      - Identify genuine teak wood ONLY when sufficient visual evidence supports it.
+      - Requires observable ring-porous or semi-ring-porous vessel bands, distinct growth rings, natural golden-brown heartwood, and oily/waxy grain texture.
+      - DO NOT identify a wood as Sagwan simply because it is golden, brown, shiny, or carved! Stained Sal and Jungle Wood are frequently polished in golden-yellow tints.
+   
+   B) "Other Wood (Non-Teak)":
+      - If the wood does NOT have sufficient characteristics of teak, classify it as "Other Wood (Non-Teak)".
+      - Show the likely wood species ONLY when there is sufficient visual evidence (e.g. Sheesham [wild dark fiddleback & purple streaks], Saal [dense coarse interlocking fiber & white tyloses], Neem, Mango, Babool, Pine [non-porous resinous tracheids], Plywood, Veneer, Laminate).
+      - NEVER guess a species just to provide an answer.
+
+   C) "Uncertain / Pehchan Confirm Nahi Ho Paayi":
+      - If the image is unclear, blurry, dark, or insufficient to distinguish the species, or if the pore structure is completely obscured by thick dark paint or heavy polish, set category to "Uncertain / Pehchan Confirm Nahi Ho Paayi".
+      - Set confidence_level to "Low" and is_image_sufficient to false.
+      - Ask the user for a clearer photo of the wood grain and, if possible, an unpolished edge or end grain.
+
+2. ACCURACY & CONFIDENCE RULES:
+   - Do NOT automatically label unknown or ambiguous wood as Sagwan.
+   - Do NOT use color alone to identify teak.
+   - Do NOT confuse polished, stained, painted or laminated wood with genuine teak.
+   - Distinguish visual observations from confirmed species identification.
+   - Show a confidence score ("High", "Moderate", "Low"), but NEVER present photo analysis as 100% laboratory/microscopic certainty.
+   - If confidence is "Low", return "Uncertain / Pehchan Confirm Nahi Ho Paayi" instead of a false Sagwan result.
 
 =============================================================================
 OUTPUT FORMAT REQUIREMENT:
 =============================================================================
 You MUST respond with a single, strictly valid JSON object adhering to this schema:
 {
-  "likely_wood_type": "Sagwan (Teak)" | "Saal (Sal)" | "Sheesham" | "Jungle Wood" | "Deodar" | "Mango Wood" | "Neem" | "Pine" | "Plywood" | "Veneered Wood" | "Laminated or engineered wood" | "Other / Unknown" | "Wood species could not be reliably identified from these photos.",
-  "alternative_possibilities": ["Alternative 1 with reason", "Alternative 2 with reason"],
-  "confidence_level": "Low" | "Moderate" | "High",
+  "wood_category": "Sagwan / Sagwani (Teak)" | "Other Wood (Non-Teak)" | "Uncertain / Pehchan Confirm Nahi Ho Paayi",
+  "likely_wood_type": "Sagwan (Teak)" | "Sheesham" | "Saal (Sal)" | "Neem" | "Mango Wood" | "Babool" | "Pine" | "Plywood" | "Veneered Wood" | "Laminated or engineered wood" | "Other Wood" | "Pehchan confirm nahi ho paayi (Clear photo required)",
+  "is_image_sufficient": true | false,
+  "confidence_level": "High" | "Moderate" | "Low",
+  "visible_reasons": [
+    "Reason 1 based on observed grain, pores, texture or surface finish",
+    "Reason 2 distinguishing features noted"
+  ],
   "visual_observations": [
-    "Observation 1 (e.g. Grain pattern, pore visibility)",
-    "Observation 2 (e.g. Color tone vs stain reflection)",
-    "Observation 3 (e.g. Surface finish, knots, or edge traits)"
+    "Observation 1 (e.g. Ring-porous vs diffuse-porous vs non-porous structure)",
+    "Observation 2 (e.g. Natural wood grain vs stain reflection/masking)"
   ],
   "visible_evidence": [
-    "Specific observable feature matching the likely timber",
-    "Specific pore or grain characteristic noted"
+    "Specific observable feature matching the classified timber"
   ],
   "features_unassessed": [
-    "Feature that could not be determined from the photo (e.g. end-grain cross section hidden, pores under thick PU coat, scent/weight)"
+    "Feature that could not be determined from the photo (e.g. end-grain cross section hidden, pores under thick PU coat, microscopic vessel anatomy)"
   ],
   "uncertainty_reasons": [
     "Primary cause of uncertainty (e.g. Surface polish tinting, flash glare, absence of unpolished wood photo)"
@@ -118,18 +138,20 @@ You MUST respond with a single, strictly valid JSON object adhering to this sche
   "reasons_for_match": [
     "Scientific rationale explaining why the visible traits match the predicted species"
   ],
+  "alternative_possibilities": ["Alternative 1 with reason", "Alternative 2 with reason"],
   "limitations": [
-    "Clear disclosure that photographs can show surface appearance but cannot verify chemical extractives, microscopic cellular anatomy, or internal rot"
+    "Clear disclosure that photo-based identification is an estimate and laboratory/microscopic examination may be required for 100% confirmation."
   ],
   "additional_photos_recommended": true | false,
   "photo_recommendations": [
-    "Recommendation 1 (e.g. Darwaze ke upari ya nichle unpolished edge ki clear photo)",
-    "Recommendation 2 (e.g. Natural din ki dhoop mein bina flash ke pore close-up)"
+    "Recommendation 1 (e.g. Darwaze ke top/bottom unpolished edge ki clear photo)",
+    "Recommendation 2 (e.g. Natural daylight mein bina flash ke grain close-up)"
   ],
-  "customer_explanation": "Simple, honest, courteous Hindi/Hinglish explanation tailored for the homeowner. Detail what was seen, whether it looks like Sagwan/Sal/Sheesham, and caution about polish/stains. If unsure, politely guide them to check unpolished edges or consult our sawmill expert.",
+  "customer_explanation": "Honest, courteous Hindi/Hinglish explanation. State whether the photo shows genuine Sagwan, another wood species, or is uncertain. Caution about polish/stains.",
   "anti_false_sagwan_notice": "Clear disclaimer distinguishing visual resemblance from certified genuine teak.",
+  "disclaimer": "Yeh analysis photo par aadharit anuman hai. 100% scientific guarantee ke liye physical/laboratory test ki zaroorat ho sakti hai.",
   "comparison_notes": {
-    "Sagwan_vs_Sal": "Brief comparison of how this sample distinguishes between Teak and Sal based on visible pores and grain.",
+    "Sagwan_vs_Other": "How this sample compares against genuine Teak.",
     "Solid_vs_Engineered": "Whether this is solid timber or engineered ply/veneer/laminate."
   }
 }`;
@@ -154,20 +176,58 @@ function parseGeminiJsonResponse(rawText: string): AIWoodAnalysisResult {
     throw new Error('AI response could not be parsed as valid JSON.');
   }
 
-  const confidenceLevel: 'Low' | 'Moderate' | 'High' =
+  let confidenceLevel: 'Low' | 'Moderate' | 'High' =
     parsed.confidence_level === 'High' || parsed.confidence_level === 'Moderate' || parsed.confidence_level === 'Low'
       ? parsed.confidence_level
       : 'Moderate';
 
+  let likelyWoodType = String(parsed.likely_wood_type || '').trim();
+  const lowerLikely = likelyWoodType.toLowerCase();
+  
+  if (!likelyWoodType || lowerLikely.includes('unable') || lowerLikely.includes('could not') || lowerLikely.includes('confirm') || lowerLikely.includes('uncertain')) {
+    likelyWoodType = 'Pehchan confirm nahi ho paayi (Clear photo required)';
+    confidenceLevel = 'Low';
+  }
+
+  let isImageSufficient = typeof parsed.is_image_sufficient === 'boolean'
+    ? parsed.is_image_sufficient
+    : confidenceLevel !== 'Low';
+
+  let woodCategory: 'Sagwan / Sagwani (Teak)' | 'Other Wood (Non-Teak)' | 'Uncertain / Pehchan Confirm Nahi Ho Paayi';
+
+  // Force uncertain category if confidence is Low or image insufficient
+  if (confidenceLevel === 'Low' || !isImageSufficient || likelyWoodType.includes('Pehchan confirm')) {
+    woodCategory = 'Uncertain / Pehchan Confirm Nahi Ho Paayi';
+    isImageSufficient = false;
+    confidenceLevel = 'Low';
+    if (!likelyWoodType.includes('Pehchan confirm')) {
+      likelyWoodType = 'Pehchan confirm nahi ho paayi (Clear photo required)';
+    }
+  } else if (parsed.wood_category === 'Sagwan / Sagwani (Teak)' || lowerLikely.includes('sagwan') || lowerLikely.includes('teak')) {
+    woodCategory = 'Sagwan / Sagwani (Teak)';
+  } else if (parsed.wood_category === 'Other Wood (Non-Teak)' || parsed.wood_category === 'Other Wood') {
+    woodCategory = 'Other Wood (Non-Teak)';
+  } else {
+    woodCategory = lowerLikely.includes('sagwan') || lowerLikely.includes('teak')
+      ? 'Sagwan / Sagwani (Teak)'
+      : 'Other Wood (Non-Teak)';
+  }
+
+  const visibleReasons: string[] = Array.isArray(parsed.visible_reasons) && parsed.visible_reasons.length > 0
+    ? parsed.visible_reasons
+    : Array.isArray(parsed.reasons_for_match) && parsed.reasons_for_match.length > 0
+    ? parsed.reasons_for_match
+    : Array.isArray(parsed.visual_observations)
+    ? parsed.visual_observations
+    : ['Visual features analyzed from uploaded photo.'];
+
   const visualObservations: string[] = Array.isArray(parsed.visual_observations)
     ? parsed.visual_observations
-    : Array.isArray(parsed.visible_evidence)
-    ? parsed.visible_evidence
-    : [];
+    : visibleReasons;
 
   const visibleEvidence: string[] = Array.isArray(parsed.visible_evidence)
     ? parsed.visible_evidence
-    : visualObservations;
+    : visibleReasons;
 
   const featuresUnassessed: string[] = Array.isArray(parsed.features_unassessed)
     ? parsed.features_unassessed
@@ -181,41 +241,43 @@ function parseGeminiJsonResponse(rawText: string): AIWoodAnalysisResult {
 
   const photoRecommendations: string[] = Array.isArray(parsed.photo_recommendations)
     ? parsed.photo_recommendations
-    : parsed.additional_photos_recommended
+    : parsed.additional_photos_recommended || !isImageSufficient
     ? [
         'Darwaze ke top ya bottom unpolished edge ki close-up photo lein jahan bina polish ke natural lakdi dikh sake.',
         'Daylight (natural roshni) mein bina flash ke wood grain ki 10cm doori se photo lein.',
       ]
     : [];
 
-  let likelyWoodType = parsed.likely_wood_type || 'Wood species could not be reliably identified from these photos.';
-  if (likelyWoodType.toLowerCase().includes('unable') || likelyWoodType.toLowerCase().includes('could not')) {
-    likelyWoodType = 'Wood species could not be reliably identified from these photos.';
-  }
-
   return {
+    wood_category: woodCategory,
     likely_wood_type: likelyWoodType,
-    alternative_possibilities: Array.isArray(parsed.alternative_possibilities) ? parsed.alternative_possibilities : [],
+    is_image_sufficient: isImageSufficient,
     confidence_level: confidenceLevel,
+    visible_reasons: visibleReasons,
     visual_observations: visualObservations,
     visible_evidence: visibleEvidence,
     features_unassessed: featuresUnassessed,
     uncertainty_reasons: uncertaintyReasons,
-    reasons_for_match: Array.isArray(parsed.reasons_for_match) ? parsed.reasons_for_match : [],
+    reasons_for_match: Array.isArray(parsed.reasons_for_match) ? parsed.reasons_for_match : visibleReasons,
+    alternative_possibilities: Array.isArray(parsed.alternative_possibilities) ? parsed.alternative_possibilities : [],
     limitations: Array.isArray(parsed.limitations)
       ? parsed.limitations
-      : ['Surface polish, camera lighting aur angle ke karan photo inspection se 100% scientific guarantee nahi di ja sakti.'],
-    additional_photos_recommended: Boolean(parsed.additional_photos_recommended),
+      : ['Photo-based identification is an estimate. Laboratory/microscopic examination may be required for 100% confirmation.'],
+    additional_photos_recommended: Boolean(parsed.additional_photos_recommended) || !isImageSufficient,
     photo_recommendations: photoRecommendations,
     customer_explanation:
       parsed.customer_explanation ||
-      'Photo ke aadhar par lakdi ka visual anuman lagaya gaya hai. Kripya dhyan dein ki polish aur photo lighting ke karan lakdi ka sahi pata lagane ke liye unpolished hissa dekhna behtar hota hai.',
+      (woodCategory === 'Sagwan / Sagwani (Teak)'
+        ? 'Uploaded photo ke ring-porous grain pattern aur natural features se yeh Sagwan (Teak Wood) lagti hai. Dhyan dein ki photo analysis ek visual estimate hai.'
+        : woodCategory === 'Other Wood (Non-Teak)'
+        ? `Photo ke grain aur structure se yeh Sagwan nahi balki ${likelyWoodType} ya doosri non-teak lakdi lagti hai.`
+        : 'Photo saaf nahi hai ya polish ke karan lakdi ke natural pores dikh nahi rahe hain. Kripya bina polish ke edge ya daylight mein saaf grain photo upload karein.'),
     anti_false_sagwan_notice:
       parsed.anti_false_sagwan_notice ||
-      'Dhyan Dein: Kisi bhi darwaze par golden-brown polish ya carving dekh kar use turant Asli Sagwan (Teak) na maanein. Asli Sagwan mein earlywood pore rings aur natural oiliness hoti hai. Asliyat jaanchne ke liye unpolished chaukhat ya sawmill certified stamp check karein.',
+      'Dhyan Dein: Golden polish ya carving dekh kar turant Sagwan na maanein. Asli Sagwan mein earlywood pore rings aur natural oiliness hoti hai. Asliyat jaanchne ke liye unpolished edge ya sawmill certified stamp check karein.',
     comparison_notes: parsed.comparison_notes || {},
     disclaimer:
-      'Yeh analysis sirf camera photo par aadharit ek visual estimate hai. Yeh kisi government laboratory ya botanical scientific test ka replacement nahi hai. Jai Hanuman Door ke sawmill experts se muft physical guidance paane ke liye WhatsApp karein.',
+      'Yeh analysis camera photo par aadharit visual estimate hai. Yeh government laboratory ya botanical scientific test ka replacement nahi hai. Jai Hanuman Door ke sawmill experts se physical guidance ke liye WhatsApp karein.',
     analyzed_at: new Date().toISOString(),
   };
 }
@@ -284,14 +346,16 @@ INSTRUCTIONS FOR MULTI-IMAGE ANALYSIS:
 5. If the evidence is insufficient, blurry, or completely masked by opaque paint or heavy plastic laminate, do NOT guess. Set likely_wood_type to "Wood species could not be reliably identified from these photos." and confidence to "Low".
 6. Provide your full multi-feature assessment in the exact JSON format specified.`;
 
-  // Candidate models with fallback in case of high load (strictly valid Gemini models)
-  const models = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+  // Candidate models ordered for fastest latency (<5s), high throughput and reliable availability
+  const models = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash'];
   let lastError: any = null;
 
   for (const model of models) {
+    let timer: any;
     try {
       console.log(`🤖 Invoking Gemini Vision model "${model}" with multi-feature timber methodology...`);
-      const response = await ai.models.generateContent({
+
+      const generatePromise = ai.models.generateContent({
         model,
         contents: [
           ...inlineParts,
@@ -304,6 +368,15 @@ INSTRUCTIONS FOR MULTI-IMAGE ANALYSIS:
         },
       });
 
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`Model ${model} request exceeded 12s server timeout`));
+        }, 12000);
+      });
+
+      const response = await Promise.race([generatePromise, timeoutPromise]);
+      clearTimeout(timer);
+
       const responseText = response.text;
       if (!responseText) {
         throw new Error('Empty response received from AI model');
@@ -312,9 +385,10 @@ INSTRUCTIONS FOR MULTI-IMAGE ANALYSIS:
       console.log(`✅ Gemini Vision model "${model}" responded successfully.`);
       return parseGeminiJsonResponse(responseText);
     } catch (err: any) {
+      if (timer) clearTimeout(timer);
       lastError = err;
       console.warn(`⚠️ Warning: Model ${model} failed for wood detection (${err.message || err}). Trying fallback...`);
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 200));
     }
   }
 

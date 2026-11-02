@@ -528,16 +528,19 @@ export interface WoodAccuracyBenchmarkResult {
 }
 
 export interface AIWoodAnalysisResult {
+  wood_category?: 'Sagwan / Sagwani (Teak)' | 'Other Wood (Non-Teak)' | 'Uncertain / Pehchan Confirm Nahi Ho Paayi';
   likely_wood_type: string;
   alternative_possibilities: string[];
   confidence_level: 'Low' | 'Moderate' | 'High';
   visual_observations: string[];
   visible_evidence?: string[];
+  visible_reasons?: string[];
   features_unassessed?: string[];
   uncertainty_reasons?: string[];
   reasons_for_match: string[];
   limitations: string[];
   additional_photos_recommended: boolean;
+  is_image_sufficient?: boolean;
   photo_recommendations?: string[];
   customer_explanation: string;
   anti_false_sagwan_notice?: string;

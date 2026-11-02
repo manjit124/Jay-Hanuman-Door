@@ -3511,20 +3511,16 @@ export async function detectWoodFromImage(
     | FormData,
   signal?: AbortSignal
 ): Promise<AIWoodAnalysisResult> {
-  const endpoints = [
-    resolveApiUrl('/api/wood-analysis'),
-    resolveApiUrl('/api/ai/detect-wood'),
-    resolveApiUrl('/api/wood-detector'),
-    resolveApiUrl('/api/detect-wood'),
-  ];
+  const primaryUrl = resolveApiUrl('/api/wood-analysis');
+  const backupUrl = resolveApiUrl('/api/ai/detect-wood');
+  const endpoints = [primaryUrl, backupUrl];
 
   let lastError: Error | null = null;
 
-  for (const endpoint of endpoints) {
+  for (let i = 0; i < endpoints.length; i++) {
+    const endpoint = endpoints[i];
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s safety timeout
-
-    // Combine caller signal with timeout controller
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s client safety timeout
     const combinedSignal = signal || controller.signal;
 
     try {
@@ -3549,29 +3545,23 @@ export async function detectWoodFromImage(
 
       clearTimeout(timeoutId);
 
-      // If this endpoint returned 404, try the next endpoint in the fallback list
-      if (response.status === 404 && endpoint !== endpoints[endpoints.length - 1]) {
-        console.warn(`Route ${endpoint} returned 404, trying next endpoint...`);
+      // Only attempt backup endpoint if primary route returned 404
+      if (response.status === 404 && i === 0) {
+        console.warn(`Primary endpoint ${endpoint} returned 404, attempting backup route...`);
         continue;
       }
 
-      // Check for non-JSON or HTML redirect responses (e.g. Cloud Run preview cookie proxy or 302)
       const contentType = response.headers.get('content-type') || '';
-      if (response.status === 302 || response.redirected || (contentType.includes('text/html') && !response.ok)) {
-        console.warn('Dev proxy returned 302/HTML redirect. Utilizing client-side visual inspection model.');
-        break;
-      }
-
       if (!response.ok) {
-        let errMessage = 'Lakdi pehchanne mein samasya aayi. Kripya punah prayas karein.';
+        let errMessage = 'Lakdi scan karne mein samasya aayi. Kripya punah prayas karein.';
         try {
           if (contentType.includes('application/json')) {
             const errJson = await response.json();
             errMessage = errJson.error || errJson.message || errMessage;
           } else if (response.status === 413) {
             errMessage = 'Photo size bohot bada hai. Kripya compressed ya normal camera photo use karein.';
-          } else if (response.status === 502 || response.status === 504) {
-            errMessage = 'Server par temporary load hai. Kripya kuch second baad Retry karein.';
+          } else if (response.status === 502 || response.status === 503 || response.status === 504) {
+            errMessage = 'AI service par temporary load hai. Kripya kuch second baad Retry karein.';
           }
         } catch {
           // ignore parsing error
@@ -3580,8 +3570,7 @@ export async function detectWoodFromImage(
       }
 
       if (!contentType.includes('application/json')) {
-        console.warn('Server returned non-JSON. Falling back to client-side visual inspection model.');
-        break;
+        throw new Error('Server se asafal response prapt hua. Kripya internet ya server status check karein.');
       }
 
       const json = await response.json();
@@ -3594,49 +3583,25 @@ export async function detectWoodFromImage(
       clearTimeout(timeoutId);
       lastError = err;
 
-      // If aborted or timeout
       if (err.name === 'AbortError') {
-        throw new Error('Analysis request timed out. Kripya dobara Retry karein.');
+        throw new Error('Analysis request timed out (Server response delay). Kripya dobara Retry karein.');
       }
 
-      // If network failure (e.g. Failed to fetch), try next endpoint
-      console.warn(`Fetch error for ${endpoint}:`, err.message || err);
+      // If it's not a 404, don't repeat the identical request
+      if (err.message && !err.message.includes('404')) {
+        break;
+      }
     }
   }
 
-  // Resilient fallback for native Android APK when backend HTTP proxy is unreachable
-  console.info('[AIWoodDetector] Network unreachable or dev proxy cookie protected. Returning client botanical inspection report.');
-  return {
-    likely_wood_type: 'Sagwan (Teak / CP Teak)',
-    alternative_possibilities: ['Saal (Sal Wood)', 'Sheesham (Indian Rosewood)'],
-    confidence_level: 'High',
-    visual_observations: [
-      'Straight to wavy longitudinal grain structure detected in door photo.',
-      'Distinctive ring-porous cell arrangement with visible growth rings.',
-      'Natural golden-brown hue and oily surface characteristic of Central Province Teak.'
-    ],
-    visible_evidence: [
-      'Golden heartwood color with prominent dark grain lines.',
-      'High density alignment matching seasoned Indian CP Teak.'
-    ],
-    features_unassessed: [
-      'Electronic moisture meter percentage reading.',
-      'End-grain cellular pore magnification under microscope.'
-    ],
-    reasons_for_match: [
-      'Visual texture and grain pattern closely align with Central Province Teak profile.',
-      'Surface finish and color distribution match seasoned teak door panels.'
-    ],
-    limitations: [
-      'Visual inspection report based on optical photo analysis.',
-      'Exact timber moisture and density verification requires physical testing.'
-    ],
-    additional_photos_recommended: false,
-    customer_explanation: 'Aapki photo ke grains aur color pattern se yeh 85-90% Sagwan (Teak Wood) lagti hai. Sahi pehchan aur exact factory price quotation ke liye niche diye gaye WhatsApp button se hamare expert se sampark karein.',
-    anti_false_sagwan_notice: 'Dhyan dein: Anya dukandar saste jungle wood par teak stain markar Sagwan batate hain. Hamesha original CP Teak seasoned wood ka upayog karein.',
-    disclaimer: 'Yeh botanical visual inspection report photo features par aadharit hai.',
-    analyzed_at: new Date().toISOString()
-  };
+  const originalMessage = lastError?.message || '';
+  if (originalMessage.toLowerCase().includes('failed to fetch') || originalMessage.toLowerCase().includes('networkerror')) {
+    throw new Error(
+      'Server se connect nahi ho saka (Network / Server Unreachable). Kripya apna internet connection check karein, ya Settings se Production Server URL check karein.'
+    );
+  }
+
+  throw lastError || new Error('Lakdi pehchanne mein samasya aayi. Kripya punah prayas karein.');
 }
 
 /**
