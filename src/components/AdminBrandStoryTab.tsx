@@ -12,10 +12,10 @@ import {
   User,
   BookOpen,
   HelpCircle,
-  ExternalLink,
 } from 'lucide-react';
 import { BusinessSettings, CompanyStorySettings } from '../types.ts';
 import { uploadImage, updateSettings, resolveImageUrl } from '../lib/api.ts';
+import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 
 export const DEFAULT_STORY_SETTINGS: CompanyStorySettings = {
   sectionTitle: 'Our Story & Heritage',
@@ -457,65 +457,32 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
               </h3>
             </div>
 
-            {/* Owner Photo with Upload / Replace / Preview */}
+            {/* Owner Photo with Device Upload and Google Drive Link */}
             <div>
-              <label className="block text-xs font-bold text-[#222222] mb-2">
-                Owner Photo
-              </label>
-
-              <div className="flex items-center gap-4">
-                {/* Circular Preview with Gold Gradient Ring */}
-                <div className="relative shrink-0">
-                  <div className="w-20 h-20 sm:w-22 sm:h-22 rounded-full p-1 bg-gradient-to-tr from-[#C89211] via-[#E2B755] to-[#FFF7E3] shadow-md">
-                    <img
-                      src={resolveImageUrl(formData.ownerPhotoUrl || DEFAULT_STORY_SETTINGS.ownerPhotoUrl)}
-                      alt={formData.ownerName}
-                      className="w-full h-full object-cover rounded-full bg-[#FAF9F5]"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80';
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Upload & Action Buttons */}
-                <div className="flex-1 space-y-2">
-                  <label className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs ${
-                    uploadingPhoto
-                      ? 'bg-stone-200 text-stone-500 cursor-not-allowed'
-                      : 'bg-[#FFF7E3] hover:bg-[#FFEEC0] text-[#C89211] border border-[#C89211]/40'
-                  }`}>
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>
-                      {uploadingPhoto
-                        ? `Uploading${uploadProgress !== null ? ` ${uploadProgress}%` : ''}...`
-                        : 'Upload New Photo'}
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/jpg"
-                      onChange={handlePhotoUpload}
-                      disabled={uploadingPhoto}
-                      className="hidden"
-                    />
-                  </label>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormData(prev => ({
-                          ...prev,
-                          ownerPhotoUrl: DEFAULT_STORY_SETTINGS.ownerPhotoUrl,
-                        }));
-                        showToast('Reset to default owner avatar.');
-                      }}
-                      className="text-[11px] text-stone-500 hover:text-stone-700 underline"
-                    >
-                      Use Default Avatar
-                    </button>
-                  </div>
-                </div>
+              <GoogleDriveImagePicker
+                label="Owner Photo"
+                sublabel="Upload owner portrait from device or paste Google Drive sharing link"
+                value={formData.ownerPhotoUrl || ''}
+                category="products"
+                deviceUploadButtonText="Upload New Photo"
+                onChange={(url) => setFormData(prev => ({ ...prev, ownerPhotoUrl: url }))}
+                onToast={showToast}
+                compact
+              />
+              <div className="pt-1.5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({
+                      ...prev,
+                      ownerPhotoUrl: DEFAULT_STORY_SETTINGS.ownerPhotoUrl,
+                    }));
+                    showToast('Reset to default owner avatar.');
+                  }}
+                  className="text-[11px] text-stone-500 hover:text-stone-700 underline"
+                >
+                  Use Default Avatar
+                </button>
               </div>
             </div>
 

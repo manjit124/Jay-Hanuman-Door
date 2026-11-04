@@ -600,23 +600,21 @@ export function initTrackingRoutes(
   app.post(
     '/api/admin/tracking-orders/:id/media',
     verifyAdminToken,
-    mediaUpload.single('file'),
+    (req, res, next) => {
+      const contentType = req.headers['content-type'] || '';
+      if (contentType.includes('multipart/form-data')) {
+        return mediaUpload.single('file')(req, res, next);
+      }
+      next();
+    },
     (req, res) => {
       try {
         const { id } = req.params;
-        const { stageId, caption, isCustomerVisible } = req.body;
+        const { stageId, caption, isCustomerVisible, mediaUrl: directMediaUrl, mediaType } = req.body;
 
-        if (!req.file) {
-          return res.status(400).json({ error: 'No media file provided' });
+        if (!req.file && !directMediaUrl) {
+          return res.status(400).json({ error: 'No media file or URL provided' });
         }
-
-        // Mirror to backup uploads dir & persist via storageService
-        try {
-          const backupPath = path.join(UPLOAD_BACKUP_DIR, req.file.filename);
-          fs.copyFileSync(req.file.path, backupPath);
-          const fileBuf = fs.readFileSync(req.file.path);
-          saveMedia(req.file.filename, req.file.mimetype || 'image/jpeg', fileBuf).catch(() => {});
-        } catch {}
 
         const db = getDb();
         const orders = db.trackingOrders || [];
@@ -627,8 +625,24 @@ export function initTrackingRoutes(
         }
 
         const order = orders[orderIndex];
-        const isVideo = req.file.mimetype.startsWith('video/') || req.file.filename.endsWith('.mp4') || req.file.filename.endsWith('.webm');
-        const mediaUrl = `/uploads/${req.file.filename}`;
+        let mediaUrl = directMediaUrl ? String(directMediaUrl).trim() : '';
+        let isVideo = false;
+
+        if (req.file) {
+          // Mirror to backup uploads dir & persist via storageService
+          try {
+            const backupPath = path.join(UPLOAD_BACKUP_DIR, req.file.filename);
+            fs.copyFileSync(req.file.path, backupPath);
+            const fileBuf = fs.readFileSync(req.file.path);
+            saveMedia(req.file.filename, req.file.mimetype || 'image/jpeg', fileBuf).catch(() => {});
+          } catch {}
+
+          isVideo = req.file.mimetype.startsWith('video/') || req.file.filename.endsWith('.mp4') || req.file.filename.endsWith('.webm');
+          mediaUrl = `/uploads/${req.file.filename}`;
+        } else {
+          isVideo = mediaType === 'video' || (typeof mediaUrl === 'string' && (mediaUrl.includes('/videos') || mediaUrl.endsWith('.mp4') || mediaUrl.endsWith('.webm')));
+        }
+
         const now = new Date().toISOString();
 
         const newMedia: TrackingMediaItem = {
@@ -637,7 +651,7 @@ export function initTrackingRoutes(
           url: mediaUrl,
           type: isVideo ? 'video' : 'image',
           caption: (caption || '').trim() || undefined,
-          isCustomerVisible: isCustomerVisible === 'false' ? false : true,
+          isCustomerVisible: String(isCustomerVisible) === 'false' ? false : true,
           uploadedAt: now,
         };
 

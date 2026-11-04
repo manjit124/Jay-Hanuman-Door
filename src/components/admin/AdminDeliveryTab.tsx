@@ -30,6 +30,7 @@ import {
   adminDeleteDeliveryStory,
   uploadImage,
 } from '../../lib/api.ts';
+import { GoogleDriveImagePicker } from './GoogleDriveImagePicker.tsx';
 
 interface AdminDeliveryTabProps {
   states: IndiaDeliveryState[];
@@ -913,210 +914,26 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
               {/* Photo Uploads: Door Photo & Delivery Proof Photo */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                 {/* 1. Door / Product Photo */}
-                <div className="border border-stone-200 rounded-2xl p-4 bg-stone-50/70 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="block text-xs font-bold text-stone-800">
-                        Door / Product Photo
-                      </span>
-                      <span className="block text-[11px] text-stone-500">
-                        Optional • JPG, PNG, WebP
-                      </span>
-                    </div>
-                    {formData.doorPhotoUrl && (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                        Attached
-                      </span>
-                    )}
-                  </div>
-
-                  {formData.doorPhotoUrl ? (
-                    /* Image Preview with Replace & Remove */
-                    <div className="space-y-2">
-                      <div className="relative w-full h-44 rounded-xl overflow-hidden border border-stone-200 bg-white group shadow-xs">
-                        <img
-                          src={formData.doorPhotoUrl}
-                          alt="Door / Product Preview"
-                          className="w-full h-full object-cover"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setFormData(prev => ({ ...prev, doorPhotoUrl: '' }))}
-                          title="Remove Photo"
-                          className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 hover:bg-rose-600 text-white transition-colors cursor-pointer shadow"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <label className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-white hover:bg-stone-100 border border-stone-300 text-stone-800 text-xs font-bold cursor-pointer transition-colors shadow-xs">
-                          {uploadingImage === 'door' ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C89211]" />
-                              <span>Uploading...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Edit2 className="w-3.5 h-3.5 text-[#C89211]" />
-                              <span>Change / Replace Photo</span>
-                            </>
-                          )}
-                          <input
-                            type="file"
-                            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                            onChange={e => handleImageUpload(e, 'door')}
-                            className="hidden"
-                            disabled={uploadingImage !== null}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => setFormData(prev => ({ ...prev, doorPhotoUrl: '' }))}
-                          className="py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold cursor-pointer transition-colors"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Empty State: Direct Upload Button */
-                    <div className="w-full h-44 rounded-xl border-2 border-dashed border-stone-300 hover:border-[#C89211] bg-white flex flex-col items-center justify-center p-4 text-center transition-colors">
-                      <div className="w-10 h-10 rounded-full bg-amber-50 text-[#C89211] flex items-center justify-center mb-2">
-                        <ImageIcon className="w-5 h-5" />
-                      </div>
-                      <span className="text-xs font-bold text-stone-700 mb-0.5">
-                        No product photo added
-                      </span>
-                      <span className="text-[11px] text-stone-400 mb-3">
-                        Choose photo from device
-                      </span>
-                      <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white text-xs font-bold cursor-pointer transition-colors shadow-xs active:scale-95">
-                        {uploadingImage === 'door' ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Uploading to Firebase Storage...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>Upload Door Photo</span>
-                          </>
-                        )}
-                        <input
-                          type="file"
-                          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                          onChange={e => handleImageUpload(e, 'door')}
-                          className="hidden"
-                          disabled={uploadingImage !== null}
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
+                <GoogleDriveImagePicker
+                  label="1. Door / Product Photo"
+                  sublabel="Upload photo of completed door from device or Google Drive link"
+                  value={formData.doorPhotoUrl || ''}
+                  category="delivery"
+                  deviceUploadButtonText="Upload Door Photo"
+                  onChange={(url) => setFormData(prev => ({ ...prev, doorPhotoUrl: url }))}
+                  onToast={showToast}
+                />
 
                 {/* 2. Delivery / Unboxing Proof Photo */}
-                <div className="border border-stone-200 rounded-2xl p-4 bg-stone-50/70 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="block text-xs font-bold text-stone-800">
-                        Delivery / Unboxing Proof Photo
-                      </span>
-                      <span className="block text-[11px] text-stone-500">
-                        Optional • JPG, PNG, WebP
-                      </span>
-                    </div>
-                    {formData.deliveryPhotoUrl && (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                        Attached
-                      </span>
-                    )}
-                  </div>
-
-                  {formData.deliveryPhotoUrl ? (
-                    /* Image Preview with Replace & Remove */
-                    <div className="space-y-2">
-                      <div className="relative w-full h-44 rounded-xl overflow-hidden border border-stone-200 bg-white group shadow-xs">
-                        <img
-                          src={formData.deliveryPhotoUrl}
-                          alt="Delivery / Proof Preview"
-                          className="w-full h-full object-cover"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setFormData(prev => ({ ...prev, deliveryPhotoUrl: '' }))}
-                          title="Remove Photo"
-                          className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 hover:bg-rose-600 text-white transition-colors cursor-pointer shadow"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <label className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-white hover:bg-stone-100 border border-stone-300 text-stone-800 text-xs font-bold cursor-pointer transition-colors shadow-xs">
-                          {uploadingImage === 'delivery' ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C89211]" />
-                              <span>Uploading...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Edit2 className="w-3.5 h-3.5 text-[#C89211]" />
-                              <span>Change / Replace Photo</span>
-                            </>
-                          )}
-                          <input
-                            type="file"
-                            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                            onChange={e => handleImageUpload(e, 'delivery')}
-                            className="hidden"
-                            disabled={uploadingImage !== null}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => setFormData(prev => ({ ...prev, deliveryPhotoUrl: '' }))}
-                          className="py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold cursor-pointer transition-colors"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Empty State: Direct Upload Button */
-                    <div className="w-full h-44 rounded-xl border-2 border-dashed border-stone-300 hover:border-[#C89211] bg-white flex flex-col items-center justify-center p-4 text-center transition-colors">
-                      <div className="w-10 h-10 rounded-full bg-amber-50 text-[#C89211] flex items-center justify-center mb-2">
-                        <Truck className="w-5 h-5" />
-                      </div>
-                      <span className="text-xs font-bold text-stone-700 mb-0.5">
-                        No delivery proof photo added
-                      </span>
-                      <span className="text-[11px] text-stone-400 mb-3">
-                        Choose photo from device
-                      </span>
-                      <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white text-xs font-bold cursor-pointer transition-colors shadow-xs active:scale-95">
-                        {uploadingImage === 'delivery' ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Uploading to Firebase Storage...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>Upload Proof Photo</span>
-                          </>
-                        )}
-                        <input
-                          type="file"
-                          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                          onChange={e => handleImageUpload(e, 'delivery')}
-                          className="hidden"
-                          disabled={uploadingImage !== null}
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
+                <GoogleDriveImagePicker
+                  label="2. Delivery / Unboxing Proof Photo"
+                  sublabel="Upload delivery/unboxing proof photo from device or Google Drive link"
+                  value={formData.deliveryPhotoUrl || ''}
+                  category="delivery"
+                  deviceUploadButtonText="Upload Proof Photo"
+                  onChange={(url) => setFormData(prev => ({ ...prev, deliveryPhotoUrl: url }))}
+                  onToast={showToast}
+                />
               </div>
 
               {/* Toggles */}

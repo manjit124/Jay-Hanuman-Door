@@ -55,6 +55,7 @@ import {
   Cloud,
 } from 'lucide-react';
 import { ProtectedImage } from './ProtectedImage.tsx';
+import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 import { DEFAULT_CONTENT_PROTECTION } from '../lib/contentProtection.ts';
 import { adMobService } from '../lib/admob/admobService.ts';
 
@@ -1123,7 +1124,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <div className="flex gap-2">
                           <input
                             type="text"
-                            placeholder="e.g. https://your-server.run.app"
+                            placeholder="e.g. https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app"
                             value={customServerUrl}
                             onChange={e => setCustomServerUrl(e.target.value)}
                             className="flex-1 px-2.5 py-1.5 rounded-lg border border-[#E5E5E5] bg-white text-xs font-mono"
@@ -2044,274 +2045,50 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             />
                           </div>
 
-                          {/* Product Image Section: Direct File Upload + Google Drive / Paste Image URL Import */}
-                          <div className="sm:col-span-2 p-3.5 bg-white rounded-xl border border-[#E5E5E5] space-y-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <label className="block font-semibold text-[#1A1A1A] text-xs flex items-center gap-1.5">
-                                <ImageIcon className="w-4 h-4 text-[#C89211]" />
-                                <span>Product Image (Upload Image or Google Drive / Paste Image URL)</span>
-                              </label>
-                              <div className="inline-flex rounded-lg bg-[#F8F8F6] p-0.5 border border-[#E5E5E5]">
-                                <button
-                                  type="button"
-                                  onClick={() => setDoorImageSourceMode('upload')}
-                                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                                    doorImageSourceMode === 'upload'
-                                      ? 'bg-[#C89211] text-white shadow-xs'
-                                      : 'text-[#666666] hover:text-[#1A1A1A]'
-                                  }`}
-                                >
-                                  Upload Image
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setDoorImageSourceMode('drive_url')}
-                                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                                    doorImageSourceMode === 'drive_url'
-                                      ? 'bg-[#C89211] text-white shadow-xs'
-                                      : 'text-[#666666] hover:text-[#1A1A1A]'
-                                  }`}
-                                >
-                                  Google Drive / Paste Image URL
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Upload Error Banner with Actionable R2 Instructions */}
-                            {doorUploadError && (
-                              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs flex items-start gap-2.5 shadow-xs">
-                                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                                <div className="space-y-1 flex-1">
-                                  <p className="font-bold text-rose-900">Image Upload Failed</p>
-                                  <p className="text-[11px] leading-relaxed text-rose-800">{doorUploadError}</p>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setDoorUploadError(null)}
-                                  className="text-rose-500 hover:text-rose-800 p-1 text-xs cursor-pointer"
-                                  title="Dismiss alert"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Option 1: Direct File Upload */}
-                            <div className={doorImageSourceMode === 'upload' ? 'space-y-2' : 'space-y-2 pt-1 border-t border-[#F0F0EE]'}>
-                              <div className="flex flex-wrap items-center gap-3">
-                                <label className={`px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 transition-colors ${uploadingImage ? 'bg-stone-400 cursor-wait' : 'cursor-pointer bg-[#C89211] hover:bg-[#A0700B]'}`}>
-                                  {uploadingImage ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <Upload className="w-3.5 h-3.5" />
-                                  )}
-                                  {uploadingImage
-                                    ? `Uploading${uploadProgress !== null ? ` ${uploadProgress}%` : ''}...`
-                                    : 'Upload Image File(s)'}
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    multiple
-                                    disabled={uploadingImage}
-                                    onChange={e =>
-                                      handleFileUploadHelper(e, url => {
-                                        setEditingDoor(prev => {
-                                          if (!prev) return prev;
-                                          const current = prev.images || [];
-                                          if (current.includes(url)) return prev;
-                                          return {
-                                            ...prev,
-                                            image: current.length === 0 ? url : (prev.image || url),
-                                            images: [url, ...current],
-                                          };
-                                        });
-                                      })
-                                    }
-                                    className="hidden"
-                                  />
-                                </label>
-                                <span className="text-[11px] text-[#666666]">
-                                  Auto-optimizes camera photos (1680px HD) and saves permanently to Google Drive
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Option 2: Google Drive Image URL / Direct Image URL Import */}
-                            <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-2.5">
-                              <div className="flex flex-wrap items-center justify-between gap-1">
-                                <label className="text-xs font-bold text-[#1A1A1A] flex items-center gap-1.5">
-                                  <HardDrive className="w-3.5 h-3.5 text-[#C89211]" />
-                                  <span>Google Drive Image URL</span>
-                                </label>
-                                <span className="text-[10px] text-[#666666]">
-                                  Supports Google Drive sharing links (/file/d/FILE_ID/view) &amp; direct HTTPS image URLs
-                                </span>
-                              </div>
-
-                              <div className="flex flex-col sm:flex-row gap-2">
-                                <input
-                                  type="url"
-                                  value={driveImageUrlInput}
-                                  onChange={e => {
-                                    setDriveImageUrlInput(e.target.value);
-                                    setDriveImageError(null);
-                                    setDriveImportSuccessMsg(null);
-                                  }}
-                                  placeholder="https://drive.google.com/file/d/FILE_ID/view?usp=sharing"
-                                  className="flex-1 px-3 py-2 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:ring-2 focus:ring-[#C89211]"
-                                />
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <button
-                                    type="button"
-                                    disabled={isPreviewingDriveImage || isImportingDriveImage || !driveImageUrlInput.trim()}
-                                    onClick={async () => {
-                                      const raw = driveImageUrlInput.trim();
-                                      if (!raw) return;
-                                      setIsPreviewingDriveImage(true);
-                                      setDriveImageError(null);
-                                      setDriveImportSuccessMsg(null);
-                                      try {
-                                        const preview = await previewDriveOrExternalImage(raw);
-                                        setDriveImagePreview(preview);
-                                      } catch (err: any) {
-                                        setDriveImagePreview(null);
-                                        const rawMsg = String(err?.message || err || '').trim();
-                                        const cleanMsg =
-                                          !rawMsg || rawMsg === 'Failed to fetch' || rawMsg === 'Load failed' || rawMsg === 'NetworkError'
-                                            ? '[NETWORK_ERROR] Could not connect to the backend server. Please verify your connection, or upload the door image directly from your device.'
-                                            : rawMsg;
-                                        setDriveImageError(cleanMsg);
-                                      } finally {
-                                        setIsPreviewingDriveImage(false);
-                                      }
-                                    }}
-                                    className="px-3.5 py-2 rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-[#D5D5D0] font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer"
-                                  >
-                                    {isPreviewingDriveImage ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C89211]" />
-                                    ) : (
-                                      <Eye className="w-3.5 h-3.5 text-[#C89211]" />
-                                    )}
-                                    <span>{isPreviewingDriveImage ? 'Checking...' : 'Preview Image'}</span>
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    disabled={isImportingDriveImage || isPreviewingDriveImage || !driveImageUrlInput.trim()}
-                                    onClick={async () => {
-                                      const raw = driveImageUrlInput.trim();
-                                      if (!raw) return;
-                                      setIsImportingDriveImage(true);
-                                      setDriveImageError(null);
-                                      setDriveImportSuccessMsg(null);
-                                      try {
-                                        const imported = await importDriveOrExternalImageToStorage(raw);
-                                        const storageUrl = imported.url;
-                                        setEditingDoor(prev => {
-                                          if (!prev) return prev;
-                                          const current = Array.isArray(prev.images) ? prev.images.filter(Boolean) : [];
-                                          const nextImages = current.includes(storageUrl)
-                                            ? [storageUrl, ...current.filter(u => u !== storageUrl)]
-                                            : [storageUrl, ...current];
-                                          return {
-                                            ...prev,
-                                            image: storageUrl,
-                                            images: nextImages,
-                                          };
-                                        });
-                                        setDriveImageUrlInput('');
-                                        setDriveImagePreview(null);
-                                        setDriveImportSuccessMsg(
-                                          `Imported to Google Drive (${imported.width}×${imported.height}px, ${Math.max(1, Math.round(imported.size / 1024))} KB) and set as Primary Product Photo.`
-                                        );
-                                        showToast('Image imported to Google Drive and attached to product!');
-                                      } catch (err: any) {
-                                        const rawMsg = String(err?.message || err || '').trim();
-                                        const cleanMsg =
-                                          !rawMsg || rawMsg === 'Failed to fetch' || rawMsg === 'Load failed' || rawMsg === 'NetworkError'
-                                            ? '[NETWORK_ERROR] Could not connect to backend storage service. Please check your network connection or upload the door image directly from your device.'
-                                            : rawMsg;
-                                        setDriveImageError(cleanMsg);
-                                      } finally {
-                                        setIsImportingDriveImage(false);
-                                      }
-                                    }}
-                                    className="px-4 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer shadow-xs"
-                                  >
-                                    {isImportingDriveImage ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                    )}
-                                    <span>{isImportingDriveImage ? 'Importing to Storage...' : 'Import to Storage'}</span>
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Error message if URL / Google Drive file is restricted or not an image */}
-                              {driveImageError && (
-                                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
-                                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                                  <div className="space-y-0.5">
-                                    <p className="font-bold">Image Import / Preview Failed</p>
-                                    <p className="text-[11px] leading-relaxed">{driveImageError}</p>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Success message after R2 import */}
-                              {driveImportSuccessMsg && (
-                                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                    <span className="font-semibold">{driveImportSuccessMsg}</span>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => setDriveImportSuccessMsg(null)}
-                                    className="text-emerald-700 hover:text-emerald-900 p-0.5"
-                                  >
-                                    <X className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              )}
-
-                              {/* Verified Preview Card */}
-                              {driveImagePreview && (
-                                <div className="p-2.5 rounded-lg bg-white border border-[#C89211]/40 flex items-center justify-between gap-3">
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <img
-                                      src={driveImagePreview.previewDataUrl}
-                                      alt="Verified Drive Preview"
-                                      className="w-14 h-16 object-cover rounded-lg border border-[#E5E5E5] bg-[#F8F8F6] shrink-0"
-                                    />
-                                    <div className="text-[11px] space-y-0.5 min-w-0">
-                                      <p className="font-bold text-emerald-700 flex items-center gap-1">
-                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                        <span>Verified Real Image Bytes</span>
-                                      </p>
-                                      <p className="text-[#444444]">
-                                        {driveImagePreview.width} × {driveImagePreview.height} px • {driveImagePreview.mimeType} •{' '}
-                                        {Math.max(1, Math.round(driveImagePreview.size / 1024))} KB
-                                      </p>
-                                      {driveImagePreview.fileId && (
-                                        <p className="text-[10px] text-[#666666] font-mono truncate">
-                                          Google Drive File ID: {driveImagePreview.fileId}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => setDriveImagePreview(null)}
-                                    className="text-[#666666] hover:text-[#1A1A1A] p-1"
-                                    title="Dismiss preview"
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                          {/* Product Image Section: Reusable GoogleDriveImagePicker (Device Upload & Google Drive Link) */}
+                          <div className="sm:col-span-2 space-y-2">
+                            <GoogleDriveImagePicker
+                              label="Product Image (Upload Image or Google Drive Link)"
+                              sublabel="Auto-optimizes photos (1680px HD) and saves permanently to Google Drive account"
+                              value={editingDoor.image || (editingDoor.images?.[0] || '')}
+                              allowMultiple={true}
+                              onAddMultiple={(newUrls) => {
+                                setEditingDoor(prev => {
+                                  if (!prev) return prev;
+                                  const current = Array.isArray(prev.images) ? prev.images : [];
+                                  const combined = [...newUrls, ...current.filter(u => !newUrls.includes(u))];
+                                  return {
+                                    ...prev,
+                                    image: combined[0] || '',
+                                    images: combined,
+                                  };
+                                });
+                              }}
+                              onChange={(url) => {
+                                setEditingDoor(prev => {
+                                  if (!prev) return prev;
+                                  const current = Array.isArray(prev.images) ? prev.images.filter(Boolean) : [];
+                                  if (!url) {
+                                    const nextImages = current.filter(u => u !== prev.image);
+                                    return {
+                                      ...prev,
+                                      image: nextImages[0] || '',
+                                      images: nextImages,
+                                    };
+                                  }
+                                  const nextImages = current.includes(url)
+                                    ? [url, ...current.filter(u => u !== url)]
+                                    : [url, ...current];
+                                  return {
+                                    ...prev,
+                                    image: url,
+                                    images: nextImages,
+                                  };
+                                });
+                              }}
+                              category="products"
+                              onToast={showToast}
+                            />
 
                             {/* Images preview list */}
                             {editingDoor.images && editingDoor.images.length > 0 && (
@@ -2637,80 +2414,55 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </p>
                             )}
 
-                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                              {/* Upload custom PNG */}
-                              <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] border border-[#E5E5E5] text-xs font-semibold cursor-pointer transition">
-                                {isUploadingPng ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Upload className="w-3.5 h-3.5" />
-                                )}
-                                <span>
-                                  {isUploadingPng
-                                    ? `Uploading PNG${uploadProgress !== null ? ` ${uploadProgress}%` : ''}...`
-                                    : 'Upload Transparent PNG'}
-                                </span>
-                                <input
-                                  type="file"
-                                  accept=".png,.webp,image/png,image/webp"
-                                  disabled={isUploadingPng}
-                                  onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (!file || isUploadingPng) return;
-                                    try {
-                                      setIsUploadingPng(true);
-                                      setUploadProgress(5);
-                                      const res = await uploadImage(file, {
-                                        maxDimension: 1800,
-                                        preserveTransparency: true,
-                                        onProgress: pct => setUploadProgress(pct),
-                                      });
-                                      setEditingDoor(prev => ({
-                                        ...prev,
-                                        transparentPngUrl: res.url,
-                                      }));
-                                      showToast('Transparent PNG uploaded successfully!');
-                                    } catch (err: any) {
-                                      showToast(err?.message || 'PNG upload failed. Please retry.');
-                                    } finally {
-                                      setIsUploadingPng(false);
-                                      setUploadProgress(null);
-                                      e.target.value = '';
-                                    }
-                                  }}
-                                  className="hidden"
-                                />
-                              </label>
+                            <div className="pt-2 space-y-2">
+                              <GoogleDriveImagePicker
+                                label="Transparent Cutout PNG (.png / .webp)"
+                                sublabel="Auto-optimizes cutout and saves permanently to Google Drive for Fit in Entrance visualizer"
+                                value={editingDoor.transparentPngUrl || ''}
+                                category="doors"
+                                deviceUploadButtonText="Upload Transparent PNG"
+                                onChange={(url) => {
+                                  setEditingDoor(prev => ({
+                                    ...prev,
+                                    transparentPngUrl: url,
+                                  }));
+                                  showToast('Transparent PNG updated!');
+                                }}
+                                onToast={showToast}
+                                compact
+                              />
 
                               {/* Auto-Generate from Catalogue Photo */}
                               {editingDoor.images?.[0] && (
-                                <button
-                                  type="button"
-                                  disabled={isGeneratingPng}
-                                  onClick={async () => {
-                                    try {
-                                      setIsGeneratingPng(true);
-                                      const transparentDataUrl = await removeBackgroundFromImage(editingDoor.images[0]);
-                                      // Convert DataURL to File and upload to server
-                                      const blob = await (await fetch(transparentDataUrl)).blob();
-                                      const file = new File([blob], `door-${editingDoor.id || 'cutout'}-transparent.png`, { type: 'image/png' });
-                                      const res = await uploadImage(file);
-                                      setEditingDoor(prev => ({
-                                        ...prev,
-                                        transparentPngUrl: res.url,
-                                      }));
-                                      showToast('Transparent PNG auto-generated and saved!');
-                                    } catch (err: any) {
-                                      alert(err.message || 'Auto background removal failed');
-                                    } finally {
-                                      setIsGeneratingPng(false);
-                                    }
-                                  }}
-                                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#FFF7E3] hover:bg-amber-600/30 text-[#C89211] border border-[#C89211]/40 text-xs font-semibold transition cursor-pointer"
-                                >
-                                  <Sparkles className="w-3.5 h-3.5" />
-                                  <span>{isGeneratingPng ? 'Generating Cutout...' : '⚡ Auto-Remove Background from Photo'}</span>
-                                </button>
+                                <div className="pt-1">
+                                  <button
+                                    type="button"
+                                    disabled={isGeneratingPng}
+                                    onClick={async () => {
+                                      try {
+                                        setIsGeneratingPng(true);
+                                        const transparentDataUrl = await removeBackgroundFromImage(editingDoor.images[0]);
+                                        // Convert DataURL to File and upload to Google Drive
+                                        const blob = await (await fetch(transparentDataUrl)).blob();
+                                        const file = new File([blob], `door-${editingDoor.id || 'cutout'}-transparent.png`, { type: 'image/png' });
+                                        const res = await uploadImage(file);
+                                        setEditingDoor(prev => ({
+                                          ...prev,
+                                          transparentPngUrl: res.url,
+                                        }));
+                                        showToast('Transparent PNG auto-generated and saved to Google Drive!');
+                                      } catch (err: any) {
+                                        alert(err.message || 'Auto background removal failed');
+                                      } finally {
+                                        setIsGeneratingPng(false);
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#FFF7E3] hover:bg-amber-100 text-[#C89211] border border-[#C89211]/40 text-xs font-semibold transition cursor-pointer"
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>{isGeneratingPng ? 'Generating Cutout...' : '⚡ Auto-Remove Background from Photo'}</span>
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -3999,63 +3751,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             />
                           </div>
 
-                          {/* Hardware Image Upload & URL */}
-                          <div className="sm:col-span-2 p-3 rounded-lg bg-white border border-[#E5E5E5] space-y-2">
-                            <label className="block text-[#1A1A1A] font-semibold mb-1">
-                              Hardware Product Image (Thumbnail & Full Preview)
-                            </label>
-                            <div className="flex flex-wrap items-center gap-3">
-                              <label className="cursor-pointer px-3.5 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition-colors">
-                                <Upload className="w-3.5 h-3.5" />
-                                {uploadingImage ? 'Uploading Image...' : 'Upload Image File'}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  disabled={uploadingImage}
-                                  onChange={e =>
-                                    handleFileUploadHelper(e, url => {
-                                      setEditingHardware({ ...editingHardware, image: url });
-                                    })
-                                  }
-                                  className="hidden"
-                                />
-                              </label>
-
-                              <span className="text-[#666666] text-xs">or URL:</span>
-
-                              <input
-                                type="text"
-                                value={editingHardware.image || ''}
-                                onChange={e => setEditingHardware({ ...editingHardware, image: e.target.value })}
-                                placeholder="https://images.unsplash.com/..."
-                                className="flex-1 min-w-[200px] px-3 py-1.5 rounded bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono"
-                              />
-
-                              {editingHardware.image && (
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingHardware({ ...editingHardware, image: '' })}
-                                  className="px-2 py-1 rounded bg-red-950 text-red-300 hover:bg-red-900 border border-red-800 text-xs"
-                                >
-                                  Remove
-                                </button>
-                              )}
-                            </div>
-
-                            {editingHardware.image && (
-                              <div className="flex items-center gap-3 pt-1">
-                                <div className="w-16 h-16 rounded-lg overflow-hidden border border-amber-500/50 bg-[#F8F8F6] shrink-0">
-                                  <img
-                                    src={editingHardware.image}
-                                    alt="Hardware preview"
-                                    className="w-full h-full object-cover"
-                                  />
-                                </div>
-                                <span className="text-[11px] text-[#666666]">
-                                  This photo will be displayed in the calculator's Hardware &amp; Fittings section with thumbnail and full zoom preview.
-                                </span>
-                              </div>
-                            )}
+                          {/* Hardware Image Upload with Device & Google Drive Link */}
+                          <div className="sm:col-span-2">
+                            <GoogleDriveImagePicker
+                              label="Hardware Product Image (Thumbnail & Full Zoom Preview)"
+                              sublabel="Auto-optimizes and saves permanently to Google Drive"
+                              value={editingHardware.image || ''}
+                              category="products"
+                              deviceUploadButtonText="Upload Image File"
+                              onChange={(url) => setEditingHardware({ ...editingHardware, image: url })}
+                              onToast={showToast}
+                              compact
+                            />
                           </div>
 
                           {/* Active Status */}
@@ -4323,93 +4030,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                           <div className="space-y-4">
                             {/* Upload Image */}
-                            <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                <div>
-                                  <label className="block text-[#1A1A1A] font-bold text-xs sm:text-sm">
-                                    1. Main Banner Image (Device Upload or URL)
-                                  </label>
-                                  <p className="text-[11px] text-[#666666]">
-                                    Upload artwork from phone/PC. Stored permanently in Google Drive.
-                                  </p>
-                                </div>
-                                {bannerDimensions && (
-                                  <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full font-semibold">
-                                    📐 Dimensions: {bannerDimensions.width} × {bannerDimensions.height} px ({bannerDimensions.ratio})
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-3 pt-1">
-                                <label className="cursor-pointer px-4 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition active:scale-95">
-                                  {uploadingImage ? (
-                                    <>
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                      <span>Uploading{uploadProgress !== null ? ` ${uploadProgress}%` : ''}...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Upload className="w-4 h-4" />
-                                      <span>{editingBanner.image ? 'Replace Main Banner Image' : 'Upload Image from Device'}</span>
-                                    </>
-                                  )}
-                                  <input
-                                    type="file"
-                                    accept="image/jpeg,image/png,image/webp,image/svg+xml,image/gif,image/avif,image/*"
-                                    disabled={uploadingImage}
-                                    onChange={async e => {
-                                      const file = e.target.files?.[0];
-                                      if (!file || uploadingImage) return;
-                                      setBannerUploadError(null);
-                                      if (!file.type.startsWith('image/')) {
-                                        const err = 'Invalid file type: Please select an image (JPG, PNG, WebP, SVG, AVIF).';
-                                        setBannerUploadError(err);
-                                        showToast(err);
-                                        e.target.value = '';
-                                        return;
-                                      }
-                                      if (file.size > 15 * 1024 * 1024) {
-                                        const err = 'File size exceeds 15 MB limit. Please upload a smaller image.';
-                                        setBannerUploadError(err);
-                                        showToast(err);
-                                        e.target.value = '';
-                                        return;
-                                      }
-                                      setUploadingImage(true);
-                                      setUploadProgress(5);
-                                      try {
-                                        const res = await uploadImage(file, {
-                                          maxDimension: 1920,
-                                          quality: 0.84,
-                                          onProgress: pct => setUploadProgress(pct),
-                                        });
-                                        setEditingBanner(prev => prev ? { ...prev, image: res.url, bannerType: 'main' } : null);
-                                        showToast('Main banner uploaded successfully!');
-                                      } catch (err: any) {
-                                        const msg = err?.message || 'Upload failed.';
-                                        setBannerUploadError(msg);
-                                        showToast(msg);
-                                      } finally {
-                                        setUploadingImage(false);
-                                        setUploadProgress(null);
-                                        e.target.value = '';
-                                      }
-                                    }}
-                                    className="hidden"
-                                  />
-                                </label>
-
-                                <div className="flex-1 min-w-[220px] flex items-center gap-2">
-                                  <span className="text-[#666666] text-xs font-medium whitespace-nowrap">URL:</span>
-                                  <input
-                                    type="text"
-                                    value={editingBanner.image || ''}
-                                    onChange={e => setEditingBanner({ ...editingBanner, image: e.target.value, bannerType: 'main' })}
-                                    placeholder="https://..."
-                                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono focus:outline-none focus:border-[#C89211]"
-                                  />
-                                </div>
-                              </div>
+                            {/* Main Banner Image with Option A (Device) & Option B (Google Drive Link) */}
+                            <div>
+                              <GoogleDriveImagePicker
+                                label="1. Main Banner Image (Device Upload or Google Drive Sharing Link)"
+                                sublabel="Upload full artwork (Recommended 1500×500 px, 3:1). Stored permanently in Google Drive."
+                                value={editingBanner.image || ''}
+                                category="banners"
+                                aspectRatioHint={bannerDimensions ? `${bannerDimensions.width}×${bannerDimensions.height} px (${bannerDimensions.ratio})` : 'Recommended 1500×500 px'}
+                                deviceUploadButtonText={editingBanner.image ? 'Replace Main Banner from Device' : 'Upload Image from Device'}
+                                onChange={(url) => setEditingBanner({ ...editingBanner, image: url, bannerType: 'main' })}
+                                onToast={showToast}
+                              />
                             </div>
 
                             {/* 2. TEXT CONTENT & HEADLINES */}
@@ -4881,86 +4513,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           )}
 
                           <div className="space-y-4">
-                            {/* Upload Image */}
-                            <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                <div>
-                                  <label className="block text-[#1A1A1A] font-bold text-xs sm:text-sm">
-                                    Promotional Banner Image (Phone/PC or URL)
-                                  </label>
-                                  <p className="text-[11px] text-[#666666]">
-                                    Upload complete promotional graphic (recommended ratio: ~3:1, e.g. 1500 × 500 px). Stored permanently in Google Drive.
-                                  </p>
-                                </div>
-                                {bannerDimensions && (
-                                  <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full font-semibold">
-                                    📐 {bannerDimensions.width} × {bannerDimensions.height} px ({bannerDimensions.ratio})
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-3 pt-1">
-                                <label className="cursor-pointer px-4 py-2.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition active:scale-95">
-                                  {uploadingImage ? (
-                                    <>
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                      <span>Uploading to Google Drive...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Upload className="w-4 h-4" />
-                                      <span>{editingBanner.image ? 'Replace Image' : 'Upload Image from Device'}</span>
-                                    </>
-                                  )}
-                                  <input
-                                    type="file"
-                                    accept="image/jpeg,image/png,image/webp,image/svg+xml,image/gif,image/avif,image/*"
-                                    disabled={uploadingImage}
-                                    onChange={async e => {
-                                      const file = e.target.files?.[0];
-                                      if (!file) return;
-                                      setBannerUploadError(null);
-                                      if (!file.type.startsWith('image/')) {
-                                        const err = 'Invalid file type: Please select an image (JPG, PNG, WebP, SVG, AVIF).';
-                                        setBannerUploadError(err);
-                                        showToast(err);
-                                        return;
-                                      }
-                                      if (file.size > 15 * 1024 * 1024) {
-                                        const err = 'File size exceeds 15 MB limit. Please upload a smaller image.';
-                                        setBannerUploadError(err);
-                                        showToast(err);
-                                        return;
-                                      }
-                                      setUploadingImage(true);
-                                      try {
-                                        const res = await uploadImage(file);
-                                        setEditingBanner(prev => prev ? { ...prev, image: res.url, bannerType: 'promotion' } : null);
-                                        showToast('Promotion banner uploaded successfully!');
-                                      } catch (err: any) {
-                                        const msg = err?.message || 'Upload failed.';
-                                        setBannerUploadError(msg);
-                                        showToast(msg);
-                                      } finally {
-                                        setUploadingImage(false);
-                                        e.target.value = '';
-                                      }
-                                    }}
-                                    className="hidden"
-                                  />
-                                </label>
-
-                                <div className="flex-1 min-w-[220px] flex items-center gap-2">
-                                  <span className="text-[#666666] text-xs font-medium whitespace-nowrap">URL:</span>
-                                  <input
-                                    type="text"
-                                    value={editingBanner.image || ''}
-                                    onChange={e => setEditingBanner({ ...editingBanner, image: e.target.value, bannerType: 'promotion' })}
-                                    placeholder="https://... or /uploads/..."
-                                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono focus:outline-none focus:border-[#C89211]"
-                                  />
-                                </div>
-                              </div>
+                            {/* Upload Image with Device & Google Drive Link */}
+                            <div>
+                              <GoogleDriveImagePicker
+                                label="Promotional Banner Image (Device Upload or Google Drive Sharing Link)"
+                                sublabel="Upload complete promotional graphic (recommended ratio: ~3:1, e.g. 1500 × 500 px). Stored permanently in Google Drive."
+                                value={editingBanner.image || ''}
+                                category="banners"
+                                aspectRatioHint={bannerDimensions ? `${bannerDimensions.width}×${bannerDimensions.height} px (${bannerDimensions.ratio})` : 'Recommended ~3:1'}
+                                deviceUploadButtonText={editingBanner.image ? 'Replace Image from Device' : 'Upload Image from Device'}
+                                onChange={(url) => setEditingBanner({ ...editingBanner, image: url, bannerType: 'promotion' })}
+                                onToast={showToast}
+                              />
                             </div>
 
                             {/* Destination URL */}
@@ -5236,67 +4800,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                             {/* Slot A Direct Controls Form */}
                             <div className="lg:col-span-7 space-y-3.5 text-xs">
-                              {/* Direct Upload / Replace */}
+                              {/* Direct Upload / Google Drive Import for Banner A */}
                               <div>
-                                <label className="block text-[#1A1A1A] font-bold mb-1">
-                                  1. Upload / Replace Banner A Image
-                                </label>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <label className="cursor-pointer px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95">
-                                    {uploadingImage ? (
-                                      <>
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        <span>Uploading{uploadProgress !== null ? ` ${uploadProgress}%` : ''}...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Upload className="w-3.5 h-3.5" />
-                                        <span>Upload New Image</span>
-                                      </>
-                                    )}
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      disabled={uploadingImage}
-                                      onChange={async e => {
-                                        const file = e.target.files?.[0];
-                                        if (!file || uploadingImage) return;
-                                        setUploadingImage(true);
-                                        setUploadProgress(5);
-                                        try {
-                                          const res = await uploadImage(file, {
-                                            maxDimension: 1800,
-                                            quality: 0.83,
-                                            onProgress: pct => setUploadProgress(pct),
-                                          });
-                                          await updateSlotBanner('slot_1', { image: res.url });
-                                          loadData();
-                                          onDataUpdated();
-                                          showToast('Banner A image updated successfully!');
-                                        } catch (err: any) {
-                                          showToast(err?.message || 'Upload failed');
-                                        } finally {
-                                          setUploadingImage(false);
-                                          setUploadProgress(null);
-                                          e.target.value = '';
-                                        }
-                                      }}
-                                      className="hidden"
-                                    />
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={primaryBannerA.image}
-                                    onChange={async e => {
-                                      const newImg = e.target.value;
-                                      await updateSlotBanner('slot_1', { image: newImg });
-                                      loadData();
-                                      onDataUpdated();
-                                    }}
-                                    placeholder="Image URL..."
-                                    className="flex-1 min-w-[200px] px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] font-mono text-[11px] focus:outline-none focus:border-[#C89211]"
-                                  />
-                                </div>
+                                <GoogleDriveImagePicker
+                                  label="1. Banner A Image (Device Upload or Google Drive Link)"
+                                  sublabel="Auto-optimizes and saves permanently to Google Drive"
+                                  value={primaryBannerA.image || ''}
+                                  category="banners"
+                                  deviceUploadButtonText="Upload New Image"
+                                  onChange={async (url) => {
+                                    await updateSlotBanner('slot_1', { image: url });
+                                    loadData();
+                                    onDataUpdated();
+                                    showToast('Banner A image updated successfully!');
+                                  }}
+                                  onToast={showToast}
+                                  compact
+                                />
                               </div>
 
                               {/* Destination Link */}
@@ -5581,67 +5101,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                             {/* Slot B Direct Controls Form */}
                             <div className="lg:col-span-7 space-y-3.5 text-xs">
-                              {/* Direct Upload / Replace */}
+                              {/* Direct Upload / Google Drive Import for Banner B */}
                               <div>
-                                <label className="block text-[#1A1A1A] font-bold mb-1">
-                                  1. Upload / Replace Banner B Image
-                                </label>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <label className="cursor-pointer px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95">
-                                    {uploadingImage ? (
-                                      <>
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        <span>Uploading{uploadProgress !== null ? ` ${uploadProgress}%` : ''}...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Upload className="w-3.5 h-3.5" />
-                                        <span>Upload New Image</span>
-                                      </>
-                                    )}
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      disabled={uploadingImage}
-                                      onChange={async e => {
-                                        const file = e.target.files?.[0];
-                                        if (!file || uploadingImage) return;
-                                        setUploadingImage(true);
-                                        setUploadProgress(5);
-                                        try {
-                                          const res = await uploadImage(file, {
-                                            maxDimension: 1800,
-                                            quality: 0.83,
-                                            onProgress: pct => setUploadProgress(pct),
-                                          });
-                                          await updateSlotBanner('slot_2', { image: res.url });
-                                          loadData();
-                                          onDataUpdated();
-                                          showToast('Banner B image updated successfully!');
-                                        } catch (err: any) {
-                                          showToast(err?.message || 'Upload failed');
-                                        } finally {
-                                          setUploadingImage(false);
-                                          setUploadProgress(null);
-                                          e.target.value = '';
-                                        }
-                                      }}
-                                      className="hidden"
-                                    />
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={primaryBannerB.image}
-                                    onChange={async e => {
-                                      const newImg = e.target.value;
-                                      await updateSlotBanner('slot_2', { image: newImg });
-                                      loadData();
-                                      onDataUpdated();
-                                    }}
-                                    placeholder="Image URL..."
-                                    className="flex-1 min-w-[200px] px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] font-mono text-[11px] focus:outline-none focus:border-[#C89211]"
-                                  />
-                                </div>
+                                <GoogleDriveImagePicker
+                                  label="1. Banner B Image (Device Upload or Google Drive Link)"
+                                  sublabel="Auto-optimizes and saves permanently to Google Drive"
+                                  value={primaryBannerB.image || ''}
+                                  category="banners"
+                                  deviceUploadButtonText="Upload New Image"
+                                  onChange={async (url) => {
+                                    await updateSlotBanner('slot_2', { image: url });
+                                    loadData();
+                                    onDataUpdated();
+                                    showToast('Banner B image updated successfully!');
+                                  }}
+                                  onToast={showToast}
+                                  compact
+                                />
                               </div>
 
                               {/* Destination Link */}
@@ -6124,7 +5600,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             type="url"
                             value={settings.productionApiUrl || ''}
                             onChange={e => setSettings({ ...settings, productionApiUrl: e.target.value.trim() })}
-                            placeholder="e.g. https://ais-dev-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app"
+                            placeholder="e.g. https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app"
                             className="w-full px-3 py-2 rounded bg-white border border-amber-600/50 text-[#1A1A1A] font-mono text-xs sm:text-sm"
                           />
                           <span className="text-[10px] text-[#666666] mt-1 block">

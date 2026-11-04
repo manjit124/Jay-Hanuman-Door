@@ -294,11 +294,32 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
     'Timber is seasoned and moisture-tested prior to manufacturing.',
   ],
   disclaimer: 'Price shown is an estimated factory price and may vary according to final wood grade, carving details, customized size and hardware fittings.',
+  productionApiUrl: 'https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app',
 };
 
 /**
+ * Verified production Cloud Run backend URL for Jai Hanuman Door.
+ * Service: door-price-calculator-door-catalog (region: asia-southeast1, project: 322201013200)
+ */
+export const PRODUCTION_API_BASE_URL = 'https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app';
+
+// Self-healing purge: Immediately clear any obsolete ais-dev or non-existent URLs from localStorage on module load
+if (typeof window !== 'undefined') {
+  try {
+    const storedCustom = localStorage.getItem(CUSTOM_API_URL_KEY);
+    if (storedCustom && (storedCustom.includes('ais-dev-') || storedCustom.includes('768916382182') || storedCustom.includes('jaihanumandoor.com'))) {
+      localStorage.removeItem(CUSTOM_API_URL_KEY);
+    }
+    const storedCached = localStorage.getItem(CACHED_PROD_URL_KEY);
+    if (storedCached && (storedCached.includes('ais-dev-') || storedCached.includes('768916382182') || storedCached.includes('jaihanumandoor.com'))) {
+      localStorage.removeItem(CACHED_PROD_URL_KEY);
+    }
+  } catch {}
+}
+
+/**
  * Retrieves user-configured custom API server URL from localStorage.
- * Automatically discards dead placeholder domains (jaihanumandoor.com) or mismatched ephemeral container origins.
+ * Automatically discards dead placeholder domains, obsolete dev URLs, or mismatched ephemeral container origins.
  */
 export function getCustomApiBaseUrl(): string {
   if (typeof window !== 'undefined') {
@@ -306,8 +327,12 @@ export function getCustomApiBaseUrl(): string {
       const custom = localStorage.getItem(CUSTOM_API_URL_KEY);
       if (custom && custom.trim()) {
         const clean = custom.trim().replace(/\/$/, '');
-        // Discard non-existent domain or mismatched ephemeral container URLs when running in web browser
-        if (clean.includes('jaihanumandoor.com')) {
+        // Discard non-existent domain, obsolete dev URLs, or mismatched ephemeral container URLs
+        if (
+          clean.includes('jaihanumandoor.com') ||
+          clean.includes('ais-dev-') ||
+          clean.includes('768916382182')
+        ) {
           localStorage.removeItem(CUSTOM_API_URL_KEY);
           return '';
         }
@@ -336,7 +361,12 @@ export function setCustomApiBaseUrl(url: string): void {
   if (typeof window !== 'undefined') {
     try {
       const clean = (url || '').trim().replace(/\/$/, '');
-      if (clean && !clean.includes('jaihanumandoor.com')) {
+      if (
+        clean &&
+        !clean.includes('jaihanumandoor.com') &&
+        !clean.includes('ais-dev-') &&
+        !clean.includes('768916382182')
+      ) {
         localStorage.setItem(CUSTOM_API_URL_KEY, clean);
       } else {
         localStorage.removeItem(CUSTOM_API_URL_KEY);
@@ -355,7 +385,11 @@ export function getCachedProductionApiUrl(): string {
       const cached = localStorage.getItem(CACHED_PROD_URL_KEY);
       if (cached && cached.trim()) {
         const clean = cached.trim().replace(/\/$/, '');
-        if (clean.includes('jaihanumandoor.com')) {
+        if (
+          clean.includes('jaihanumandoor.com') ||
+          clean.includes('ais-dev-') ||
+          clean.includes('768916382182')
+        ) {
           localStorage.removeItem(CACHED_PROD_URL_KEY);
           return '';
         }
@@ -373,7 +407,12 @@ export function setCachedProductionApiUrl(url: string): void {
   if (typeof window !== 'undefined') {
     try {
       const clean = (url || '').trim().replace(/\/$/, '');
-      if (clean && !clean.includes('jaihanumandoor.com')) {
+      if (
+        clean &&
+        !clean.includes('jaihanumandoor.com') &&
+        !clean.includes('ais-dev-') &&
+        !clean.includes('768916382182')
+      ) {
         localStorage.setItem(CACHED_PROD_URL_KEY, clean);
       } else {
         localStorage.removeItem(CACHED_PROD_URL_KEY);
@@ -398,6 +437,7 @@ export function isCapacitorOrNative(): boolean {
  * Returns the resolved API base URL.
  * In standard web browser execution (non-native), ALWAYS prefers relative same-origin routing ('')
  * so API requests hit the Express backend on the exact same origin without CORS or stale URL failures.
+ * In native Capacitor (Android APK), connects directly to the verified production Cloud Run backend.
  */
 export function getApiBaseUrl(): string {
   // In standard web browser execution (non-native), ALWAYS use relative same-origin routing ('')
@@ -407,21 +447,27 @@ export function getApiBaseUrl(): string {
   }
 
   const custom = getCustomApiBaseUrl();
-  if (custom) return custom;
+  if (custom && !custom.includes('ais-dev-') && !custom.includes('768916382182')) {
+    return custom;
+  }
 
   const envUrl = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_APP_URL;
-  if (typeof envUrl === 'string' && envUrl.trim() && !envUrl.includes('jaihanumandoor.com')) {
+  if (
+    typeof envUrl === 'string' &&
+    envUrl.trim() &&
+    !envUrl.includes('jaihanumandoor.com') &&
+    !envUrl.includes('ais-dev-') &&
+    !envUrl.includes('768916382182')
+  ) {
     return envUrl.trim().replace(/\/$/, '');
   }
 
   const cachedProd = getCachedProductionApiUrl();
-  if (cachedProd) return cachedProd;
-
-  if (isCapacitorOrNative()) {
-    return 'https://ais-dev-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app';
+  if (cachedProd && !cachedProd.includes('ais-dev-') && !cachedProd.includes('768916382182')) {
+    return cachedProd;
   }
 
-  return '';
+  return PRODUCTION_API_BASE_URL;
 }
 
 export interface SafeJsonResponse<T = any> {
@@ -590,11 +636,16 @@ export function resolveImageUrl(path: string | undefined | null, fallback?: stri
     }
   }
 
-  // If it's a dead ais-dev- container URL with another path, strip the domain
-  if (trimmed.includes('ais-dev-')) {
+  // If it's an obsolete dev container URL, strip the obsolete domain and route to production
+  if (trimmed.includes('ais-dev-') || trimmed.includes('768916382182')) {
     try {
       const parsed = new URL(trimmed);
-      return parsed.pathname || defaultFallback;
+      const cleanPath = parsed.pathname || defaultFallback;
+      if (typeof window !== 'undefined' && !isCapacitorOrNative()) {
+        return cleanPath;
+      }
+      const base = getApiBaseUrl();
+      return base ? base + cleanPath : cleanPath;
     } catch {
       return defaultFallback;
     }
@@ -682,12 +733,15 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     url.includes('drive-image') ||
     url.includes('import') ||
     url.includes('preview') ||
-    url.includes('/api/admin/all-data');
+    url.includes('/api/admin/all-data') ||
+    url.includes('wood-analysis') ||
+    url.includes('detect-wood') ||
+    url.includes('/api/ai/');
 
   if (!options.signal) {
     nativeController = new AbortController();
     fetchOpts.signal = nativeController.signal;
-    const timeoutMs = isHeavyMediaEndpoint ? 45000 : (isNative ? 8000 : 25000);
+    const timeoutMs = isHeavyMediaEndpoint ? 45000 : (isNative ? 15000 : 25000);
     nativeTimeoutId = setTimeout(() => {
       try { nativeController?.abort(); } catch {}
     }, timeoutMs);
@@ -1584,7 +1638,8 @@ export interface DriveImageImportResult {
 async function callDriveImageEndpoint<T extends { success: boolean; error?: string; errorCode?: string }>(
   endpointPath: '/api/admin/drive-image/preview' | '/api/admin/drive-image/import',
   cleanUrl: string,
-  actionLabel: string
+  actionLabel: string,
+  category = 'products'
 ): Promise<T> {
   const token = getAdminToken() || 'admin-dev-token';
   let lastNetworkError = '';
@@ -1598,7 +1653,7 @@ async function callDriveImageEndpoint<T extends { success: boolean; error?: stri
         Authorization: `Bearer ${token}`,
         'x-admin-token': token,
       },
-      body: JSON.stringify({ url: cleanUrl }),
+      body: JSON.stringify({ url: cleanUrl, category }),
     });
 
     const parsedPost = await parseSafeJsonResponse<T>(postRes, actionLabel);
@@ -1627,7 +1682,7 @@ async function callDriveImageEndpoint<T extends { success: boolean; error?: stri
 
   // 2. Fallback attempt: GET with query parameters (bypasses proxy POST/preflight blocks)
   try {
-    const query = new URLSearchParams({ url: cleanUrl, token });
+    const query = new URLSearchParams({ url: cleanUrl, category, token });
     const getRes = await apiFetch(`${endpointPath}?${query.toString()}`, {
       method: 'GET',
       headers: {
@@ -1741,7 +1796,7 @@ export async function previewDriveOrExternalImage(url: string): Promise<DriveIma
   );
 }
 
-export async function importDriveOrExternalImageToStorage(url: string): Promise<DriveImageImportResult> {
+export async function importDriveOrExternalImageToStorage(url: string, category = 'products'): Promise<DriveImageImportResult> {
   const cleanUrl = String(url || '').trim();
   if (!cleanUrl) {
     throw new Error('[EMPTY_URL] Please paste a Google Drive sharing link or direct HTTPS image URL.');
@@ -1750,7 +1805,8 @@ export async function importDriveOrExternalImageToStorage(url: string): Promise<
   const imported = await callDriveImageEndpoint<DriveImageImportResult>(
     '/api/admin/drive-image/import',
     cleanUrl,
-    'Import Image to Firebase Storage'
+    'Import Image to Google Drive Storage',
+    category
   );
 
   return {
@@ -3878,29 +3934,47 @@ export async function updateAdminTrackingStage(
  */
 export async function uploadAdminTrackingMedia(
   orderId: string,
-  file: File,
+  file: File | null,
   meta: {
     stageId: TrackingStageId;
     caption?: string;
     isCustomerVisible?: boolean;
+    mediaUrl?: string;
+    mediaType?: 'image' | 'video';
   }
 ): Promise<{ media: TrackingMediaItem; order: TrackingOrder }> {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('stageId', meta.stageId);
-  if (meta.caption) formData.append('caption', meta.caption);
-  if (meta.isCustomerVisible !== undefined) {
-    formData.append('isCustomerVisible', String(meta.isCustomerVisible));
-  }
-
   const token = getAdminToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
+  let body: any;
+
+  if (file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('stageId', meta.stageId);
+    if (meta.caption) formData.append('caption', meta.caption);
+    if (meta.isCustomerVisible !== undefined) {
+      formData.append('isCustomerVisible', String(meta.isCustomerVisible));
+    }
+    body = formData;
+  } else if (meta.mediaUrl) {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify({
+      stageId: meta.stageId,
+      caption: meta.caption,
+      isCustomerVisible: meta.isCustomerVisible,
+      mediaUrl: meta.mediaUrl,
+      mediaType: meta.mediaType,
+    });
+  } else {
+    throw new Error('Please select a file or provide a Google Drive / media URL');
+  }
+
   const res = await apiFetch(`/api/admin/tracking-orders/${encodeURIComponent(orderId)}/media`, {
     method: 'POST',
     headers,
-    body: formData,
+    body,
   });
 
   if (!res.ok) {

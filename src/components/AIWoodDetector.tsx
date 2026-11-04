@@ -781,7 +781,7 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                     <div className="flex gap-2">
                       <input
                         type="url"
-                        placeholder="https://your-production-app.run.app"
+                        placeholder="https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app"
                         value={serverInputUrl}
                         onChange={e => setServerInputUrl(e.target.value)}
                         className="flex-1 px-2.5 py-1.5 rounded-lg bg-stone-950 border border-stone-700 text-stone-100 text-xs font-mono placeholder:text-stone-600 focus:outline-none focus:border-amber-400"

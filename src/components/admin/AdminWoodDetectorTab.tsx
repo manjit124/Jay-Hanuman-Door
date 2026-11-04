@@ -40,6 +40,7 @@ import {
   toggleVerifyWoodReferenceAPI,
   runWoodBenchmarkAPI,
 } from '../../lib/api.ts';
+import { GoogleDriveImagePicker } from './GoogleDriveImagePicker.tsx';
 
 interface AdminWoodDetectorTabProps {
   settings: BusinessSettings;
@@ -657,14 +658,14 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-[#1A1A1A] mb-1">Sample Photo URL or Path</label>
-                <input
-                  type="text"
-                  placeholder="/uploads/... or https://..."
+                <GoogleDriveImagePicker
+                  label="Sample Wood Photo"
+                  sublabel="Upload timber reference sample from device or paste Google Drive sharing link"
                   value={refImageUrl}
-                  onChange={e => setRefImageUrl(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] focus:outline-none focus:border-[#C89211]"
+                  category="products"
+                  deviceUploadButtonText="Upload Reference Photo"
+                  onChange={(url) => setRefImageUrl(url)}
+                  compact
                 />
               </div>
 

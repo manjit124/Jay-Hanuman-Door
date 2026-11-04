@@ -37,6 +37,7 @@ import {
   uploadImage,
   resolveImageUrl,
 } from '../../lib/api.ts';
+import { GoogleDriveImagePicker } from './GoogleDriveImagePicker.tsx';
 
 interface AdminChaukhatTabProps {
   legacyFrames: ChaukhatFrame[];
@@ -746,142 +747,40 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                 </span>
 
                 {/* Slot 1: Plain Chaukhat Photo */}
-                <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <span className="font-bold text-xs text-[#1A1A1A]">1. Plain / Simple Chaukhat Photo</span>
-                    <div className="flex items-center gap-2">
-                      <label className="cursor-pointer px-3 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1 shadow-sm">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>{uploadingImageKey === 'plain' ? 'Uploading...' : 'Upload Image'}</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          disabled={uploadingImageKey !== null}
-                          onChange={e =>
-                            handleUploadImage(
-                              e,
-                              url => setEditingProduct({ ...editingProduct, plainImage: url }),
-                              'plain'
-                            )
-                          }
-                          className="hidden"
-                        />
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="or paste URL"
-                        value={editingProduct.plainImage || ''}
-                        onChange={e => setEditingProduct({ ...editingProduct, plainImage: e.target.value })}
-                        className="px-2.5 py-1 rounded bg-white border border-[#E5E5E5] text-xs font-mono w-48 text-[#1A1A1A]"
-                      />
-                    </div>
-                  </div>
-
-                  {editingProduct.plainImage && (
-                    <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-[#C89211] shrink-0">
-                      <img src={resolveImageUrl(editingProduct.plainImage)} alt="Plain preview" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setPreviewZoomUrl(editingProduct.plainImage ? resolveImageUrl(editingProduct.plainImage) : null)}
-                        className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <GoogleDriveImagePicker
+                  label="1. Plain / Simple Chaukhat Photo"
+                  sublabel="Upload plain chaukhat sample from device or paste Google Drive link"
+                  value={editingProduct.plainImage || ''}
+                  category="catalog"
+                  deviceUploadButtonText="Upload Plain Photo"
+                  onChange={(url) => setEditingProduct({ ...editingProduct, plainImage: url })}
+                  onToast={showToast}
+                  compact
+                />
 
                 {/* Slot 2: Diamond Designer Photo */}
-                <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <span className="font-bold text-xs text-[#1A1A1A]">2. Diamond Designer Chaukhat Photo</span>
-                    <div className="flex items-center gap-2">
-                      <label className="cursor-pointer px-3 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1 shadow-sm">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>{uploadingImageKey === 'diamond' ? 'Uploading...' : 'Upload Image'}</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          disabled={uploadingImageKey !== null}
-                          onChange={e =>
-                            handleUploadImage(
-                              e,
-                              url => setEditingProduct({ ...editingProduct, diamondImage: url }),
-                              'diamond'
-                            )
-                          }
-                          className="hidden"
-                        />
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="or paste URL"
-                        value={editingProduct.diamondImage || ''}
-                        onChange={e => setEditingProduct({ ...editingProduct, diamondImage: e.target.value })}
-                        className="px-2.5 py-1 rounded bg-white border border-[#E5E5E5] text-xs font-mono w-48 text-[#1A1A1A]"
-                      />
-                    </div>
-                  </div>
-
-                  {editingProduct.diamondImage && (
-                    <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-[#C89211] shrink-0">
-                      <img src={resolveImageUrl(editingProduct.diamondImage)} alt="Diamond preview" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setPreviewZoomUrl(editingProduct.diamondImage ? resolveImageUrl(editingProduct.diamondImage) : null)}
-                        className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <GoogleDriveImagePicker
+                  label="2. Diamond Designer Chaukhat Photo"
+                  sublabel="Upload diamond designer chaukhat sample from device or paste Google Drive link"
+                  value={editingProduct.diamondImage || ''}
+                  category="catalog"
+                  deviceUploadButtonText="Upload Diamond Photo"
+                  onChange={(url) => setEditingProduct({ ...editingProduct, diamondImage: url })}
+                  onToast={showToast}
+                  compact
+                />
 
                 {/* Slot 3: Hand-Carved Designer Photo */}
-                <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <span className="font-bold text-xs text-[#1A1A1A]">3. Hand-Carved Designer Chaukhat Photo</span>
-                    <div className="flex items-center gap-2">
-                      <label className="cursor-pointer px-3 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1 shadow-sm">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>{uploadingImageKey === 'handCarved' ? 'Uploading...' : 'Upload Image'}</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          disabled={uploadingImageKey !== null}
-                          onChange={e =>
-                            handleUploadImage(
-                              e,
-                              url => setEditingProduct({ ...editingProduct, handCarvedImage: url }),
-                              'handCarved'
-                            )
-                          }
-                          className="hidden"
-                        />
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="or paste URL"
-                        value={editingProduct.handCarvedImage || ''}
-                        onChange={e => setEditingProduct({ ...editingProduct, handCarvedImage: e.target.value })}
-                        className="px-2.5 py-1 rounded bg-white border border-[#E5E5E5] text-xs font-mono w-48 text-[#1A1A1A]"
-                      />
-                    </div>
-                  </div>
-
-                  {editingProduct.handCarvedImage && (
-                    <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-[#C89211] shrink-0">
-                      <img src={resolveImageUrl(editingProduct.handCarvedImage)} alt="Hand carved preview" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setPreviewZoomUrl(editingProduct.handCarvedImage ? resolveImageUrl(editingProduct.handCarvedImage) : null)}
-                        className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <GoogleDriveImagePicker
+                  label="3. Hand-Carved Designer Chaukhat Photo"
+                  sublabel="Upload hand-carved designer chaukhat sample from device or paste Google Drive link"
+                  value={editingProduct.handCarvedImage || ''}
+                  category="catalog"
+                  deviceUploadButtonText="Upload Hand-Carved Photo"
+                  onChange={(url) => setEditingProduct({ ...editingProduct, handCarvedImage: url })}
+                  onToast={showToast}
+                  compact
+                />
               </div>
 
               {/* Active Toggle */}

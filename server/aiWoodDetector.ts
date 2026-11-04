@@ -347,7 +347,7 @@ INSTRUCTIONS FOR MULTI-IMAGE ANALYSIS:
 6. Provide your full multi-feature assessment in the exact JSON format specified.`;
 
   // Candidate models ordered for fastest latency (<5s), high throughput and reliable availability
-  const models = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash'];
+  const models = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
   let lastError: any = null;
 
   for (const model of models) {
@@ -370,8 +370,8 @@ INSTRUCTIONS FOR MULTI-IMAGE ANALYSIS:
 
       const timeoutPromise = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`Model ${model} request exceeded 12s server timeout`));
-        }, 12000);
+          reject(new Error(`Model ${model} request exceeded 18s server timeout`));
+        }, 18000);
       });
 
       const response = await Promise.race([generatePromise, timeoutPromise]);

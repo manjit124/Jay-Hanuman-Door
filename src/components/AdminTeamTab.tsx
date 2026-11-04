@@ -33,6 +33,7 @@ import {
   reorderTeamMembers,
   uploadImage,
 } from '../lib/api.ts';
+import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 import { TeamMemberDetailModal } from './TeamMemberDetailModal.tsx';
 
 interface AdminTeamTabProps {
@@ -643,105 +644,17 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
-              {/* Profile Photo Section (Direct File Upload Only) */}
-              <div className="space-y-3 bg-[#F8F8F6] p-4 rounded-2xl border border-[#E5E5E5]">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#C89211]">
-                    Profile Photo
-                  </label>
-                  {uploadingPhoto && (
-                    <span className="text-[11px] text-[#C89211] flex items-center gap-1.5 font-medium">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Uploading photo...
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-center gap-4">
-                  {/* 1. Current Profile Photo Preview */}
-                  <div className="relative w-24 h-32 rounded-xl overflow-hidden bg-[#F8F8F6] border-2 border-[#C89211]/30 shrink-0 shadow-md">
-                    {formData.photo ? (
-                      <img
-                        src={formData.photo}
-                        alt="Profile preview"
-                        className="w-full h-full object-cover object-top"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-[#666666] p-2 text-center">
-                        <ImageIcon className="w-6 h-6 mb-1 text-stone-600" />
-                        <span className="text-[10px]">No Photo</span>
-                      </div>
-                    )}
-                    {uploadingPhoto && (
-                      <div className="absolute inset-0 bg-[#F8F8F6] flex items-center justify-center text-[#C89211] backdrop-blur-xs">
-                        <Loader2 className="w-6 h-6 animate-spin" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 2. Upload / Browse Files, 3. Replace Photo, 4. Remove Photo */}
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsDragOver(true);
-                    }}
-                    onDragLeave={() => setIsDragOver(false)}
-                    onDrop={onDropPhoto}
-                    className={`flex-1 w-full border-2 border-dashed rounded-xl p-4 text-center transition-all ${
-                      isDragOver
-                        ? 'border-amber-500 bg-[#FFF7E3]'
-                        : 'border-[#E5E5E5] hover:border-amber-500/50 bg-white'
-                    }`}
-                  >
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/jpeg,image/jpg,image/png,image/webp"
-                      onChange={onFileInputChange}
-                      className="hidden"
-                    />
-
-                    <Upload className="w-6 h-6 text-[#C89211] mx-auto mb-2" />
-                    <p className="text-xs text-[#1A1A1A] font-medium">
-                      Drag & drop person's photo here, or{' '}
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={uploadingPhoto}
-                        className="text-[#C89211] underline hover:text-[#C89211] font-semibold cursor-pointer disabled:opacity-50"
-                      >
-                        browse files
-                      </button>
-                    </p>
-                    <p className="text-[11px] text-[#666666] mt-1">
-                      Supported: JPG, JPEG, PNG, WEBP (Max 15MB)
-                    </p>
-
-                    {/* Action buttons: Replace Photo & Remove Photo */}
-                    {formData.photo && (
-                      <div className="mt-3 flex items-center justify-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={uploadingPhoto}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] font-medium transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5 text-[#666666]" />
-                          Replace Photo
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFormData(p => ({ ...p, photo: '' }))}
-                          disabled={uploadingPhoto}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/80 text-red-300 font-medium transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                          Remove Photo
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+              {/* Profile Photo with Option A (Device) & Option B (Google Drive Link) */}
+              <div className="space-y-1.5 bg-[#F8F8F6] p-4 rounded-2xl border border-[#E5E5E5]">
+                <GoogleDriveImagePicker
+                  label="Profile Photo"
+                  sublabel="Upload photo from device or paste Google Drive sharing link. Stored permanently in Google Drive."
+                  value={formData.photo || ''}
+                  category="products"
+                  deviceUploadButtonText="Upload Profile Photo"
+                  onChange={(url) => setFormData(p => ({ ...p, photo: url }))}
+                  compact
+                />
               </div>
 
               {/* Name & Designation */}

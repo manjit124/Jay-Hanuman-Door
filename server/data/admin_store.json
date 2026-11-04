@@ -1487,6 +1487,35 @@
   "articleShares": [],
   "aiWoodDetectorLogs": [
     {
+      "id": "scan-1793726226108-hhkfw",
+      "timestamp": "2026-11-03T17:17:06.108Z",
+      "likelyWoodType": "Pehchan confirm nahi ho paayi (Clear photo required)",
+      "confidenceLevel": "Low",
+      "success": true,
+      "responseTimeMs": 4455
+    },
+    {
+      "id": "scan-1793725960302-eovix",
+      "timestamp": "2026-11-03T17:12:40.302Z",
+      "success": false,
+      "errorMessage": "AI Wood Detector could not process image: Model gemini-3.8-flash request exceeded 18s server timeout",
+      "responseTimeMs": 18732
+    },
+    {
+      "id": "scan-1793725881109-116ts",
+      "timestamp": "2026-11-03T17:11:21.109Z",
+      "success": false,
+      "errorMessage": "AI Wood Detector could not process image: {\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}",
+      "responseTimeMs": 22818
+    },
+    {
+      "id": "scan-1793725695024-ozhxb",
+      "timestamp": "2026-11-03T17:08:15.024Z",
+      "success": false,
+      "errorMessage": "AI Wood Detector could not process image: {\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}",
+      "responseTimeMs": 27631
+    },
+    {
       "id": "scan-1793608432948-5v4xt",
       "timestamp": "2026-11-02T08:33:52.948Z",
       "likelyWoodType": "Sagwan (Teak)",
@@ -1643,9 +1672,41 @@
       "responseTimeMs": 23694
     }
   ],
-  "version": 220,
-  "lastModified": "2026-11-02T08:33:52.948Z",
+  "version": 228,
+  "lastModified": "2026-11-03T17:17:06.109Z",
   "auditLogs": [
+    {
+      "id": "audit-1793640640805-lvw4d",
+      "entity": "door",
+      "action": "delete",
+      "targetId": "door-1793640640664",
+      "timestamp": "2026-11-02T17:30:40.805Z",
+      "success": true
+    },
+    {
+      "id": "audit-1793640640664-s43gm",
+      "entity": "door",
+      "action": "create",
+      "targetId": "door-1793640640664",
+      "timestamp": "2026-11-02T17:30:40.664Z",
+      "success": true
+    },
+    {
+      "id": "audit-1793638703339-7uhoi",
+      "entity": "door",
+      "action": "delete",
+      "targetId": "door-1793638703129",
+      "timestamp": "2026-11-02T16:58:23.339Z",
+      "success": true
+    },
+    {
+      "id": "audit-1793638703129-y1tj6",
+      "entity": "door",
+      "action": "create",
+      "targetId": "door-1793638703129",
+      "timestamp": "2026-11-02T16:58:23.129Z",
+      "success": true
+    },
     {
       "id": "audit-1793459950691-g7gj7",
       "entity": "door",

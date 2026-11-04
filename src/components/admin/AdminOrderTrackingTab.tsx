@@ -57,6 +57,7 @@ import {
   deleteAdminTrackingOrder,
 } from '../../lib/api.ts';
 import { getWhatsAppUrl } from '../../lib/contactUtils.ts';
+import { GoogleDriveImagePicker } from './GoogleDriveImagePicker.tsx';
 
 interface AdminOrderTrackingTabProps {
   quotes?: Quotation[];
@@ -89,6 +90,7 @@ export const AdminOrderTrackingTab: React.FC<AdminOrderTrackingTabProps> = ({
   const [stageAdminNote, setStageAdminNote] = useState('');
   const [stageNaReason, setStageNaReason] = useState('');
   const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [stageMediaUrl, setStageMediaUrl] = useState('');
   const [mediaCaption, setMediaCaption] = useState('');
   const [mediaIsCustomerVisible, setMediaIsCustomerVisible] = useState(true);
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -308,9 +310,9 @@ export const AdminOrderTrackingTab: React.FC<AdminOrderTrackingTabProps> = ({
   };
 
   // Upload Stage Media
-  const handleUploadMedia = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedOrder || !mediaFile || !activeStageEdit) return;
+  const handleUploadMedia = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!selectedOrder || (!mediaFile && !stageMediaUrl) || !activeStageEdit) return;
 
     setUploadingMedia(true);
     try {
@@ -318,11 +320,13 @@ export const AdminOrderTrackingTab: React.FC<AdminOrderTrackingTabProps> = ({
         stageId: activeStageEdit,
         caption: mediaCaption,
         isCustomerVisible: mediaIsCustomerVisible,
+        mediaUrl: stageMediaUrl || undefined,
       });
       setSelectedOrder(res.order);
       setMediaFile(null);
+      setStageMediaUrl('');
       setMediaCaption('');
-      showToast('Progress photo/video uploaded successfully');
+      showToast('Progress photo/video uploaded successfully to Google Drive & tracking record');
       loadOrders();
     } catch (err: any) {
       alert(err.message || 'Failed to upload media');
@@ -1223,26 +1227,29 @@ Pune, Maharashtra`;
                               <span>Upload Progress Proof Photo / Video for {st.name}</span>
                             </span>
 
-                            <form onSubmit={handleUploadMedia} className="space-y-2.5">
-                              <div className="flex flex-col sm:flex-row gap-2">
-                                <input
-                                  type="file"
-                                  accept="image/*,video/*"
-                                  onChange={e => setMediaFile(e.target.files?.[0] || null)}
-                                  className="text-[#1A1A1A] text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#F8F8F6] file:text-[#C89211]"
-                                />
+                            <div className="space-y-3">
+                              <GoogleDriveImagePicker
+                                label={`Stage Proof Image / Video for ${st.name}`}
+                                value={stageMediaUrl}
+                                onChange={url => setStageMediaUrl(url)}
+                                onFileSelect={file => setMediaFile(file)}
+                                category="delivery"
+                                helperText="Option A: Upload device file (photo/video), or Option B: paste Google Drive sharing link to preview and import permanently"
+                                allowVideo={true}
+                              />
 
+                              <div className="flex flex-col sm:flex-row gap-2">
                                 <input
                                   type="text"
                                   value={mediaCaption}
                                   onChange={e => setMediaCaption(e.target.value)}
-                                  placeholder="Caption (e.g. Teak plank inspection)"
-                                  className="flex-1 p-1.5 bg-[#F8F8F6] border border-[#E5E5E5] rounded-lg text-[#1A1A1A]"
+                                  placeholder="Caption (e.g. Teak plank inspection, CNC carving complete)"
+                                  className="flex-1 p-2 bg-[#F8F8F6] border border-[#E5E5E5] rounded-lg text-[#1A1A1A] text-xs"
                                 />
                               </div>
 
                               <div className="flex items-center justify-between">
-                                <label className="flex items-center gap-2 cursor-pointer text-[#1A1A1A]">
+                                <label className="flex items-center gap-2 cursor-pointer text-[#1A1A1A] text-xs">
                                   <input
                                     type="checkbox"
                                     checked={mediaIsCustomerVisible}
@@ -1253,14 +1260,15 @@ Pune, Maharashtra`;
                                 </label>
 
                                 <button
-                                  type="submit"
-                                  disabled={!mediaFile || uploadingMedia}
-                                  className="px-4 py-1.5 bg-[#C89211] text-white font-bold rounded-lg hover:bg-amber-400 disabled:opacity-50"
+                                  type="button"
+                                  onClick={() => handleUploadMedia()}
+                                  disabled={(!mediaFile && !stageMediaUrl) || uploadingMedia}
+                                  className="px-4 py-2 bg-[#C89211] text-white font-bold rounded-lg hover:bg-amber-400 disabled:opacity-50 text-xs shadow-sm transition-all"
                                 >
-                                  {uploadingMedia ? 'Uploading...' : 'Upload Media'}
+                                  {uploadingMedia ? 'Saving Media...' : 'Save Stage Proof Media'}
                                 </button>
                               </div>
-                            </form>
+                            </div>
 
                             {/* Existing stage media */}
                             {stageMedia.length > 0 && (

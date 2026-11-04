@@ -4938,7 +4938,7 @@ INSTRUCTIONS FOR MULTI-IMAGE ANALYSIS:
 4. Evaluate whether the surface has been stained or coated in tinted PU polish to simulate Teak (Sagwan). Look for tell-tale signs: blotchy absorption in softer fibers, absence of genuine concentric earlywood pore bands, or interlocked fibrous texture beneath the color.
 5. If the evidence is insufficient, blurry, or completely masked by opaque paint or heavy plastic laminate, do NOT guess. Set likely_wood_type to "Wood species could not be reliably identified from these photos." and confidence to "Low".
 6. Provide your full multi-feature assessment in the exact JSON format specified.`;
-  const models = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"];
+  const models = ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"];
   let lastError = null;
   for (const model of models) {
     let timer;
@@ -4959,8 +4959,8 @@ INSTRUCTIONS FOR MULTI-IMAGE ANALYSIS:
       });
       const timeoutPromise = new Promise((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`Model ${model} request exceeded 12s server timeout`));
-        }, 12e3);
+          reject(new Error(`Model ${model} request exceeded 18s server timeout`));
+        }, 18e3);
       });
       const response = await Promise.race([generatePromise, timeoutPromise]);
       clearTimeout(timer);
@@ -6354,21 +6354,19 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
   app2.post(
     "/api/admin/tracking-orders/:id/media",
     verifyAdminToken2,
-    mediaUpload.single("file"),
+    (req, res, next) => {
+      const contentType = req.headers["content-type"] || "";
+      if (contentType.includes("multipart/form-data")) {
+        return mediaUpload.single("file")(req, res, next);
+      }
+      next();
+    },
     (req, res) => {
       try {
         const { id } = req.params;
-        const { stageId, caption, isCustomerVisible } = req.body;
-        if (!req.file) {
-          return res.status(400).json({ error: "No media file provided" });
-        }
-        try {
-          const backupPath = import_path5.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
-          import_fs5.default.copyFileSync(req.file.path, backupPath);
-          const fileBuf = import_fs5.default.readFileSync(req.file.path);
-          saveMedia(req.file.filename, req.file.mimetype || "image/jpeg", fileBuf).catch(() => {
-          });
-        } catch {
+        const { stageId, caption, isCustomerVisible, mediaUrl: directMediaUrl, mediaType } = req.body;
+        if (!req.file && !directMediaUrl) {
+          return res.status(400).json({ error: "No media file or URL provided" });
         }
         const db = getDb();
         const orders = db.trackingOrders || [];
@@ -6377,8 +6375,22 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
           return res.status(404).json({ error: "Order not found" });
         }
         const order = orders[orderIndex];
-        const isVideo = req.file.mimetype.startsWith("video/") || req.file.filename.endsWith(".mp4") || req.file.filename.endsWith(".webm");
-        const mediaUrl = `/uploads/${req.file.filename}`;
+        let mediaUrl = directMediaUrl ? String(directMediaUrl).trim() : "";
+        let isVideo = false;
+        if (req.file) {
+          try {
+            const backupPath = import_path5.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
+            import_fs5.default.copyFileSync(req.file.path, backupPath);
+            const fileBuf = import_fs5.default.readFileSync(req.file.path);
+            saveMedia(req.file.filename, req.file.mimetype || "image/jpeg", fileBuf).catch(() => {
+            });
+          } catch {
+          }
+          isVideo = req.file.mimetype.startsWith("video/") || req.file.filename.endsWith(".mp4") || req.file.filename.endsWith(".webm");
+          mediaUrl = `/uploads/${req.file.filename}`;
+        } else {
+          isVideo = mediaType === "video" || typeof mediaUrl === "string" && (mediaUrl.includes("/videos") || mediaUrl.endsWith(".mp4") || mediaUrl.endsWith(".webm"));
+        }
         const now = (/* @__PURE__ */ new Date()).toISOString();
         const newMedia = {
           id: `med-${Date.now()}`,
@@ -6386,7 +6398,7 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
           url: mediaUrl,
           type: isVideo ? "video" : "image",
           caption: (caption || "").trim() || void 0,
-          isCustomerVisible: isCustomerVisible === "false" ? false : true,
+          isCustomerVisible: String(isCustomerVisible) === "false" ? false : true,
           uploadedAt: now
         };
         order.media = [...order.media || [], newMedia];
@@ -7085,18 +7097,37 @@ var handleDriveImageImport = async (req, res) => {
         error: "Imported image could not be verified after upload."
       });
     }
+    let driveUploadResult = null;
+    try {
+      const driveCreds = loadServerDriveCredentials();
+      if (driveCreds.refreshToken || driveCreds.accessToken) {
+        const category = req.body?.category || req.query?.category || "products";
+        driveUploadResult = await uploadMediaToOwnerDrive(
+          validated.buffer,
+          filename,
+          validated.mimeType,
+          category,
+          `Imported image from ${validated.fileId ? `Google Drive File ID: ${validated.fileId}` : validated.sourceUrl}`
+        );
+      }
+    } catch (driveErr) {
+      console.warn("\u26A0\uFE0F [Drive Image Import] Upload to owner Google Drive notice:", driveErr?.message);
+    }
+    const finalUrl = driveUploadResult?.url || saveRes.url;
     return res.json({
       success: true,
-      url: saveRes.url,
-      downloadUrl: saveRes.downloadUrl || saveRes.url,
+      url: finalUrl,
+      downloadUrl: driveUploadResult?.url || saveRes.downloadUrl || saveRes.url,
+      driveUrl: driveUploadResult?.url,
+      driveFileId: driveUploadResult?.fileId || validated.fileId || null,
       filename,
-      fileId: validated.fileId || null,
-      isGoogleDrive: Boolean(validated.fileId),
+      fileId: driveUploadResult?.fileId || validated.fileId || null,
+      isGoogleDrive: Boolean(driveUploadResult?.fileId || validated.fileId),
       mimeType: validated.mimeType,
       size: validated.size,
       width: validated.width,
       height: validated.height,
-      storageType: saveRes.storageType,
+      storageType: driveUploadResult ? "google_drive" : saveRes.storageType,
       firebaseBucket: saveRes.firebaseBucket,
       storagePath: saveRes.storagePath,
       // Backward compatibility aliases

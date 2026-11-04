@@ -37,6 +37,7 @@ import {
   deleteAdminNotificationCampaign,
   uploadImage,
 } from '../lib/api.ts';
+import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 
 interface AdminNotificationsTabProps {
   doors: Door[];
@@ -546,35 +547,18 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
               )}
             </div>
 
-            {/* Notification Image */}
-            <div className="space-y-2 pt-2 border-t border-[#E5E5E5]">
-              <label className="block text-xs font-semibold text-[#1A1A1A]">
-                Optional Banner Image
-              </label>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-[#E5E5E5] bg-white hover:bg-[#F8F8F6] text-[#1A1A1A] text-xs font-medium cursor-pointer transition-colors">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{isUploadingImage ? 'Uploading...' : 'Upload Image'}</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageFileChange}
-                    disabled={isUploadingImage}
-                    className="hidden"
-                  />
-                </label>
-
-                {imageUrl && (
-                  <button
-                    type="button"
-                    onClick={() => setImageUrl('')}
-                    className="text-xs text-red-400 hover:text-red-300 px-2 py-1"
-                  >
-                    Clear Image
-                  </button>
-                )}
-              </div>
+            {/* Notification Image with Device Upload and Google Drive Link */}
+            <div className="pt-2 border-t border-[#E5E5E5] space-y-2">
+              <GoogleDriveImagePicker
+                label="Optional Notification Banner Image"
+                sublabel="Upload banner from device or paste Google Drive sharing link. Stored permanently in Google Drive."
+                value={imageUrl}
+                category="banners"
+                deviceUploadButtonText="Upload Banner Image"
+                onChange={(url) => setImageUrl(url)}
+                onToast={onShowToast}
+                compact
+              />
 
               {/* Quick Door Thumbnail Selector */}
               <div className="pt-1">

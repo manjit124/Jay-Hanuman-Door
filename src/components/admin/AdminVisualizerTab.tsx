@@ -14,13 +14,13 @@ import {
   AlertCircle,
   FileCheck,
   Plus,
-  RefreshCw,
   Search,
 } from 'lucide-react';
 import { Door, DoorModel3DConfig, WoodColorTone, DoorDesignStyle } from '../../types.ts';
 import { upload3DModel, updateDoor3DConfig, uploadImage, updateDoor, resolveImageUrl } from '../../lib/api.ts';
 import { removeBackgroundFromImage } from '../../lib/transparentDoorUtils.ts';
 import { Door3DScene } from '../visualizer/Door3DScene.tsx';
+import { GoogleDriveImagePicker } from './GoogleDriveImagePicker.tsx';
 
 interface AdminVisualizerTabProps {
   doors: Door[];
@@ -419,126 +419,45 @@ export const AdminVisualizerTab: React.FC<AdminVisualizerTabProps> = ({
                     />
                   </div>
 
-                  {/* High-Resolution Texture Upload */}
-                  <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
-                    <label className="text-xs font-bold uppercase tracking-wider text-[#C89211] block">
-                      High-Resolution Door Texture
-                    </label>
-
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={resolveImageUrl(editingConfig.textureUrl || selectedDoor.image || selectedDoor.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80')}
-                        alt="Preview"
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          if (target.src !== 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80') {
-                            target.src = 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80';
-                          }
-                        }}
-                        className="w-12 h-16 object-cover rounded-lg bg-[#F8F8F6] border border-[#E5E5E5]"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => textureFileInputRef.current?.click()}
-                        disabled={isUploadingTexture}
-                        className="py-2 px-3 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold flex items-center gap-2 border border-[#E5E5E5] transition"
-                      >
-                        <Upload className="w-3.5 h-3.5 text-[#C89211]" />
-                        <span>{isUploadingTexture ? 'Uploading...' : 'Replace Texture Image'}</span>
-                      </button>
-                    </div>
-
-                    <input
-                      ref={textureFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleUploadTextureFile}
+                  {/* High-Resolution Texture Upload with Device & Google Drive Link */}
+                  <div className="space-y-1">
+                    <GoogleDriveImagePicker
+                      label="High-Resolution Door Texture"
+                      sublabel="Upload texture file or paste Google Drive sharing link. Stored permanently in Google Drive."
+                      value={editingConfig.textureUrl || selectedDoor.image || selectedDoor.images?.[0] || ''}
+                      category="products"
+                      deviceUploadButtonText="Upload Texture File"
+                      onChange={(url) => setEditingConfig(prev => ({ ...prev, textureUrl: url }))}
+                      onToast={showToast}
+                      compact
                     />
                   </div>
 
                   {/* Transparent PNG Door Cutout (.png) - For Fit in Entrance */}
-                  <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold uppercase tracking-wider text-[#C89211] block">
-                        Transparent PNG Cutout (.png) - For Fit in Entrance
-                      </label>
-                      {editingConfig.transparentPngUrl && (
-                        <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
-                          <Check className="w-3 h-3" /> Cutout Ready
-                        </span>
-                      )}
-                    </div>
-
-                    {editingConfig.transparentPngUrl ? (
-                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-white border border-emerald-500/30 text-xs">
-                        <div className="flex items-center gap-3 overflow-hidden">
-                          <div className="w-10 h-14 rounded bg-[repeating-conic-gradient(#262626_0_25%,#1c1c1c_0_50%)] bg-[size:8px_8px] p-1 flex items-center justify-center border border-[#E5E5E5] shrink-0">
-                            <img
-                              src={resolveImageUrl(editingConfig.transparentPngUrl)}
-                              alt="Transparent Cutout"
-                              onError={(e) => {
-                                const target = e.currentTarget;
-                                target.style.display = 'none';
-                              }}
-                              className="w-full h-full object-contain"
-                            />
-                          </div>
-                          <div className="truncate">
-                            <span className="text-[#1A1A1A] font-mono text-xs truncate block max-w-xs">
-                              {editingConfig.transparentPngUrl.split('/').pop()}
-                            </span>
-                            <span className="text-[10px] text-emerald-400 font-semibold">
-                              Used in Fit in Entrance
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setEditingConfig(prev => ({ ...prev, transparentPngUrl: '' }))}
-                          className="text-red-400 hover:text-red-300 p-1 rounded"
-                          title="Remove transparent PNG"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-[#666666] leading-relaxed">
-                        No custom transparent PNG uploaded. The app automatically isolates and removes the background from the catalogue photo, or you can upload/generate one below.
-                      </p>
-                    )}
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => pngFileInputRef.current?.click()}
-                        disabled={isUploadingPng}
-                        className="py-2 px-3 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold flex items-center gap-2 border border-[#E5E5E5] transition cursor-pointer"
-                      >
-                        <Upload className="w-3.5 h-3.5 text-[#C89211]" />
-                        <span>{isUploadingPng ? 'Uploading...' : 'Upload Transparent PNG'}</span>
-                      </button>
-
-                      {selectedDoor.images?.[0] && (
+                  <div className="space-y-2">
+                    <GoogleDriveImagePicker
+                      label="Transparent PNG Cutout (.png / .webp) - For Fit in Entrance"
+                      sublabel="Auto-optimizes cutout and saves permanently to Google Drive"
+                      value={editingConfig.transparentPngUrl || ''}
+                      category="products"
+                      deviceUploadButtonText="Upload Transparent PNG"
+                      onChange={(url) => setEditingConfig(prev => ({ ...prev, transparentPngUrl: url }))}
+                      onToast={showToast}
+                      compact
+                    />
+                    {selectedDoor.images?.[0] && (
+                      <div>
                         <button
                           type="button"
                           disabled={isGeneratingPng}
                           onClick={handleAutoGeneratePng}
-                          className="py-2 px-3 rounded-lg bg-[#FFF7E3] hover:bg-amber-600/30 text-[#C89211] text-xs font-semibold flex items-center gap-2 border border-[#C89211]/40 transition cursor-pointer"
+                          className="py-1.5 px-3 rounded-lg bg-[#FFF7E3] hover:bg-amber-100 text-[#C89211] text-xs font-semibold flex items-center gap-1.5 border border-[#C89211]/40 transition cursor-pointer"
                         >
                           <Sparkles className="w-3.5 h-3.5" />
                           <span>{isGeneratingPng ? 'Generating...' : '⚡ Auto-Remove Background from Photo'}</span>
                         </button>
-                      )}
-                    </div>
-
-                    <input
-                      ref={pngFileInputRef}
-                      type="file"
-                      accept=".png,.webp"
-                      className="hidden"
-                      onChange={handleUploadPngFile}
-                    />
+                      </div>
+                    )}
                   </div>
 
                   {/* Dimensions & Frame Settings */}

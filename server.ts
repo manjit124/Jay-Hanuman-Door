@@ -59,6 +59,7 @@ import {
   uploadMediaToOwnerDrive,
   getDriveMediaBuffer,
   getDriveConnectionStatus,
+  loadServerDriveCredentials,
   saveServerDriveCredentials,
   testOwnerDriveUpload,
   listDriveCategoryFiles,
@@ -733,18 +734,40 @@ const handleDriveImageImport: express.RequestHandler = async (req, res) => {
       });
     }
 
+    // Upload to connected owner Google Drive if authorized
+    let driveUploadResult: any = null;
+    try {
+      const driveCreds = loadServerDriveCredentials();
+      if (driveCreds.refreshToken || driveCreds.accessToken) {
+        const category = (req.body?.category || req.query?.category || 'products') as DriveSubfolderCategory;
+        driveUploadResult = await uploadMediaToOwnerDrive(
+          validated.buffer,
+          filename,
+          validated.mimeType,
+          category,
+          `Imported image from ${validated.fileId ? `Google Drive File ID: ${validated.fileId}` : validated.sourceUrl}`
+        );
+      }
+    } catch (driveErr: any) {
+      console.warn('⚠️ [Drive Image Import] Upload to owner Google Drive notice:', driveErr?.message);
+    }
+
+    const finalUrl = driveUploadResult?.url || saveRes.url;
+
     return res.json({
       success: true,
-      url: saveRes.url,
-      downloadUrl: saveRes.downloadUrl || saveRes.url,
+      url: finalUrl,
+      downloadUrl: driveUploadResult?.url || saveRes.downloadUrl || saveRes.url,
+      driveUrl: driveUploadResult?.url,
+      driveFileId: driveUploadResult?.fileId || validated.fileId || null,
       filename,
-      fileId: validated.fileId || null,
-      isGoogleDrive: Boolean(validated.fileId),
+      fileId: driveUploadResult?.fileId || validated.fileId || null,
+      isGoogleDrive: Boolean(driveUploadResult?.fileId || validated.fileId),
       mimeType: validated.mimeType,
       size: validated.size,
       width: validated.width,
       height: validated.height,
-      storageType: saveRes.storageType,
+      storageType: driveUploadResult ? 'google_drive' : saveRes.storageType,
       firebaseBucket: saveRes.firebaseBucket,
       storagePath: saveRes.storagePath,
       // Backward compatibility aliases

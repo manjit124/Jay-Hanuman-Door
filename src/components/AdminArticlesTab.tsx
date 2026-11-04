@@ -64,6 +64,7 @@ import {
   deleteArticleCategory,
   uploadImage,
 } from '../lib/api.ts';
+import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 
 interface AdminArticlesTabProps {
   doors: Door[];
@@ -1424,44 +1425,16 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
               {/* TAB 3: IMAGES & YOUTUBE VIDEO */}
               {activeEditorTab === 'media' && (
                 <div className="space-y-6">
-                  {/* Featured Cover Image */}
-                  <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
-                    <label className="block text-[#1A1A1A] font-bold">
-                      Main Featured Cover Image
-                    </label>
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                      <div className="w-32 h-20 rounded-xl overflow-hidden bg-white border border-[#E5E5E5] shrink-0">
-                        <img
-                          src={formData.image}
-                          alt="Cover preview"
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-
-                      <div className="space-y-2 flex-1">
-                        <div className="flex items-center gap-2">
-                          <label className="cursor-pointer px-3.5 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition-all">
-                            <Upload className="w-3.5 h-3.5" />
-                            {uploadingImage ? 'Uploading...' : 'Upload Cover Image File'}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              disabled={uploadingImage}
-                              onChange={handleFeaturedImageUpload}
-                              className="hidden"
-                            />
-                          </label>
-                        </div>
-
-                        <input
-                          type="text"
-                          value={formData.image}
-                          onChange={e => setFormData({ ...formData, image: e.target.value })}
-                          placeholder="Or paste image URL"
-                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs font-mono"
-                        />
-                      </div>
-                    </div>
+                  {/* Featured Cover Image with Device Upload and Google Drive Link */}
+                  <div>
+                    <GoogleDriveImagePicker
+                      label="Main Featured Cover Image"
+                      sublabel="Upload high-res article banner from device or paste Google Drive link. Stored permanently in Google Drive."
+                      value={formData.image || ''}
+                      category="products"
+                      deviceUploadButtonText="Upload Cover Image File"
+                      onChange={(url) => setFormData(prev => ({ ...prev, image: url }))}
+                    />
                   </div>
 
                   {/* YouTube Video Integration */}
@@ -1533,52 +1506,56 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                     )}
                   </div>
 
-                  {/* Additional Gallery Photos */}
-                  <div className="p-4 rounded-2xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <h4 className="font-bold text-[#1A1A1A]">Article Photo Gallery</h4>
-                        <p className="text-[11px] text-[#666666]">
-                          Upload multiple high-res photos showcasing grain textures, joints, or finished installations.
-                        </p>
-                      </div>
-
-                      <label className="cursor-pointer px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] font-semibold text-xs flex items-center gap-1.5">
-                        <Upload className="w-3.5 h-3.5" />
-                        {uploadingGallery ? 'Uploading...' : 'Add Gallery Photos'}
-                        <input
-                          type="file"
-                          multiple
-                          accept="image/*"
-                          disabled={uploadingGallery}
-                          onChange={handleGalleryUpload}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
+                  {/* Additional Gallery Photos with Device Upload and Google Drive Link */}
+                  <div className="space-y-3">
+                    <GoogleDriveImagePicker
+                      label="Article Photo Gallery"
+                      sublabel="Upload photos showcasing grain textures, joints, or installations. Stored permanently in Google Drive."
+                      value=""
+                      allowMultiple
+                      category="products"
+                      deviceUploadButtonText="Add Gallery Photos"
+                      onChange={(url) => {
+                        if (!url) return;
+                        setFormData(prev => ({
+                          ...prev,
+                          gallery: [...prev.gallery, { url, caption: '' }],
+                        }));
+                      }}
+                      onAddMultiple={(urls) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          gallery: [...prev.gallery, ...urls.map(u => ({ url: u, caption: '' }))],
+                        }));
+                      }}
+                    />
 
                     {formData.gallery.length > 0 && (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
-                        {formData.gallery.map((img, idx) => (
-                          <div
-                            key={idx}
-                            className="relative group rounded-xl overflow-hidden border border-[#E5E5E5] bg-white aspect-video"
-                          >
-                            <img src={img.url} alt="" className="w-full h-full object-cover" />
-                            <button
-                              onClick={() => {
-                                setFormData(prev => ({
-                                  ...prev,
-                                  gallery: prev.gallery.filter((_, i) => i !== idx),
-                                }));
-                              }}
-                              className="absolute top-1 right-1 p-1 rounded bg-[#F8F8F6] text-rose-400 hover:text-rose-300"
-                              title="Remove photo"
+                      <div className="p-3 bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl space-y-2">
+                        <span className="text-xs font-bold text-[#1A1A1A]">Attached Gallery Photos ({formData.gallery.length}):</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {formData.gallery.map((img, idx) => (
+                            <div
+                              key={idx}
+                              className="relative group rounded-xl overflow-hidden border border-[#E5E5E5] bg-white aspect-video"
                             >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
+                              <img src={img.url} alt="" className="w-full h-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    gallery: prev.gallery.filter((_, i) => i !== idx),
+                                  }));
+                                }}
+                                className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white hover:bg-rose-600 transition"
+                                title="Remove photo"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
