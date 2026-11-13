@@ -565,6 +565,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         const results = await Promise.all(
           chunk.map(async file => {
             const res = await uploadImage(file, {
+              category: 'products',
               maxDimension: 1680,
               quality: 0.82,
               onProgress: (pct) => {
@@ -587,8 +588,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const savedKb = Math.round(totalSavedBytes / 1024);
       showToast(
         files.length > 1
-          ? `${files.length} photos uploaded in parallel${savedKb > 20 ? ` (saved ${savedKb} KB)` : ''}`
-          : `Image uploaded${savedKb > 20 ? ` (optimized by ${savedKb} KB)` : ' successfully'}`
+          ? `${files.length} photos uploaded to Google Drive${savedKb > 20 ? ` (saved ${savedKb} KB)` : ''}`
+          : `Image uploaded to Google Drive${savedKb > 20 ? ` (optimized by ${savedKb} KB)` : ' successfully'}`
       );
     } catch (err: any) {
       const msg = err?.message || 'Image upload failed. Please retry.';
@@ -606,21 +607,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 50 * 1024 * 1024) {
-      alert('Video file size exceeds 50 MB limit. Please select a compressed MP4/WebM video.');
+    if (file.size > 55 * 1024 * 1024) {
+      const msg = 'Video file size exceeds 55 MB limit. Please select a compressed MP4/WebM video.';
+      setDoorUploadError(msg);
+      showToast(msg);
+      e.target.value = '';
       return;
     }
 
     setUploadingVideo(true);
     setUploadProgress(5);
+    setDoorUploadError(null);
     try {
-      const res = await uploadVideo(file, (pct) => setUploadProgress(pct));
+      const res = await uploadVideo(file, (pct) => setUploadProgress(pct), 'videos');
       if (editingDoor) {
         setEditingDoor({ ...editingDoor, videoUrl: res.url });
       }
-      showToast('Product video uploaded successfully!');
+      showToast('Product video uploaded successfully to Google Drive!');
     } catch (err: any) {
-      alert(err.message || 'Video upload failed');
+      const msg = err?.message || 'Video upload failed';
+      setDoorUploadError(msg);
+      showToast(msg);
     } finally {
       setUploadingVideo(false);
       setUploadProgress(null);
@@ -2305,7 +2312,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 label="Transparent Cutout PNG (.png / .webp)"
                                 sublabel="Auto-optimizes cutout and saves permanently to Google Drive for Fit in Entrance visualizer"
                                 value={editingDoor.transparentPngUrl || ''}
-                                category="doors"
+                                category="products"
                                 deviceUploadButtonText="Upload Transparent PNG"
                                 onChange={(url) => {
                                   setEditingDoor(prev => ({
@@ -2331,14 +2338,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                         // Convert DataURL to File and upload to Google Drive
                                         const blob = await (await fetch(transparentDataUrl)).blob();
                                         const file = new File([blob], `door-${editingDoor.id || 'cutout'}-transparent.png`, { type: 'image/png' });
-                                        const res = await uploadImage(file);
+                                        const res = await uploadImage(file, { category: 'products' });
                                         setEditingDoor(prev => ({
                                           ...prev,
                                           transparentPngUrl: res.url,
                                         }));
                                         showToast('Transparent PNG auto-generated and saved to Google Drive!');
                                       } catch (err: any) {
-                                        alert(err.message || 'Auto background removal failed');
+                                        const msg = err?.message || 'Auto background removal failed';
+                                        setDoorUploadError(msg);
+                                        showToast(msg);
                                       } finally {
                                         setIsGeneratingPng(false);
                                       }

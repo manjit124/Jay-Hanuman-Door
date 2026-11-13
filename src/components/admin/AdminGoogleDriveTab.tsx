@@ -20,10 +20,12 @@ import {
   ArrowRight,
   ClipboardPaste,
   HardDrive,
+  Camera,
 } from 'lucide-react';
 import {
   getAdminAuthHeaders,
   apiFetch,
+  uploadFileWithProgress,
   previewDriveOrExternalMedia,
   importDriveOrExternalMediaToStorage,
   resolveImageUrl,
@@ -48,6 +50,7 @@ interface DriveFileItem {
 interface DriveStatus {
   configured: boolean;
   connected: boolean;
+  credentialsReady?: boolean;
   ownerEmail?: string;
   connectedAt?: string;
   lastVerifiedAt?: string;
@@ -81,6 +84,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
   // Manual File Upload & Link Import State
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<any>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [description, setDescription] = useState('');
@@ -212,30 +216,30 @@ export const AdminGoogleDriveTab: React.FC = () => {
     if (!uploadFile) return;
 
     setUploading(true);
+    setUploadProgress(5);
     setUploadSuccess(null);
     setUploadError(null);
 
     try {
-      const formData = new FormData();
-      let safeName = (uploadFile.name && uploadFile.name !== 'blob' && uploadFile.name.trim())
-        ? uploadFile.name.trim()
-        : `drive_upload_${Date.now()}`;
-      formData.append('file', uploadFile, safeName);
-      formData.append('category', activeCategory);
-      formData.append('description', description.trim() || `${activeCategory} upload`);
+      const result = await uploadFileWithProgress(
+        '/api/admin/drive/upload',
+        uploadFile,
+        pct => setUploadProgress(pct),
+        180000,
+        {
+          category: activeCategory,
+          mediaType: activeCategory === 'videos' ? 'video' : 'any',
+          description: description.trim() || `${activeCategory} upload`,
+        }
+      );
 
-      const res = await apiFetch('/api/admin/drive/upload', {
-        method: 'POST',
-        headers: getAdminAuthHeaders(),
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Upload failed');
+      if (!result.ok || !result.data?.success) {
+        const prefix = result.errorCode ? `[${result.errorCode}] ` : '';
+        throw new Error(`${prefix}${result.error || 'Upload failed'}`);
       }
 
-      setUploadSuccess(data);
+      setUploadProgress(100);
+      setUploadSuccess(result.data);
       setUploadFile(null);
       setDescription('');
       fetchCategoryFiles(activeCategory);
@@ -243,6 +247,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
       setUploadError(err.message || 'Failed to upload file to Google Drive');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -627,17 +632,34 @@ export const AdminGoogleDriveTab: React.FC = () => {
           {uploadSourceMode === 'device' ? (
             <form onSubmit={handleDirectUpload} className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-2 flex flex-wrap sm:flex-nowrap items-center gap-2">
                   <input
                     type="file"
-                    accept={activeCategory === 'videos' ? 'video/mp4,video/webm' : 'image/jpeg,image/png,image/webp,application/pdf'}
+                    accept={activeCategory === 'videos' ? 'video/mp4,video/webm,video/quicktime,video/*' : 'image/*,application/pdf'}
                     onChange={e => {
                       if (e.target.files && e.target.files[0]) {
                         setUploadFile(e.target.files[0]);
                       }
                     }}
-                    className="w-full text-xs text-stone-700 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#C89211] file:text-white hover:file:bg-[#A0700B] cursor-pointer bg-white p-2 rounded-xl border border-stone-300"
+                    className="flex-1 min-w-0 text-xs text-stone-700 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#C89211] file:text-white hover:file:bg-[#A0700B] cursor-pointer bg-white p-2 rounded-xl border border-stone-300"
                   />
+                  {activeCategory !== 'videos' && (
+                    <label className="px-3 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0">
+                      <Camera className="w-3.5 h-3.5 text-[#C89211]" />
+                      <span>Camera</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={e => {
+                          if (e.target.files && e.target.files[0]) {
+                            setUploadFile(e.target.files[0]);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
                 </div>
                 <div>
                   <input
@@ -645,10 +667,19 @@ export const AdminGoogleDriveTab: React.FC = () => {
                     placeholder="Optional description"
                     value={description}
                     onChange={e => setDescription(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#C89211]/30 bg-white"
+                    className="w-full px-3 py-2.5 rounded-xl border border-stone-300 text-xs text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#C89211]/30 bg-white"
                   />
                 </div>
               </div>
+
+              {uploading && uploadProgress !== null && (
+                <div className="w-full h-1.5 rounded-full bg-stone-200 overflow-hidden">
+                  <div
+                    className="h-full bg-[#C89211] transition-all duration-200"
+                    style={{ width: `${Math.max(8, Math.min(100, uploadProgress))}%` }}
+                  />
+                </div>
+              )}
 
               <div className="flex justify-end pt-1">
                 <button
@@ -659,7 +690,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
                   {uploading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                      <span>Uploading to Google Drive...</span>
+                      <span>Uploading to Google Drive{uploadProgress !== null ? ` (${uploadProgress}%)` : ''}...</span>
                     </>
                   ) : (
                     <>

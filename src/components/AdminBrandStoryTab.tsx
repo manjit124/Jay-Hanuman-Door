@@ -14,7 +14,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { BusinessSettings, CompanyStorySettings } from '../types.ts';
-import { uploadImage, updateSettings, resolveImageUrl } from '../lib/api.ts';
+import { uploadImage, inferMediaKindAndMime, updateSettings, resolveImageUrl } from '../lib/api.ts';
 import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 
 export const DEFAULT_STORY_SETTINGS: CompanyStorySettings = {
@@ -94,17 +94,20 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Allowed image formats
-    const validImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (!validImageTypes.includes(file.type.toLowerCase())) {
-      alert('Please select a valid image file (JPG, JPEG, PNG, or WebP).');
+    const inferred = inferMediaKindAndMime(file);
+    const isImageCandidate =
+      inferred.kind === 'image' ||
+      (inferred.kind === 'unknown' && (!file.type || file.type === 'application/octet-stream'));
+
+    if (!isImageCandidate) {
+      showToast('Please select a valid image file (JPG, JPEG, PNG, or WebP).');
       e.target.value = '';
       return;
     }
 
     // Maximum file size check (15 MB)
     if (file.size > 15 * 1024 * 1024) {
-      alert('Image file size is too large. Please select an image under 15MB.');
+      showToast('Image file size is too large. Please select an image under 15MB.');
       e.target.value = '';
       return;
     }
@@ -115,13 +118,14 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
       setUploadingPhoto(true);
       setUploadProgress(5);
       const res = await uploadImage(file, {
+        category: 'products',
         maxDimension: 1200,
         quality: 0.84,
         onProgress: pct => setUploadProgress(pct),
       });
       if (res?.url) {
         setFormData(prev => ({ ...prev, ownerPhotoUrl: res.url }));
-        showToast('Owner photo uploaded! Click "Save Changes" to apply.');
+        showToast('Owner photo uploaded to Google Drive! Click "Save Changes" to apply.');
       }
     } catch (err: any) {
       showToast(err?.message || 'Image upload failed. Please try again.');

@@ -18,7 +18,6 @@ import {
   setDoc,
   deleteDoc,
   setLogLevel,
-  disableNetwork,
   type Firestore,
 } from 'firebase/firestore';
 import {
@@ -101,11 +100,11 @@ export function isClientQuotaExhaustedError(err: any): boolean {
   );
 }
 
+let clientFirestoreUnavailableUntil = 0;
+
 function handleClientQuotaExhausted(context: string): void {
   clientWriteQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000; // 1 hour cooldown
-  if (clientFirestore) {
-    disableNetwork(clientFirestore).catch(() => {});
-  }
+  // NOTE: Do NOT call disableNetwork(clientFirestore) here — it blocks all read queries with "client is offline".
   if (!hasLoggedClientQuotaNotice) {
     hasLoggedClientQuotaNotice = true;
     console.info(
@@ -444,7 +443,10 @@ async function computeSha256Hex(text: string): Promise<string> {
  */
 export async function fetchDirectFirestoreData(): Promise<any | null> {
   const localOverride = loadLocalAdminOverride();
-  if (isClientWriteQuotaExhausted() && localOverride) {
+  if ((isClientWriteQuotaExhausted() || Date.now() < clientFirestoreUnavailableUntil) && localOverride) {
+    return localOverride;
+  }
+  if (Date.now() < clientFirestoreUnavailableUntil) {
     return localOverride;
   }
 
@@ -489,6 +491,12 @@ export async function fetchDirectFirestoreData(): Promise<any | null> {
       }
     }
   } catch (err: any) {
+    const msg = String(err?.message || '').toLowerCase();
+    const code = String(err?.code || '').toLowerCase();
+    if (code === 'unavailable' || code === 'not-found' || msg.includes('client is offline') || msg.includes('does not exist')) {
+      clientFirestoreUnavailableUntil = Date.now() + 10 * 60 * 1000;
+      return localOverride;
+    }
     console.warn('[FirestoreClient] Could not fetch master_production_data:', err.message);
   }
   return localOverride;

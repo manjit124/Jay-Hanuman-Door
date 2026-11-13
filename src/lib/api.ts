@@ -98,7 +98,6 @@ import {
   adminLogoutViaFirebase,
   uploadDirectFirebaseStorage,
 } from './firestoreClient.ts';
-import { uploadBlobToDrive } from './googleDriveService.ts';
 
 const ADMIN_TOKEN_KEY = 'shivshahi_admin_token';
 const CUSTOM_API_URL_KEY = 'jai_custom_api_base_url';
@@ -636,6 +635,20 @@ export function resolveImageUrl(path: string | undefined | null, fallback?: stri
     }
   }
 
+  // Normalize /api/drive/media/:fileId paths (strip any stale ais-dev/localhost origin on web, use production base on native)
+  const driveMediaIdx = trimmed.lastIndexOf('/api/drive/media/');
+  if (driveMediaIdx !== -1) {
+    const fileIdPart = trimmed.slice(driveMediaIdx + '/api/drive/media/'.length).split('?')[0].split('#')[0];
+    if (fileIdPart) {
+      const cleanDrivePath = '/api/drive/media/' + fileIdPart;
+      if (typeof window !== 'undefined' && !isCapacitorOrNative()) {
+        return cleanDrivePath;
+      }
+      const base = getApiBaseUrl();
+      return base ? base + cleanDrivePath : cleanDrivePath;
+    }
+  }
+
   // If it's an obsolete dev container URL, strip the obsolete domain and route to production
   if (trimmed.includes('ais-dev-') || trimmed.includes('768916382182')) {
     try {
@@ -1152,6 +1165,10 @@ export async function clearUserCalculations(): Promise<void> {
 
 
 export interface ImageUploadOptions {
+  /** Target Google Drive subfolder category (e.g. products, catalog, banners, delivery) */
+  category?: string;
+  /** Optional file description saved on Google Drive */
+  description?: string;
   /** Maximum width or height in pixels (default: 1680 for door/product photos, 1920 for banners) */
   maxDimension?: number;
   /** JPEG/WebP compression quality between 0.1 and 1.0 (default: 0.82 to preserve wood grain and carving detail) */
@@ -1176,11 +1193,98 @@ export interface ImageOptimizationResult {
 
 export interface UploadedImageResponse {
   url: string;
+  fileId?: string;
+  filename?: string;
+  mimeType?: string;
+  storageType?: string;
   originalSize?: number;
   optimizedSize?: number;
   width?: number;
   height?: number;
   durationMs?: number;
+}
+
+export function inferMediaKindAndMime(file: File): {
+  kind: 'image' | 'video' | 'model3d' | 'unknown';
+  mimeType: string;
+  extension: string;
+} {
+  const rawType = (file.type || '').toLowerCase().split(';')[0].trim();
+  const rawName = (file.name || '').toLowerCase().trim();
+  const dotIdx = rawName.lastIndexOf('.');
+  const rawExt = dotIdx !== -1 ? rawName.slice(dotIdx) : '';
+
+  const videoExts: Record<string, string> = {
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.mov': 'video/quicktime',
+    '.m4v': 'video/mp4',
+    '.3gp': 'video/3gpp',
+    '.mkv': 'video/x-matroska',
+  };
+  const modelExts: Record<string, string> = {
+    '.glb': 'model/gltf-binary',
+    '.gltf': 'model/gltf+json',
+  };
+  const imageExts: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.avif': 'image/avif',
+    '.heic': 'image/heic',
+    '.heif': 'image/heif',
+    '.bmp': 'image/bmp',
+  };
+
+  if (rawType.startsWith('video/') || (rawExt && videoExts[rawExt])) {
+    const ext = videoExts[rawExt] ? rawExt : rawType.includes('webm') ? '.webm' : rawType.includes('quicktime') ? '.mov' : '.mp4';
+    return {
+      kind: 'video',
+      mimeType: rawType.startsWith('video/') ? rawType : (videoExts[rawExt] || 'video/mp4'),
+      extension: ext,
+    };
+  }
+
+  if (rawType.includes('gltf') || (rawExt && modelExts[rawExt])) {
+    const ext = rawExt === '.gltf' ? '.gltf' : '.glb';
+    return {
+      kind: 'model3d',
+      mimeType: modelExts[ext] || 'model/gltf-binary',
+      extension: ext,
+    };
+  }
+
+  if (rawType.startsWith('image/') || (rawExt && imageExts[rawExt])) {
+    const ext = imageExts[rawExt]
+      ? rawExt
+      : rawType.includes('png')
+      ? '.png'
+      : rawType.includes('webp')
+      ? '.webp'
+      : rawType.includes('gif')
+      ? '.gif'
+      : rawType.includes('svg')
+      ? '.svg'
+      : '.jpg';
+    return {
+      kind: 'image',
+      mimeType: rawType.startsWith('image/') ? rawType : (imageExts[rawExt] || 'image/jpeg'),
+      extension: ext,
+    };
+  }
+
+  // Android WebView content:// URIs sometimes produce empty type "" or "application/octet-stream"
+  if (!rawType || rawType === 'application/octet-stream' || rawType === 'binary/octet-stream') {
+    if (rawName.includes('video') || rawName.includes('vid_') || rawName.includes('mp4')) {
+      return { kind: 'video', mimeType: 'video/mp4', extension: '.mp4' };
+    }
+    return { kind: 'unknown', mimeType: 'application/octet-stream', extension: rawExt || '.jpg' };
+  }
+
+  return { kind: 'unknown', mimeType: rawType, extension: rawExt || '.bin' };
 }
 
 /**
@@ -1273,13 +1377,17 @@ export async function optimizeImageForUpload(
   const quality = options.quality ?? 0.82;
   const skipThresholdBytes = options.skipThresholdBytes ?? 320 * 1024;
 
-  // Never attempt canvas compression on non-image files or SVG vector graphics
+  const inferred = inferMediaKindAndMime(file);
+
+  // Never attempt canvas compression on non-image files, SVG vector graphics, or animated GIFs
   if (
     typeof window === 'undefined' ||
     typeof document === 'undefined' ||
-    !file.type.startsWith('image/') ||
-    file.type === 'image/svg+xml' ||
-    file.type === 'image/gif'
+    inferred.kind === 'video' ||
+    inferred.kind === 'model3d' ||
+    (inferred.kind === 'unknown' && file.type && !file.type.startsWith('image/') && file.type !== 'application/octet-stream') ||
+    inferred.mimeType === 'image/svg+xml' ||
+    inferred.mimeType === 'image/gif'
   ) {
     return {
       file,
@@ -1432,15 +1540,36 @@ export async function compressImageToDataUrl(file: File, maxDimension = 1000, qu
   });
 }
 
+function resolveSafeUploadFilename(file: File, fallbackPrefix = 'jhd_media'): string {
+  const inferred = inferMediaKindAndMime(file);
+  const rawName = (file.name || '').trim();
+  const isGenericBlob =
+    !rawName ||
+    rawName === 'blob' ||
+    rawName.startsWith('image:') ||
+    rawName.startsWith('video:') ||
+    rawName.startsWith('content://');
+
+  if (!isGenericBlob) {
+    const clean = rawName.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const hasExt = /\.[a-z0-9]{2,5}$/i.test(clean);
+    return hasExt ? clean : `${clean}${inferred.extension}`;
+  }
+
+  const ext = inferred.extension && inferred.extension !== '.bin' ? inferred.extension : '.jpg';
+  return `${fallbackPrefix}_${Date.now()}${ext}`;
+}
+
 /**
- * Uploads a binary File via XMLHttpRequest with real upload progress events and a strict timeout.
+ * Uploads a binary File via XMLHttpRequest with real upload progress events, metadata fields, and strict timeout.
  */
-function uploadFileWithProgress(
+export function uploadFileWithProgress(
   endpoint: string,
   fileToUpload: File,
   onProgress?: (percent: number) => void,
-  timeoutMs = 60000
-): Promise<{ ok: boolean; status: number; data?: any; error?: string; isHtml?: boolean }> {
+  timeoutMs = 90000,
+  extraFields?: Record<string, string | undefined>
+): Promise<{ ok: boolean; status: number; errorCode?: string; data?: any; error?: string; isHtml?: boolean }> {
   return new Promise((resolve, reject) => {
     const fullUrl = resolveApiUrl(endpoint);
     const xhr = new XMLHttpRequest();
@@ -1455,7 +1584,7 @@ function uploadFileWithProgress(
     if (xhr.upload && onProgress) {
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable && event.total > 0) {
-          const pct = Math.min(98, Math.max(10, Math.round((event.loaded / event.total) * 100)));
+          const pct = Math.min(97, Math.max(10, Math.round((event.loaded / event.total) * 100)));
           onProgress(pct);
         }
       };
@@ -1472,9 +1601,13 @@ function uploadFileWithProgress(
           ok: false,
           status,
           isHtml,
-          error: isHtml
-            ? `Upload server returned HTML (${status}) instead of JSON`
-            : `Upload server returned non-JSON (${status})`,
+          errorCode: status === 404 ? 'ROUTE_NOT_DEPLOYED' : isHtml ? 'HTML_RESPONSE' : 'NON_JSON_RESPONSE',
+          error:
+            status === 404
+              ? `Backend route "${endpoint}" returned 404 Not Found on "${fullUrl}". Deploy the latest server revision to Cloud Run.`
+              : isHtml
+              ? `Upload server returned HTML (${status}) instead of JSON. Check Cloud Run URL & deployment.`
+              : `Upload server returned non-JSON (${status})`,
         });
         return;
       }
@@ -1487,6 +1620,8 @@ function uploadFileWithProgress(
           resolve({
             ok: false,
             status,
+            errorCode: parsed?.errorCode,
+            data: parsed,
             error: parsed?.error || `Upload failed with HTTP ${status}`,
           });
         }
@@ -1494,35 +1629,34 @@ function uploadFileWithProgress(
         resolve({
           ok: false,
           status,
+          errorCode: 'INVALID_JSON',
           error: `Malformed JSON response from upload server: ${err.message}`,
         });
       }
     };
 
     xhr.onerror = () => {
-      reject(new Error(`Network error during upload to ${fullUrl} (HTTP ${xhr.status || 0}). Please check backend server status and network connectivity.`));
+      reject(
+        new Error(
+          `Network error during upload to ${fullUrl} (HTTP ${xhr.status || 0}). Check internet connection, HTTPS certificate, or Cloud Run server reachability.`
+        )
+      );
     };
 
     xhr.ontimeout = () => {
-      reject(new Error(`Upload timed out after ${Math.round(timeoutMs / 1000)} seconds`));
+      reject(new Error(`Upload timed out after ${Math.round(timeoutMs / 1000)} seconds. Check connection or try a smaller file.`));
     };
 
     const formData = new FormData();
-    // Resolve safe filename with proper extension if fileToUpload.name is missing, empty, or 'blob' on Android WebView
-    let safeName = (fileToUpload.name && fileToUpload.name !== 'blob' && fileToUpload.name.trim())
-      ? fileToUpload.name.trim()
-      : '';
-    if (!safeName) {
-      const ext = fileToUpload.type?.includes('png')
-        ? '.png'
-        : fileToUpload.type?.includes('webp')
-        ? '.webp'
-        : fileToUpload.type?.includes('video') || fileToUpload.type?.includes('mp4')
-        ? '.mp4'
-        : '.jpg';
-      safeName = `android_upload_${Date.now()}${ext}`;
-    }
+    const safeName = resolveSafeUploadFilename(fileToUpload, extraFields?.category ? `jhd_${extraFields.category}` : 'android_upload');
     formData.append('file', fileToUpload, safeName);
+    if (extraFields) {
+      for (const [key, val] of Object.entries(extraFields)) {
+        if (val !== undefined && val !== null && String(val).trim() !== '') {
+          formData.append(key, String(val).trim());
+        }
+      }
+    }
     xhr.send(formData);
   });
 }
@@ -1537,10 +1671,11 @@ export async function uploadImage(
     throw new Error('No image file provided for upload.');
   }
 
-  const cacheKey = `${file.name}_${file.size}_${file.lastModified}`;
+  const targetCategory = (options.category || 'products').trim() || 'products';
+  const cacheKey = `${targetCategory}::${file.name}_${file.size}_${file.lastModified}`;
   if (uploadSessionCache.has(cacheKey)) {
     options.onProgress?.(100, 'uploading');
-    console.info(`[AdminUpload] Returning cached upload for ${file.name}`);
+    console.info(`[AdminUpload] Returning cached upload for ${file.name} (${targetCategory})`);
     return uploadSessionCache.get(cacheKey)!;
   }
 
@@ -1569,47 +1704,53 @@ export async function uploadImage(
     };
   }
 
-  options.onProgress?.(20, 'uploading');
+  options.onProgress?.(18, 'uploading');
 
-  // 2. Upload photo directly to Google Drive (Owner's Central Permanent Media Storage)
-  try {
-    options.onProgress?.(40, 'uploading');
-    const filename = (optimization.file.name && optimization.file.name !== 'blob' && optimization.file.name.trim())
-      ? optimization.file.name.trim()
-      : `door_photo_${Date.now()}.jpg`;
-    const mimeType = optimization.file.type || 'image/jpeg';
+  // 2. Upload photo securely through backend Express API -> Owner Google Drive
+  const filename = resolveSafeUploadFilename(optimization.file, `door_${targetCategory}`);
+  const uploadResult = await uploadFileWithProgress(
+    '/api/admin/drive/upload',
+    optimization.file,
+    pct => options.onProgress?.(pct, 'uploading'),
+    90000,
+    {
+      category: targetCategory,
+      mediaType: 'image',
+      description: options.description || `Admin ${targetCategory} photo upload: ${filename}`,
+    }
+  );
 
-    const driveRes = await uploadBlobToDrive(
-      optimization.file,
-      filename,
-      mimeType,
-      'Jai Hanuman Door Media/products',
-      `Admin photo upload: ${filename}`
-    );
-
-    const totalDurationMs = Math.round(
-      (typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart
-    );
-    options.onProgress?.(100, 'uploading');
-
-    console.info(`[AdminUpload] Photo saved permanently to Google Drive (${totalDurationMs}ms): ${driveRes.directUrl}`);
-
-    const finalRes: UploadedImageResponse = {
-      url: driveRes.directUrl,
-      originalSize: optimization.originalSize,
-      optimizedSize: optimization.optimizedSize,
-      width: optimization.width,
-      height: optimization.height,
-      durationMs: totalDurationMs,
-    };
-
-    try { uploadSessionCache.set(cacheKey, finalRes); } catch {}
-    return finalRes;
-  } catch (driveErr: any) {
-    const msg = driveErr?.message || String(driveErr);
-    console.error('[AdminUpload] Google Drive photo upload failed:', msg);
-    throw new Error(`Google Drive photo upload failed: ${msg}`);
+  if (!uploadResult.ok || !uploadResult.data?.url) {
+    const codePrefix = uploadResult.errorCode ? `[${uploadResult.errorCode}] ` : '';
+    throw new Error(`${codePrefix}${uploadResult.error || `Google Drive upload failed (HTTP ${uploadResult.status})`}`);
   }
+
+  const totalDurationMs = Math.round(
+    (typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart
+  );
+  options.onProgress?.(100, 'uploading');
+
+  const finalRes: UploadedImageResponse = {
+    url: uploadResult.data.url,
+    fileId: uploadResult.data.fileId,
+    filename: uploadResult.data.name || uploadResult.data.filename || filename,
+    mimeType: uploadResult.data.mimeType,
+    storageType: uploadResult.data.storageType || 'google_drive',
+    originalSize: optimization.originalSize,
+    optimizedSize: optimization.optimizedSize,
+    width: optimization.width,
+    height: optimization.height,
+    durationMs: totalDurationMs,
+  };
+
+  console.info(
+    `[AdminUpload] Photo uploaded via backend to Google Drive (${totalDurationMs}ms): fileId=${finalRes.fileId || 'n/a'} url=${finalRes.url}`
+  );
+
+  try {
+    uploadSessionCache.set(cacheKey, finalRes);
+  } catch {}
+  return finalRes;
 }
 
 export interface DriveMediaPreviewResult {
@@ -1920,73 +2061,84 @@ export const importDriveOrExternalImageToR2 = importDriveOrExternalImageToStorag
 
 export async function uploadVideo(
   file: File,
-  onProgress?: (percent: number) => void
-): Promise<{ url: string; filename?: string; size?: number }> {
+  onProgress?: (percent: number) => void,
+  category = 'videos'
+): Promise<{ url: string; fileId?: string; filename?: string; mimeType?: string; size?: number; storageType?: string }> {
   if (!file) {
     throw new Error('No video file provided for upload.');
   }
 
-  try {
-    onProgress?.(20);
-    const filename = file.name && file.name !== 'blob' ? file.name : `product_video_${Date.now()}.mp4`;
-    const mimeType = file.type || 'video/mp4';
+  onProgress?.(8);
+  const filename = resolveSafeUploadFilename(file, 'product_video');
+  const uploadResult = await uploadFileWithProgress(
+    '/api/admin/drive/upload',
+    file,
+    onProgress,
+    180000,
+    {
+      category: category || 'videos',
+      mediaType: 'video',
+      description: `Admin video upload: ${filename}`,
+    }
+  );
 
-    const driveRes = await uploadBlobToDrive(
-      file,
-      filename,
-      mimeType,
-      'Jai Hanuman Door Media/videos',
-      `Admin product video upload: ${filename}`
-    );
-
-    onProgress?.(100);
-    console.info(`[AdminUpload] Video saved permanently to Google Drive: ${driveRes.directUrl}`);
-
-    return {
-      url: driveRes.directUrl,
-      filename: driveRes.name,
-      size: file.size,
-    };
-  } catch (driveErr: any) {
-    const errorMsg = driveErr?.message || String(driveErr);
-    console.error('[AdminUpload] Google Drive video upload error:', errorMsg);
-    throw new Error(`Google Drive video upload failed: ${errorMsg}`);
+  if (!uploadResult.ok || !uploadResult.data?.url) {
+    const codePrefix = uploadResult.errorCode ? `[${uploadResult.errorCode}] ` : '';
+    throw new Error(`${codePrefix}${uploadResult.error || `Google Drive video upload failed (HTTP ${uploadResult.status})`}`);
   }
+
+  onProgress?.(100);
+  console.info(`[AdminUpload] Video uploaded via backend to Google Drive: fileId=${uploadResult.data.fileId || 'n/a'} url=${uploadResult.data.url}`);
+
+  return {
+    url: uploadResult.data.url,
+    fileId: uploadResult.data.fileId,
+    filename: uploadResult.data.name || uploadResult.data.filename || filename,
+    mimeType: uploadResult.data.mimeType,
+    size: uploadResult.data.size || file.size,
+    storageType: uploadResult.data.storageType || 'google_drive',
+  };
 }
 
-export async function upload3DModel(file: File): Promise<{
+export async function upload3DModel(
+  file: File,
+  onProgress?: (percent: number) => void,
+  category = 'products'
+): Promise<{
   url: string;
+  fileId?: string;
   filename: string;
   originalName: string;
   size: number;
   is3DModel: boolean;
 }> {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const token = getAdminToken();
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  if (!file) {
+    throw new Error('No 3D model file provided for upload.');
   }
 
-  const res = await apiFetch('/api/admin/upload-model', {
-    method: 'POST',
-    headers,
-    body: formData,
-  });
+  onProgress?.(10);
+  const uploadResult = await uploadFileWithProgress(
+    '/api/admin/upload-model',
+    file,
+    onProgress,
+    150000,
+    { category, mediaType: 'model3d' }
+  );
 
-  const parsed = await parseSafeJsonResponse<{
-    url: string;
-    filename: string;
-    originalName: string;
-    size: number;
-    is3DModel: boolean;
-  }>(res, '3D Model / Texture upload');
-  if (!parsed.success || !parsed.data) {
-    throw new Error(parsed.error || '3D Model / Texture upload failed');
+  if (!uploadResult.ok || !uploadResult.data?.url) {
+    const codePrefix = uploadResult.errorCode ? `[${uploadResult.errorCode}] ` : '';
+    throw new Error(`${codePrefix}${uploadResult.error || '3D Model / Texture upload failed'}`);
   }
-  return parsed.data;
+
+  onProgress?.(100);
+  return {
+    url: uploadResult.data.url,
+    fileId: uploadResult.data.fileId,
+    filename: uploadResult.data.filename || file.name,
+    originalName: uploadResult.data.originalName || file.name,
+    size: uploadResult.data.size || file.size,
+    is3DModel: Boolean(uploadResult.data.is3DModel),
+  };
 }
 
 export async function updateDoor3DConfig(
@@ -4058,7 +4210,8 @@ export async function uploadAdminTrackingMedia(
 
   if (file) {
     const formData = new FormData();
-    formData.append('file', file);
+    const safeName = resolveSafeUploadFilename(file, 'tracking_proof');
+    formData.append('file', file, safeName);
     formData.append('stageId', meta.stageId);
     if (meta.caption) formData.append('caption', meta.caption);
     if (meta.isCustomerVisible !== undefined) {

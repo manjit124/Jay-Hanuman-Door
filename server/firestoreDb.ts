@@ -18,7 +18,6 @@ import {
   setDoc,
   deleteDoc,
   setLogLevel,
-  disableNetwork,
   Firestore,
 } from 'firebase/firestore';
 import {
@@ -41,9 +40,28 @@ let isInitialized = false;
 let authPromise: Promise<boolean> | null = null;
 let serverWriteQuotaExhaustedUntil = 0;
 let hasLoggedQuotaNotice = false;
+let cachedFirebaseConfig: any = null;
+let firestoreDatabaseUnavailableUntil = 0;
+let firestoreAvailabilityCheckPromise: Promise<boolean> | null = null;
+let hasLoggedUnavailableNotice = false;
 
 export function isServerFirestoreWriteQuotaExhausted(): boolean {
   return Date.now() < serverWriteQuotaExhaustedUntil;
+}
+
+function isOfflineOrMissingDbError(err: any): boolean {
+  const code = String(err?.code || '').toLowerCase();
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    code === 'unavailable' ||
+    code === 'not-found' ||
+    code === 'failed-precondition' ||
+    msg.includes('client is offline') ||
+    msg.includes('does not exist') ||
+    msg.includes('5 not_found') ||
+    msg.includes('firestore_read_timeout') ||
+    msg.includes('could not reach cloud firestore backend')
+  );
 }
 
 function isQuotaExhaustedError(err: any): boolean {
@@ -62,9 +80,7 @@ function isQuotaExhaustedError(err: any): boolean {
 
 function handleServerQuotaExhausted(context: string): void {
   serverWriteQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000; // 1 hour cooldown
-  if (firestoreDb) {
-    disableNetwork(firestoreDb).catch(() => {});
-  }
+  // NOTE: Do NOT call disableNetwork(firestoreDb) here — disabling network breaks all subsequent reads with "client is offline".
   if (!hasLoggedQuotaNotice) {
     hasLoggedQuotaNotice = true;
     console.info(
@@ -73,24 +89,93 @@ function handleServerQuotaExhausted(context: string): void {
   }
 }
 
-async function withFirestoreWriteTimeout<T>(
+function markServerFirestoreUnavailable(reason: string, durationMs = 30 * 60 * 1000): void {
+  firestoreDatabaseUnavailableUntil = Date.now() + durationMs;
+  if (!hasLoggedUnavailableNotice) {
+    hasLoggedUnavailableNotice = true;
+    console.info(
+      `ℹ️ [Firestore] ${reason}. Operating with local authoritative disk storage fallback.`
+    );
+  }
+}
+
+async function withFirestoreTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,
-  context: string
+  context: string,
+  kind: 'read' | 'write' = 'write'
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  const tag = kind === 'read' ? 'FIRESTORE_READ_TIMEOUT' : 'FIRESTORE_WRITE_TIMEOUT';
   try {
     return await Promise.race([
       operation,
       new Promise<T>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`FIRESTORE_WRITE_TIMEOUT (${timeoutMs}ms) during ${context}`));
+          reject(new Error(`${tag} (${timeoutMs}ms) during ${context}`));
         }, timeoutMs);
       }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function loadFirebaseConfig(): any | null {
+  if (cachedFirebaseConfig) return cachedFirebaseConfig;
+  try {
+    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    if (!fs.existsSync(configPath)) return null;
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    if (!config?.projectId) return null;
+    cachedFirebaseConfig = config;
+    return config;
+  } catch {
+    return null;
+  }
+}
+
+export async function checkServerFirestoreAvailability(): Promise<boolean> {
+  if (Date.now() < firestoreDatabaseUnavailableUntil) {
+    return false;
+  }
+  const config = loadFirebaseConfig();
+  if (!config) return false;
+  if (firestoreAvailabilityCheckPromise) {
+    return firestoreAvailabilityCheckPromise;
+  }
+
+  firestoreAvailabilityCheckPromise = (async () => {
+    try {
+      const dbId = config.firestoreDatabaseId || '(default)';
+      const apiKey = config.apiKey ? `?key=${encodeURIComponent(config.apiKey)}` : '';
+      const probeUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.projectId)}/databases/${encodeURIComponent(dbId)}/documents/admin_store/master_production_data${apiKey}`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
+      try {
+        const resp = await fetch(probeUrl, { method: 'GET', signal: controller.signal });
+        if (resp.status === 404) {
+          const text = await resp.text().catch(() => '');
+          if (text.toLowerCase().includes('does not exist') || text.toLowerCase().includes('datastore/setup')) {
+            markServerFirestoreUnavailable(
+              `Cloud Firestore database "${dbId}" is not provisioned in project "${config.projectId}"`
+            );
+            return false;
+          }
+        }
+        return true;
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      // Transient network errors during probe shouldn't permanently disable Firestore
+      return true;
+    } finally {
+      firestoreAvailabilityCheckPromise = null;
+    }
+  })();
+
+  return firestoreAvailabilityCheckPromise;
 }
 
 export function getFirestoreInstance(): Firestore | null {
@@ -101,15 +186,9 @@ export function getFirestoreInstance(): Firestore | null {
   } catch {}
 
   try {
-    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-    if (!fs.existsSync(configPath)) {
-      console.warn('⚠️ [Firestore] firebase-applet-config.json not found. Operating in local-only fallback.');
-      return null;
-    }
-
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    if (!config.projectId) {
-      console.warn('⚠️ [Firestore] No projectId in config.');
+    const config = loadFirebaseConfig();
+    if (!config) {
+      console.warn('⚠️ [Firestore] firebase-applet-config.json missing or lacks projectId. Operating in local-only fallback.');
       return null;
     }
 
@@ -131,7 +210,7 @@ export function getFirestoreInstance(): Firestore | null {
     firestoreDb = getFirestore(firebaseApp, dbId);
     serverAuth = getAuth(firebaseApp);
     isInitialized = true;
-    console.log(`✅ [Firestore] Connected to persistent database (Project: ${config.projectId}, DatabaseId: ${dbId})`);
+    console.info(`ℹ️ [Firestore] Initialized client handle (Project: ${config.projectId}, DatabaseId: ${dbId})`);
     return firestoreDb;
   } catch (err: any) {
     console.warn('⚠️ [Firestore] Connection warning:', err.message);
@@ -206,12 +285,13 @@ export async function ensureServerFirebaseAuth(): Promise<boolean> {
  * Returns null if not found or on connection error.
  */
 export async function fetchAuthoritativeFirestoreDb(): Promise<DatabaseSchema | null> {
+  if (!(await checkServerFirestoreAvailability())) return null;
   const db = getFirestoreInstance();
   if (!db) return null;
 
   try {
     const masterDocRef = doc(db, 'admin_store', 'master_production_data');
-    const snapshot = await getDoc(masterDocRef);
+    const snapshot = await withFirestoreTimeout(getDoc(masterDocRef), 3500, 'fetchAuthoritativeFirestoreDb(master)', 'read');
 
     if (snapshot.exists()) {
       const data = snapshot.data();
@@ -223,7 +303,12 @@ export async function fetchAuthoritativeFirestoreDb(): Promise<DatabaseSchema | 
           for (let i = 1; i < chunkCount; i++) {
             chunkPromises.push(getDoc(doc(db, 'admin_store', `master_production_chunk_${i}`)));
           }
-          const chunkSnaps = await Promise.all(chunkPromises);
+          const chunkSnaps = await withFirestoreTimeout(
+            Promise.all(chunkPromises),
+            5000,
+            'fetchAuthoritativeFirestoreDb(chunks)',
+            'read'
+          );
           for (let i = 0; i < chunkSnaps.length; i++) {
             const cSnap = chunkSnaps[i];
             const chunkIndex = i + 1;
@@ -262,6 +347,10 @@ export async function fetchAuthoritativeFirestoreDb(): Promise<DatabaseSchema | 
       }
     }
   } catch (err: any) {
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable('Firestore read skipped because cloud database is offline or unprovisioned', 10 * 60 * 1000);
+      return null;
+    }
     console.warn('⚠️ [Firestore] Could not load from master_production_data:', err.message);
   }
   return null;
@@ -274,6 +363,7 @@ export async function fetchAuthoritativeFirestoreDb(): Promise<DatabaseSchema | 
  */
 export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promise<boolean> {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!(await checkServerFirestoreAvailability())) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
@@ -292,9 +382,6 @@ export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promis
     const chunkCount = Math.max(1, Math.ceil(totalLength / MAX_CHUNK_CHARS));
     const firstChunk = chunkCount === 1 ? jsonStr : jsonStr.slice(0, MAX_CHUNK_CHARS);
 
-    // CRITICAL FIX: Write ALL secondary chunks FIRST before updating masterDocRef metadata.
-    // If any chunk write fails or times out, abort writing masterDocRef so the previous
-    // valid database state in Firestore remains uncorrupted.
     if (chunkCount > 1) {
       const chunkPromises: Promise<any>[] = [];
       for (let i = 1; i < chunkCount; i++) {
@@ -309,11 +396,10 @@ export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promis
           }, { merge: true })
         );
       }
-      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 8000, 'saveAuthoritativeFirestoreDb(chunks)');
+      await withFirestoreTimeout(Promise.all(chunkPromises), 8000, 'saveAuthoritativeFirestoreDb(chunks)', 'write');
     }
 
-    // Only commit master document metadata and first chunk after all secondary chunks succeed
-    await withFirestoreWriteTimeout(
+    await withFirestoreTimeout(
       setDoc(masterDocRef, {
         version: Number(data.version) || 1,
         lastModified: data.lastModified || new Date().toISOString(),
@@ -323,7 +409,8 @@ export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promis
         dataJson: firstChunk,
       }, { merge: true }),
       4000,
-      'saveAuthoritativeFirestoreDb(master)'
+      'saveAuthoritativeFirestoreDb(master)',
+      'write'
     );
 
     console.log(
@@ -333,6 +420,10 @@ export async function saveAuthoritativeFirestoreDb(data: DatabaseSchema): Promis
   } catch (err: any) {
     if (isQuotaExhaustedError(err)) {
       handleServerQuotaExhausted('saveAuthoritativeFirestoreDb');
+      return false;
+    }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable('Cloud Firestore database unavailable during save', 10 * 60 * 1000);
       return false;
     }
     console.warn('⚠️ [Firestore] Could not sync master database to cloud:', err.message);
@@ -361,6 +452,7 @@ export async function saveEntityToFirestore(
   data: any
 ): Promise<boolean> {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!(await checkServerFirestoreAvailability())) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
@@ -369,19 +461,24 @@ export async function saveEntityToFirestore(
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
     const entityRef = doc(db, collectionName, cleanId);
     const sanitizedData = cleanUndefined(data);
-    await withFirestoreWriteTimeout(
+    await withFirestoreTimeout(
       setDoc(entityRef, {
         ...sanitizedData,
         id: cleanId,
         updatedAt: new Date().toISOString(),
       }, { merge: true }),
       2500,
-      `saveEntityToFirestore(${collectionName}/${id})`
+      `saveEntityToFirestore(${collectionName}/${id})`,
+      'write'
     );
     return true;
   } catch (err: any) {
     if (isQuotaExhaustedError(err)) {
       handleServerQuotaExhausted(`saveEntityToFirestore(${collectionName}/${id})`);
+      return false;
+    }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore unavailable during entity write (${collectionName}/${id})`, 10 * 60 * 1000);
       return false;
     }
     console.warn(`⚠️ [Firestore] Failed to write entity to ${collectionName}/${id}:`, err.message);
@@ -397,6 +494,7 @@ export async function deleteEntityFromFirestore(
   id: string
 ): Promise<boolean> {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!(await checkServerFirestoreAvailability())) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
@@ -404,15 +502,20 @@ export async function deleteEntityFromFirestore(
     await ensureServerFirebaseAuth();
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
     const entityRef = doc(db, collectionName, cleanId);
-    await withFirestoreWriteTimeout(
+    await withFirestoreTimeout(
       deleteDoc(entityRef),
       2500,
-      `deleteEntityFromFirestore(${collectionName}/${id})`
+      `deleteEntityFromFirestore(${collectionName}/${id})`,
+      'write'
     );
     return true;
   } catch (err: any) {
     if (isQuotaExhaustedError(err)) {
       handleServerQuotaExhausted(`deleteEntityFromFirestore(${collectionName}/${id})`);
+      return false;
+    }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore unavailable during entity delete (${collectionName}/${id})`, 10 * 60 * 1000);
       return false;
     }
     console.warn(`⚠️ [Firestore] Failed to delete entity ${collectionName}/${id}:`, err.message);
@@ -436,6 +539,7 @@ export async function saveMediaToFirestore(
   buffer: Buffer
 ): Promise<boolean> {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!(await checkServerFirestoreAvailability())) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
@@ -446,9 +550,8 @@ export async function saveMediaToFirestore(
     const totalSize = buffer.length;
 
     if (totalSize <= MAX_SINGLE_DOC_SIZE) {
-      // Small/medium files: store directly in a single document for maximum retrieval speed
       const base64Data = buffer.toString('base64');
-      await withFirestoreWriteTimeout(
+      await withFirestoreTimeout(
         setDoc(mediaRef, {
           filename: cleanFilename,
           mimeType: mimeType || 'image/jpeg',
@@ -459,29 +562,27 @@ export async function saveMediaToFirestore(
           updatedAt: new Date().toISOString(),
         }, { merge: true }),
         2500,
-        `saveMediaToFirestore(${cleanFilename})`
+        `saveMediaToFirestore(${cleanFilename})`,
+        'write'
       );
     } else {
-      // Large files / videos / 3D models: chunk into sub-documents
       const chunkCount = Math.ceil(totalSize / CHUNK_SIZE);
-      
-      // Save metadata header first
-      await withFirestoreWriteTimeout(
+      await withFirestoreTimeout(
         setDoc(mediaRef, {
           filename: cleanFilename,
           mimeType: mimeType || 'application/octet-stream',
           size: totalSize,
           chunkCount,
           chunkSize: CHUNK_SIZE,
-          base64: null, // intentionally null for chunked files
+          base64: null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }, { merge: true }),
         2500,
-        `saveMediaToFirestore(${cleanFilename})`
+        `saveMediaToFirestore(${cleanFilename})`,
+        'write'
       );
 
-      // Save each chunk in parallel batches
       const chunkPromises: Promise<any>[] = [];
       for (let i = 0; i < chunkCount; i++) {
         const start = i * CHUNK_SIZE;
@@ -497,7 +598,7 @@ export async function saveMediaToFirestore(
           }, { merge: true })
         );
       }
-      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 4000, `saveMediaToFirestore(${cleanFilename}:chunks)`);
+      await withFirestoreTimeout(Promise.all(chunkPromises), 4000, `saveMediaToFirestore(${cleanFilename}:chunks)`, 'write');
     }
 
     console.log(`✅ [Firestore Media] Persisted media ${cleanFilename} (${totalSize} bytes, chunked: ${totalSize > MAX_SINGLE_DOC_SIZE}) to cloud store`);
@@ -505,6 +606,10 @@ export async function saveMediaToFirestore(
   } catch (err: any) {
     if (isQuotaExhaustedError(err)) {
       handleServerQuotaExhausted(`saveMediaToFirestore(${filename})`);
+      return false;
+    }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore unavailable during media save (${filename})`, 10 * 60 * 1000);
       return false;
     }
     console.warn(`⚠️ [Firestore Media] Could not sync media ${filename} to cloud:`, err.message);
@@ -518,13 +623,14 @@ export async function saveMediaToFirestore(
 export async function fetchMediaFromFirestore(
   filename: string
 ): Promise<{ mimeType: string; buffer: Buffer } | null> {
+  if (!(await checkServerFirestoreAvailability())) return null;
   const db = getFirestoreInstance();
   if (!db) return null;
 
   try {
     const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, '_');
     const mediaRef = doc(db, 'uploaded_media', cleanFilename);
-    const snap = await getDoc(mediaRef);
+    const snap = await withFirestoreTimeout(getDoc(mediaRef), 2500, `fetchMediaFromFirestore(${cleanFilename})`, 'read');
 
     if (snap.exists()) {
       const data = snap.data();
@@ -547,7 +653,12 @@ export async function fetchMediaFromFirestore(
           chunkPromises.push(getDoc(chunkDocRef));
         }
 
-        const chunkSnaps = await Promise.all(chunkPromises);
+        const chunkSnaps = await withFirestoreTimeout(
+          Promise.all(chunkPromises),
+          5000,
+          `fetchMediaFromFirestore(${cleanFilename}:chunks)`,
+          'read'
+        );
         const buffers: Buffer[] = [];
         for (const cSnap of chunkSnaps) {
           if (!cSnap.exists()) {
@@ -563,6 +674,10 @@ export async function fetchMediaFromFirestore(
       }
     }
   } catch (err: any) {
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore media lookup skipped (${err.message || 'offline'})`, 10 * 60 * 1000);
+      return null;
+    }
     console.warn(`⚠️ [Firestore Media] Lookup failed for ${filename}:`, err.message);
   }
   return null;
@@ -573,6 +688,7 @@ export async function fetchMediaFromFirestore(
  */
 export async function deleteMediaFromFirestore(filename: string): Promise<boolean> {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!(await checkServerFirestoreAvailability())) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
 
@@ -580,7 +696,7 @@ export async function deleteMediaFromFirestore(filename: string): Promise<boolea
     await ensureServerFirebaseAuth();
     const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, '_');
     const mediaRef = doc(db, 'uploaded_media', cleanFilename);
-    const snap = await getDoc(mediaRef);
+    const snap = await withFirestoreTimeout(getDoc(mediaRef), 2500, `deleteMediaFromFirestore(${cleanFilename})`, 'read');
 
     if (snap.exists()) {
       const data = snap.data();
@@ -595,6 +711,10 @@ export async function deleteMediaFromFirestore(filename: string): Promise<boolea
   } catch (err: any) {
     if (isQuotaExhaustedError(err)) {
       handleServerQuotaExhausted(`deleteMediaFromFirestore(${filename})`);
+      return false;
+    }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore unavailable during media delete (${filename})`, 10 * 60 * 1000);
       return false;
     }
     console.warn(`⚠️ [Firestore Media] Delete failed for ${filename}:`, err.message);

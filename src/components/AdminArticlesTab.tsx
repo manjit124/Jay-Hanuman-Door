@@ -283,7 +283,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
     if (!file) return;
     setUploadingImage(true);
     try {
-      const res = await uploadImage(file);
+      const res = await uploadImage(file, { category: 'products' });
       setFormData(prev => ({ ...prev, image: res.url }));
       showToast('Featured image uploaded successfully');
     } catch (err: any) {
@@ -301,7 +301,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
     try {
       const newItems: { url: string; caption?: string }[] = [];
       for (let i = 0; i < files.length; i++) {
-        const res = await uploadImage(files[i]);
+        const res = await uploadImage(files[i], { category: 'products' });
         newItems.push({ url: res.url, caption: '' });
       }
       setFormData(prev => ({

@@ -32,6 +32,7 @@ import {
   toggleTeamMemberActive,
   reorderTeamMembers,
   uploadImage,
+  inferMediaKindAndMime,
   resolveImageUrl,
 } from '../lib/api.ts';
 import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
@@ -195,8 +196,12 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
   const handleFileUpload = async (file: File) => {
     if (!file) return;
 
-    // Validate image type
-    if (!file.type.match(/^image\/(jpeg|jpg|png|webp)$/i)) {
+    const inferred = inferMediaKindAndMime(file);
+    const isImageCandidate =
+      inferred.kind === 'image' ||
+      (inferred.kind === 'unknown' && (!file.type || file.type === 'application/octet-stream'));
+
+    if (!isImageCandidate) {
       setErrorMessage('Please upload a valid image file (JPG, JPEG, PNG, or WEBP).');
       return;
     }
@@ -210,10 +215,10 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
     try {
       setUploadingPhoto(true);
       setErrorMessage(null);
-      const res = await uploadImage(file);
+      const res = await uploadImage(file, { category: 'products' });
       if (res && res.url) {
         setFormData(prev => ({ ...prev, photo: res.url }));
-        setSuccessMessage('Profile photo uploaded successfully!');
+        setSuccessMessage('Profile photo uploaded successfully to Google Drive!');
         setTimeout(() => setSuccessMessage(null), 3000);
       }
     } catch (err: any) {

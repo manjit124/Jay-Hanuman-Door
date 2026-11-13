@@ -81,6 +81,7 @@ export interface StorageStatus {
 let firebaseStorageInstance: FirebaseStorage | null = null;
 let cachedStorageStatus: StorageStatus | null = null;
 let lastStorageCheckTime = 0;
+let firebaseBucketUnavailableUntil = 0;
 const STORAGE_CHECK_INTERVAL_MS = 15000; // 15 seconds
 
 export const DEFAULT_FIREBASE_BUCKET = 'zeta-gadget-wf6jr.firebasestorage.app';
@@ -203,6 +204,7 @@ export async function checkStorageAvailability(forceRefresh = false): Promise<St
     try {
       const pingBuffer = Buffer.from(`Jai Hanuman Door Storage Active - ${new Date().toISOString()}`, 'utf-8');
       await uploadBytes(pingRef, pingBuffer, { contentType: 'text/plain' });
+      firebaseBucketUnavailableUntil = 0;
       writable = true;
       readable = true;
       statusMessage = `Connected to Firebase Storage bucket "${bucket}" with full Read & Write permissions.`;
@@ -211,6 +213,7 @@ export async function checkStorageAvailability(forceRefresh = false): Promise<St
       const code = String(writeErr?.code || '').toLowerCase();
       const status = writeErr?.status_ || writeErr?.statusCode;
       if (status === 404 || code.includes('unknown') || code.includes('bucket-not-found')) {
+        firebaseBucketUnavailableUntil = Date.now() + 15 * 60 * 1000;
         setupInstructionsRequired = true;
         statusMessage = `Firebase Storage bucket "${bucket}" is registered in project configuration, but needs one-time activation in Firebase Console. Go to Firebase Console -> Build -> Storage -> Click "Get Started".`;
       } else if (code.includes('unauthorized') || code.includes('permission-denied') || status === 403) {
@@ -492,8 +495,8 @@ export async function getMediaBuffer(
     }
   }
 
-  // 2. Fetch from Firebase Storage
-  const storage = getFirebaseStorageInstance();
+  // 2. Fetch from Firebase Storage (skip if bucket was confirmed unprovisioned 404)
+  const storage = Date.now() >= firebaseBucketUnavailableUntil ? getFirebaseStorageInstance() : null;
   if (storage) {
     const candidatePaths = [
       `products/common/${cleanFilename}`,
@@ -526,7 +529,13 @@ export async function getMediaBuffer(
         } catch {}
 
         return { buffer, mimeType, storageType: 'firebase_storage', storagePath: testPath };
-      } catch {
+      } catch (readErr: any) {
+        const msg = String(readErr?.message || '').toLowerCase();
+        const status = readErr?.status_ || readErr?.statusCode;
+        if (status === 404 && msg.includes('bucket')) {
+          firebaseBucketUnavailableUntil = Date.now() + 15 * 60 * 1000;
+          break;
+        }
         // Try next path
       }
     }

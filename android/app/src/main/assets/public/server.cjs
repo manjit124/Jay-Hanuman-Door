@@ -61,8 +61,17 @@ var isInitialized = false;
 var authPromise = null;
 var serverWriteQuotaExhaustedUntil = 0;
 var hasLoggedQuotaNotice = false;
+var cachedFirebaseConfig = null;
+var firestoreDatabaseUnavailableUntil = 0;
+var firestoreAvailabilityCheckPromise = null;
+var hasLoggedUnavailableNotice = false;
 function isServerFirestoreWriteQuotaExhausted() {
   return Date.now() < serverWriteQuotaExhaustedUntil;
+}
+function isOfflineOrMissingDbError(err) {
+  const code = String(err?.code || "").toLowerCase();
+  const msg = String(err?.message || err || "").toLowerCase();
+  return code === "unavailable" || code === "not-found" || code === "failed-precondition" || msg.includes("client is offline") || msg.includes("does not exist") || msg.includes("5 not_found") || msg.includes("firestore_read_timeout") || msg.includes("could not reach cloud firestore backend");
 }
 function isQuotaExhaustedError(err) {
   const code = String(err?.code || "").toLowerCase();
@@ -71,10 +80,6 @@ function isQuotaExhaustedError(err) {
 }
 function handleServerQuotaExhausted(context) {
   serverWriteQuotaExhaustedUntil = Date.now() + 60 * 60 * 1e3;
-  if (firestoreDb) {
-    (0, import_firestore.disableNetwork)(firestoreDb).catch(() => {
-    });
-  }
   if (!hasLoggedQuotaNotice) {
     hasLoggedQuotaNotice = true;
     console.info(
@@ -82,20 +87,82 @@ function handleServerQuotaExhausted(context) {
     );
   }
 }
-async function withFirestoreWriteTimeout(operation, timeoutMs, context) {
+function markServerFirestoreUnavailable(reason, durationMs = 30 * 60 * 1e3) {
+  firestoreDatabaseUnavailableUntil = Date.now() + durationMs;
+  if (!hasLoggedUnavailableNotice) {
+    hasLoggedUnavailableNotice = true;
+    console.info(
+      `\u2139\uFE0F [Firestore] ${reason}. Operating with local authoritative disk storage fallback.`
+    );
+  }
+}
+async function withFirestoreTimeout(operation, timeoutMs, context, kind = "write") {
   let timer = null;
+  const tag = kind === "read" ? "FIRESTORE_READ_TIMEOUT" : "FIRESTORE_WRITE_TIMEOUT";
   try {
     return await Promise.race([
       operation,
       new Promise((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`FIRESTORE_WRITE_TIMEOUT (${timeoutMs}ms) during ${context}`));
+          reject(new Error(`${tag} (${timeoutMs}ms) during ${context}`));
         }, timeoutMs);
       })
     ]);
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+function loadFirebaseConfig() {
+  if (cachedFirebaseConfig) return cachedFirebaseConfig;
+  try {
+    const configPath = import_path.default.join(process.cwd(), "firebase-applet-config.json");
+    if (!import_fs.default.existsSync(configPath)) return null;
+    const config = JSON.parse(import_fs.default.readFileSync(configPath, "utf8"));
+    if (!config?.projectId) return null;
+    cachedFirebaseConfig = config;
+    return config;
+  } catch {
+    return null;
+  }
+}
+async function checkServerFirestoreAvailability() {
+  if (Date.now() < firestoreDatabaseUnavailableUntil) {
+    return false;
+  }
+  const config = loadFirebaseConfig();
+  if (!config) return false;
+  if (firestoreAvailabilityCheckPromise) {
+    return firestoreAvailabilityCheckPromise;
+  }
+  firestoreAvailabilityCheckPromise = (async () => {
+    try {
+      const dbId = config.firestoreDatabaseId || "(default)";
+      const apiKey = config.apiKey ? `?key=${encodeURIComponent(config.apiKey)}` : "";
+      const probeUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.projectId)}/databases/${encodeURIComponent(dbId)}/documents/admin_store/master_production_data${apiKey}`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3e3);
+      try {
+        const resp = await fetch(probeUrl, { method: "GET", signal: controller.signal });
+        if (resp.status === 404) {
+          const text = await resp.text().catch(() => "");
+          if (text.toLowerCase().includes("does not exist") || text.toLowerCase().includes("datastore/setup")) {
+            markServerFirestoreUnavailable(
+              `Cloud Firestore database "${dbId}" is not provisioned in project "${config.projectId}"`
+            );
+            return false;
+          }
+        }
+        return true;
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      return true;
+    } finally {
+      firestoreAvailabilityCheckPromise = null;
+    }
+  })();
+  return firestoreAvailabilityCheckPromise;
 }
 function getFirestoreInstance() {
   if (firestoreDb) return firestoreDb;
@@ -104,14 +171,9 @@ function getFirestoreInstance() {
   } catch {
   }
   try {
-    const configPath = import_path.default.join(process.cwd(), "firebase-applet-config.json");
-    if (!import_fs.default.existsSync(configPath)) {
-      console.warn("\u26A0\uFE0F [Firestore] firebase-applet-config.json not found. Operating in local-only fallback.");
-      return null;
-    }
-    const config = JSON.parse(import_fs.default.readFileSync(configPath, "utf8"));
-    if (!config.projectId) {
-      console.warn("\u26A0\uFE0F [Firestore] No projectId in config.");
+    const config = loadFirebaseConfig();
+    if (!config) {
+      console.warn("\u26A0\uFE0F [Firestore] firebase-applet-config.json missing or lacks projectId. Operating in local-only fallback.");
       return null;
     }
     const existing = (0, import_app.getApps)().find((a) => a.name === "jai-hanuman-persistent-store");
@@ -131,7 +193,7 @@ function getFirestoreInstance() {
     firestoreDb = (0, import_firestore.getFirestore)(firebaseApp, dbId);
     serverAuth = (0, import_auth.getAuth)(firebaseApp);
     isInitialized = true;
-    console.log(`\u2705 [Firestore] Connected to persistent database (Project: ${config.projectId}, DatabaseId: ${dbId})`);
+    console.info(`\u2139\uFE0F [Firestore] Initialized client handle (Project: ${config.projectId}, DatabaseId: ${dbId})`);
     return firestoreDb;
   } catch (err) {
     console.warn("\u26A0\uFE0F [Firestore] Connection warning:", err.message);
@@ -194,11 +256,12 @@ async function ensureServerFirebaseAuth() {
   return authPromise;
 }
 async function fetchAuthoritativeFirestoreDb() {
+  if (!await checkServerFirestoreAvailability()) return null;
   const db = getFirestoreInstance();
   if (!db) return null;
   try {
     const masterDocRef = (0, import_firestore.doc)(db, "admin_store", "master_production_data");
-    const snapshot = await (0, import_firestore.getDoc)(masterDocRef);
+    const snapshot = await withFirestoreTimeout((0, import_firestore.getDoc)(masterDocRef), 3500, "fetchAuthoritativeFirestoreDb(master)", "read");
     if (snapshot.exists()) {
       const data = snapshot.data();
       if (data && data.dataJson) {
@@ -209,7 +272,12 @@ async function fetchAuthoritativeFirestoreDb() {
           for (let i = 1; i < chunkCount; i++) {
             chunkPromises.push((0, import_firestore.getDoc)((0, import_firestore.doc)(db, "admin_store", `master_production_chunk_${i}`)));
           }
-          const chunkSnaps = await Promise.all(chunkPromises);
+          const chunkSnaps = await withFirestoreTimeout(
+            Promise.all(chunkPromises),
+            5e3,
+            "fetchAuthoritativeFirestoreDb(chunks)",
+            "read"
+          );
           for (let i = 0; i < chunkSnaps.length; i++) {
             const cSnap = chunkSnaps[i];
             const chunkIndex = i + 1;
@@ -247,12 +315,17 @@ async function fetchAuthoritativeFirestoreDb() {
       }
     }
   } catch (err) {
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable("Firestore read skipped because cloud database is offline or unprovisioned", 10 * 60 * 1e3);
+      return null;
+    }
     console.warn("\u26A0\uFE0F [Firestore] Could not load from master_production_data:", err.message);
   }
   return null;
 }
 async function saveAuthoritativeFirestoreDb(data) {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!await checkServerFirestoreAvailability()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
   try {
@@ -281,9 +354,9 @@ async function saveAuthoritativeFirestoreDb(data) {
           }, { merge: true })
         );
       }
-      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 8e3, "saveAuthoritativeFirestoreDb(chunks)");
+      await withFirestoreTimeout(Promise.all(chunkPromises), 8e3, "saveAuthoritativeFirestoreDb(chunks)", "write");
     }
-    await withFirestoreWriteTimeout(
+    await withFirestoreTimeout(
       (0, import_firestore.setDoc)(masterDocRef, {
         version: Number(data.version) || 1,
         lastModified: data.lastModified || (/* @__PURE__ */ new Date()).toISOString(),
@@ -293,7 +366,8 @@ async function saveAuthoritativeFirestoreDb(data) {
         dataJson: firstChunk
       }, { merge: true }),
       4e3,
-      "saveAuthoritativeFirestoreDb(master)"
+      "saveAuthoritativeFirestoreDb(master)",
+      "write"
     );
     console.log(
       `\u{1F6E1}\uFE0F [Firestore] Successfully saved authoritative master database (Version: ${data.version}, Doors: ${data.doors?.length || 0}, Chunks: ${chunkCount})`
@@ -302,6 +376,10 @@ async function saveAuthoritativeFirestoreDb(data) {
   } catch (err) {
     if (isQuotaExhaustedError(err)) {
       handleServerQuotaExhausted("saveAuthoritativeFirestoreDb");
+      return false;
+    }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable("Cloud Firestore database unavailable during save", 10 * 60 * 1e3);
       return false;
     }
     console.warn("\u26A0\uFE0F [Firestore] Could not sync master database to cloud:", err.message);
@@ -321,6 +399,7 @@ function cleanUndefined(obj) {
 }
 async function saveEntityToFirestore(collectionName, id, data) {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!await checkServerFirestoreAvailability()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
   try {
@@ -328,19 +407,24 @@ async function saveEntityToFirestore(collectionName, id, data) {
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
     const entityRef = (0, import_firestore.doc)(db, collectionName, cleanId);
     const sanitizedData = cleanUndefined(data);
-    await withFirestoreWriteTimeout(
+    await withFirestoreTimeout(
       (0, import_firestore.setDoc)(entityRef, {
         ...sanitizedData,
         id: cleanId,
         updatedAt: (/* @__PURE__ */ new Date()).toISOString()
       }, { merge: true }),
       2500,
-      `saveEntityToFirestore(${collectionName}/${id})`
+      `saveEntityToFirestore(${collectionName}/${id})`,
+      "write"
     );
     return true;
   } catch (err) {
     if (isQuotaExhaustedError(err)) {
       handleServerQuotaExhausted(`saveEntityToFirestore(${collectionName}/${id})`);
+      return false;
+    }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore unavailable during entity write (${collectionName}/${id})`, 10 * 60 * 1e3);
       return false;
     }
     console.warn(`\u26A0\uFE0F [Firestore] Failed to write entity to ${collectionName}/${id}:`, err.message);
@@ -349,21 +433,27 @@ async function saveEntityToFirestore(collectionName, id, data) {
 }
 async function deleteEntityFromFirestore(collectionName, id) {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!await checkServerFirestoreAvailability()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
   try {
     await ensureServerFirebaseAuth();
     const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
     const entityRef = (0, import_firestore.doc)(db, collectionName, cleanId);
-    await withFirestoreWriteTimeout(
+    await withFirestoreTimeout(
       (0, import_firestore.deleteDoc)(entityRef),
       2500,
-      `deleteEntityFromFirestore(${collectionName}/${id})`
+      `deleteEntityFromFirestore(${collectionName}/${id})`,
+      "write"
     );
     return true;
   } catch (err) {
     if (isQuotaExhaustedError(err)) {
       handleServerQuotaExhausted(`deleteEntityFromFirestore(${collectionName}/${id})`);
+      return false;
+    }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore unavailable during entity delete (${collectionName}/${id})`, 10 * 60 * 1e3);
       return false;
     }
     console.warn(`\u26A0\uFE0F [Firestore] Failed to delete entity ${collectionName}/${id}:`, err.message);
@@ -374,6 +464,7 @@ var MAX_SINGLE_DOC_SIZE = 500 * 1024;
 var CHUNK_SIZE = 300 * 1024;
 async function saveMediaToFirestore(filename, mimeType, buffer) {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!await checkServerFirestoreAvailability()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
   try {
@@ -383,7 +474,7 @@ async function saveMediaToFirestore(filename, mimeType, buffer) {
     const totalSize = buffer.length;
     if (totalSize <= MAX_SINGLE_DOC_SIZE) {
       const base64Data = buffer.toString("base64");
-      await withFirestoreWriteTimeout(
+      await withFirestoreTimeout(
         (0, import_firestore.setDoc)(mediaRef, {
           filename: cleanFilename,
           mimeType: mimeType || "image/jpeg",
@@ -394,11 +485,12 @@ async function saveMediaToFirestore(filename, mimeType, buffer) {
           updatedAt: (/* @__PURE__ */ new Date()).toISOString()
         }, { merge: true }),
         2500,
-        `saveMediaToFirestore(${cleanFilename})`
+        `saveMediaToFirestore(${cleanFilename})`,
+        "write"
       );
     } else {
       const chunkCount = Math.ceil(totalSize / CHUNK_SIZE);
-      await withFirestoreWriteTimeout(
+      await withFirestoreTimeout(
         (0, import_firestore.setDoc)(mediaRef, {
           filename: cleanFilename,
           mimeType: mimeType || "application/octet-stream",
@@ -406,12 +498,12 @@ async function saveMediaToFirestore(filename, mimeType, buffer) {
           chunkCount,
           chunkSize: CHUNK_SIZE,
           base64: null,
-          // intentionally null for chunked files
           createdAt: (/* @__PURE__ */ new Date()).toISOString(),
           updatedAt: (/* @__PURE__ */ new Date()).toISOString()
         }, { merge: true }),
         2500,
-        `saveMediaToFirestore(${cleanFilename})`
+        `saveMediaToFirestore(${cleanFilename})`,
+        "write"
       );
       const chunkPromises = [];
       for (let i = 0; i < chunkCount; i++) {
@@ -428,7 +520,7 @@ async function saveMediaToFirestore(filename, mimeType, buffer) {
           }, { merge: true })
         );
       }
-      await withFirestoreWriteTimeout(Promise.all(chunkPromises), 4e3, `saveMediaToFirestore(${cleanFilename}:chunks)`);
+      await withFirestoreTimeout(Promise.all(chunkPromises), 4e3, `saveMediaToFirestore(${cleanFilename}:chunks)`, "write");
     }
     console.log(`\u2705 [Firestore Media] Persisted media ${cleanFilename} (${totalSize} bytes, chunked: ${totalSize > MAX_SINGLE_DOC_SIZE}) to cloud store`);
     return true;
@@ -437,17 +529,22 @@ async function saveMediaToFirestore(filename, mimeType, buffer) {
       handleServerQuotaExhausted(`saveMediaToFirestore(${filename})`);
       return false;
     }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore unavailable during media save (${filename})`, 10 * 60 * 1e3);
+      return false;
+    }
     console.warn(`\u26A0\uFE0F [Firestore Media] Could not sync media ${filename} to cloud:`, err.message);
     return false;
   }
 }
 async function fetchMediaFromFirestore(filename) {
+  if (!await checkServerFirestoreAvailability()) return null;
   const db = getFirestoreInstance();
   if (!db) return null;
   try {
     const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, "_");
     const mediaRef = (0, import_firestore.doc)(db, "uploaded_media", cleanFilename);
-    const snap = await (0, import_firestore.getDoc)(mediaRef);
+    const snap = await withFirestoreTimeout((0, import_firestore.getDoc)(mediaRef), 2500, `fetchMediaFromFirestore(${cleanFilename})`, "read");
     if (snap.exists()) {
       const data = snap.data();
       if (!data) return null;
@@ -463,7 +560,12 @@ async function fetchMediaFromFirestore(filename) {
           const chunkDocRef = (0, import_firestore.doc)(db, "uploaded_media_chunks", `${cleanFilename}__c${i}`);
           chunkPromises.push((0, import_firestore.getDoc)(chunkDocRef));
         }
-        const chunkSnaps = await Promise.all(chunkPromises);
+        const chunkSnaps = await withFirestoreTimeout(
+          Promise.all(chunkPromises),
+          5e3,
+          `fetchMediaFromFirestore(${cleanFilename}:chunks)`,
+          "read"
+        );
         const buffers = [];
         for (const cSnap of chunkSnaps) {
           if (!cSnap.exists()) {
@@ -478,19 +580,24 @@ async function fetchMediaFromFirestore(filename) {
       }
     }
   } catch (err) {
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore media lookup skipped (${err.message || "offline"})`, 10 * 60 * 1e3);
+      return null;
+    }
     console.warn(`\u26A0\uFE0F [Firestore Media] Lookup failed for ${filename}:`, err.message);
   }
   return null;
 }
 async function deleteMediaFromFirestore(filename) {
   if (isServerFirestoreWriteQuotaExhausted()) return false;
+  if (!await checkServerFirestoreAvailability()) return false;
   const db = getFirestoreInstance();
   if (!db) return false;
   try {
     await ensureServerFirebaseAuth();
     const cleanFilename = String(filename).replace(/[^a-zA-Z0-9_.-]/g, "_");
     const mediaRef = (0, import_firestore.doc)(db, "uploaded_media", cleanFilename);
-    const snap = await (0, import_firestore.getDoc)(mediaRef);
+    const snap = await withFirestoreTimeout((0, import_firestore.getDoc)(mediaRef), 2500, `deleteMediaFromFirestore(${cleanFilename})`, "read");
     if (snap.exists()) {
       const data = snap.data();
       if (data?.chunkCount && data.chunkCount > 1) {
@@ -505,6 +612,10 @@ async function deleteMediaFromFirestore(filename) {
   } catch (err) {
     if (isQuotaExhaustedError(err)) {
       handleServerQuotaExhausted(`deleteMediaFromFirestore(${filename})`);
+      return false;
+    }
+    if (isOfflineOrMissingDbError(err)) {
+      markServerFirestoreUnavailable(`Firestore unavailable during media delete (${filename})`, 10 * 60 * 1e3);
       return false;
     }
     console.warn(`\u26A0\uFE0F [Firestore Media] Delete failed for ${filename}:`, err.message);
@@ -2919,6 +3030,7 @@ if (!import_fs3.default.existsSync(UPLOAD_BACKUP_DIR2)) import_fs3.default.mkdir
 var firebaseStorageInstance = null;
 var cachedStorageStatus = null;
 var lastStorageCheckTime = 0;
+var firebaseBucketUnavailableUntil = 0;
 var STORAGE_CHECK_INTERVAL_MS = 15e3;
 var DEFAULT_FIREBASE_BUCKET = "zeta-gadget-wf6jr.firebasestorage.app";
 function getFirebaseStorageBucketName() {
@@ -3006,6 +3118,7 @@ async function checkStorageAvailability(forceRefresh = false) {
     try {
       const pingBuffer = Buffer.from(`Jai Hanuman Door Storage Active - ${(/* @__PURE__ */ new Date()).toISOString()}`, "utf-8");
       await (0, import_storage.uploadBytes)(pingRef, pingBuffer, { contentType: "text/plain" });
+      firebaseBucketUnavailableUntil = 0;
       writable = true;
       readable = true;
       statusMessage = `Connected to Firebase Storage bucket "${bucket}" with full Read & Write permissions.`;
@@ -3014,6 +3127,7 @@ async function checkStorageAvailability(forceRefresh = false) {
       const code = String(writeErr?.code || "").toLowerCase();
       const status = writeErr?.status_ || writeErr?.statusCode;
       if (status === 404 || code.includes("unknown") || code.includes("bucket-not-found")) {
+        firebaseBucketUnavailableUntil = Date.now() + 15 * 60 * 1e3;
         setupInstructionsRequired = true;
         statusMessage = `Firebase Storage bucket "${bucket}" is registered in project configuration, but needs one-time activation in Firebase Console. Go to Firebase Console -> Build -> Storage -> Click "Get Started".`;
       } else if (code.includes("unauthorized") || code.includes("permission-denied") || status === 403) {
@@ -3218,7 +3332,7 @@ async function getMediaBuffer(filename) {
       }
     }
   }
-  const storage3 = getFirebaseStorageInstance();
+  const storage3 = Date.now() >= firebaseBucketUnavailableUntil ? getFirebaseStorageInstance() : null;
   if (storage3) {
     const candidatePaths = [
       `products/common/${cleanFilename}`,
@@ -3248,7 +3362,13 @@ async function getMediaBuffer(filename) {
         } catch {
         }
         return { buffer, mimeType, storageType: "firebase_storage", storagePath: testPath };
-      } catch {
+      } catch (readErr) {
+        const msg = String(readErr?.message || "").toLowerCase();
+        const status = readErr?.status_ || readErr?.statusCode;
+        if (status === 404 && msg.includes("bucket")) {
+          firebaseBucketUnavailableUntil = Date.now() + 15 * 60 * 1e3;
+          break;
+        }
       }
     }
   }
@@ -3476,6 +3596,14 @@ var DRIVE_IMPORT_INDEX_FILE = import_path4.default.join(process.cwd(), "data", "
 if (!import_fs4.default.existsSync(DRIVE_CACHE_DIR)) {
   import_fs4.default.mkdirSync(DRIVE_CACHE_DIR, { recursive: true });
 }
+function normalizeDriveCategory(raw) {
+  const clean = String(raw || "").trim().toLowerCase();
+  if (clean === "videos" || clean === "video") return "videos";
+  if (clean === "banners" || clean === "banner" || clean === "notifications" || clean === "slider") return "banners";
+  if (clean === "catalog" || clean === "catalogue" || clean === "chaukhat" || clean === "categories") return "catalog";
+  if (clean === "delivery" || clean === "tracking" || clean === "stories") return "delivery";
+  return "products";
+}
 var inMemoryCredentials = {};
 function loadServerDriveCredentials() {
   if (Object.keys(inMemoryCredentials).length > 0) {
@@ -3533,10 +3661,16 @@ function getDriveConnectionStatus() {
   const creds = loadServerDriveCredentials();
   const hasRefreshToken = Boolean(creds.refreshToken);
   const hasClientSecret = Boolean(creds.clientSecret);
-  const connected = Boolean(creds.lastVerifiedAt && (hasRefreshToken || creds.accessToken));
+  const credentialsReady = Boolean(
+    hasRefreshToken && creds.clientId && hasClientSecret || creds.accessToken && creds.tokenExpiry && creds.tokenExpiry > Date.now()
+  );
+  const connected = Boolean(
+    creds.lastVerifiedAt ? hasRefreshToken || creds.accessToken : credentialsReady
+  );
   return {
     configured: Boolean(creds.clientId && (creds.refreshToken || creds.clientSecret)),
     connected,
+    credentialsReady,
     ownerEmail: creds.ownerEmail || "shivshahidoors@gmail.com",
     connectedAt: creds.connectedAt,
     lastVerifiedAt: creds.lastVerifiedAt,
@@ -3730,52 +3864,118 @@ async function ensureDriveSubfolder(category) {
   saveServerDriveCredentials({ subfolders: updatedSubfolders });
   return subfolderId;
 }
+function getExtensionForMimeType(mimeType) {
+  const lower = String(mimeType || "").toLowerCase().split(";")[0].trim();
+  if (lower === "image/jpeg" || lower === "image/jpg") return ".jpg";
+  if (lower === "image/png") return ".png";
+  if (lower === "image/webp") return ".webp";
+  if (lower === "image/gif") return ".gif";
+  if (lower === "image/svg+xml") return ".svg";
+  if (lower === "image/avif") return ".avif";
+  if (lower === "image/heic" || lower === "image/heif") return ".heic";
+  if (lower === "video/mp4") return ".mp4";
+  if (lower === "video/webm") return ".webm";
+  if (lower === "video/quicktime") return ".mov";
+  if (lower === "video/3gpp") return ".3gp";
+  if (lower === "video/x-matroska") return ".mkv";
+  if (lower === "model/gltf-binary") return ".glb";
+  if (lower === "model/gltf+json") return ".gltf";
+  if (lower === "application/pdf") return ".pdf";
+  return ".bin";
+}
 async function uploadMediaToOwnerDrive(buffer, filename, mimeType, category = "products", description) {
+  const normalizedCat = normalizeDriveCategory(category);
   const token = await getValidAccessToken();
-  const subfolderId = await ensureDriveSubfolder(category);
-  const cleanName = import_path4.default.basename(filename).replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const subfolderId = await ensureDriveSubfolder(normalizedCat);
+  const detectedMime = detectMimeType(buffer);
+  const rawMime = String(mimeType || "").split(";")[0].trim().toLowerCase();
+  const resolvedMime = rawMime && rawMime !== "application/octet-stream" && rawMime !== "binary/octet-stream" ? rawMime : detectedMime !== "application/octet-stream" ? detectedMime : "application/octet-stream";
+  const baseInputName = import_path4.default.basename(String(filename || "")).replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const existingExt = import_path4.default.extname(baseInputName).toLowerCase();
+  const expectedExt = getExtensionForMimeType(resolvedMime);
+  const stem = baseInputName && baseInputName !== "blob" && baseInputName !== "_blob" ? import_path4.default.basename(baseInputName, existingExt) || `media_${Date.now()}` : `jhd_${normalizedCat}_${Date.now()}`;
+  const finalExt = existingExt && existingExt.length >= 2 && existingExt.length <= 6 ? existingExt : expectedExt !== ".bin" ? expectedExt : ".jpg";
+  const cleanName = `${stem}${finalExt}`;
   const metadata = {
     name: cleanName,
-    mimeType: mimeType || "image/jpeg",
+    mimeType: resolvedMime,
     parents: [subfolderId],
-    description: description || `Jai Hanuman Door ${category} upload - ${(/* @__PURE__ */ new Date()).toISOString()}`
+    description: description || `Jai Hanuman Door ${normalizedCat} upload - ${(/* @__PURE__ */ new Date()).toISOString()}`
   };
-  const boundary = "-------jhd314159265358979323846";
-  const delimiter = `\r
+  let result;
+  if (buffer.length >= 4 * 1024 * 1024) {
+    const initRes = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size,webViewLink",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json; charset=UTF-8",
+          "X-Upload-Content-Type": resolvedMime,
+          "X-Upload-Content-Length": String(buffer.length)
+        },
+        body: JSON.stringify(metadata)
+      }
+    );
+    if (!initRes.ok) {
+      const errText = await initRes.text();
+      throw new Error(`Google Drive resumable session failed (${initRes.status}): ${errText}`);
+    }
+    const sessionUri = initRes.headers.get("location");
+    if (!sessionUri) {
+      throw new Error("Google Drive resumable upload failed: missing session Location header.");
+    }
+    const putRes = await fetch(sessionUri, {
+      method: "PUT",
+      headers: {
+        "Content-Type": resolvedMime,
+        "Content-Length": String(buffer.length)
+      },
+      body: new Uint8Array(buffer)
+    });
+    if (!putRes.ok) {
+      const errText = await putRes.text();
+      throw new Error(`Google Drive resumable upload transfer failed (${putRes.status}): ${errText}`);
+    }
+    result = await putRes.json();
+  } else {
+    const boundary = "-------jhd314159265358979323846";
+    const delimiter = `\r
 --${boundary}\r
 `;
-  const closeDelimiter = `\r
+    const closeDelimiter = `\r
 --${boundary}--`;
-  const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r
+    const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r
 \r
 ${JSON.stringify(metadata)}\r
 `;
-  const fileHeaderPart = `${delimiter}Content-Type: ${mimeType}\r
+    const fileHeaderPart = `${delimiter}Content-Type: ${resolvedMime}\r
 \r
 `;
-  const payload = Buffer.concat([
-    Buffer.from(metadataPart, "utf8"),
-    Buffer.from(fileHeaderPart, "utf8"),
-    buffer,
-    Buffer.from(closeDelimiter, "utf8")
-  ]);
-  const uploadRes = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,webViewLink",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": `multipart/related; boundary=${boundary}`,
-        "Content-Length": String(payload.length)
-      },
-      body: payload
+    const payload = Buffer.concat([
+      Buffer.from(metadataPart, "utf8"),
+      Buffer.from(fileHeaderPart, "utf8"),
+      buffer,
+      Buffer.from(closeDelimiter, "utf8")
+    ]);
+    const uploadRes = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,webViewLink",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+          "Content-Length": String(payload.length)
+        },
+        body: new Uint8Array(payload)
+      }
+    );
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(`Google Drive upload failed (${uploadRes.status}): ${errText}`);
     }
-  );
-  if (!uploadRes.ok) {
-    const errText = await uploadRes.text();
-    throw new Error(`Google Drive upload failed (${uploadRes.status}): ${errText}`);
+    result = await uploadRes.json();
   }
-  const result = await uploadRes.json();
   const fileId = result.id;
   try {
     await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
@@ -3802,10 +4002,10 @@ ${JSON.stringify(metadata)}\r
     fileId,
     name: result.name || cleanName,
     size: buffer.length,
-    mimeType: result.mimeType || mimeType,
+    mimeType: result.mimeType || resolvedMime,
     url: `/api/drive/media/${fileId}`,
     webViewLink: result.webViewLink,
-    category
+    category: normalizedCat
   };
 }
 async function getDriveMediaBuffer(fileId) {
@@ -3930,10 +4130,15 @@ function detectMimeType(buffer) {
   if (buffer.length > 12 && buffer.subarray(8, 12).toString("ascii") === "WEBP") {
     return "image/webp";
   }
+  if (buffer.length >= 5 && buffer.subarray(0, 5).toString("ascii") === "%PDF-") {
+    return "application/pdf";
+  }
   if (buffer.length > 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp") {
     const brand = buffer.subarray(8, 12).toString("ascii").toLowerCase();
     if (brand === "avif" || brand === "avis") return "image/avif";
+    if (brand === "heic" || brand === "heix" || brand === "mif1" || brand === "msf1") return "image/heic";
     if (brand === "qt  ") return "video/quicktime";
+    if (brand.startsWith("3gp")) return "video/3gpp";
     return "video/mp4";
   }
   if (buffer.length >= 4 && buffer[0] === 26 && buffer[1] === 69 && buffer[2] === 223 && buffer[3] === 163) {
@@ -3944,6 +4149,10 @@ function detectMimeType(buffer) {
   }
   if (buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "glTF") {
     return "model/gltf-binary";
+  }
+  const headText = buffer.subarray(0, Math.min(256, buffer.length)).toString("utf8").trimStart();
+  if (headText.startsWith("<svg") || headText.startsWith("<?xml") && headText.includes("<svg")) {
+    return "image/svg+xml";
   }
   return "application/octet-stream";
 }
@@ -6614,16 +6823,17 @@ var storage = import_multer.default.diskStorage({
 });
 var mediaUpload = (0, import_multer.default)({
   storage,
-  limits: { fileSize: 40 * 1024 * 1024 },
-  // 40MB for photo & short progress clip
+  limits: { fileSize: 55 * 1024 * 1024 },
+  // 55MB for photo & progress video clip
   fileFilter: (_req, file, cb) => {
-    const allowed = /jpeg|jpg|png|webp|gif|mp4|webm|quicktime/;
-    const extname = allowed.test(import_path5.default.extname(file.originalname).toLowerCase());
-    const mimetype = allowed.test(file.mimetype) || file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/");
-    if (extname && mimetype) {
+    const allowed = /jpeg|jpg|png|webp|gif|heic|heif|mp4|webm|quicktime|3gp|mkv/;
+    const extname = allowed.test(import_path5.default.extname(file.originalname || "").toLowerCase());
+    const mime = (file.mimetype || "").toLowerCase();
+    const isAllowedMime = !mime || mime === "application/octet-stream" || mime === "binary/octet-stream" || allowed.test(mime) || mime.startsWith("image/") || mime.startsWith("video/");
+    if (extname || isAllowedMime) {
       return cb(null, true);
     }
-    cb(new Error("Only images (JPG, PNG, WebP) and videos (MP4, WebM) are allowed"));
+    cb(new Error("Only images (JPG, PNG, WebP) and videos (MP4, WebM, MOV) are allowed"));
   }
 });
 function initTrackingRoutes(app2, verifyAdminToken2) {
@@ -6931,7 +7141,7 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
       }
       next();
     },
-    (req, res) => {
+    async (req, res) => {
       try {
         const { id } = req.params;
         const { stageId, caption, isCustomerVisible, mediaUrl: directMediaUrl, mediaType } = req.body;
@@ -6948,16 +7158,38 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
         let mediaUrl = directMediaUrl ? String(directMediaUrl).trim() : "";
         let isVideo = false;
         if (req.file) {
-          try {
-            const backupPath = import_path5.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
-            import_fs5.default.copyFileSync(req.file.path, backupPath);
-            const fileBuf = import_fs5.default.readFileSync(req.file.path);
-            saveMedia(req.file.filename, req.file.mimetype || "image/jpeg", fileBuf).catch(() => {
-            });
-          } catch {
+          const fileBuf = import_fs5.default.readFileSync(req.file.path);
+          const detected = detectMimeType(fileBuf);
+          const effectiveMime = detected !== "application/octet-stream" ? detected : req.file.mimetype && req.file.mimetype !== "application/octet-stream" ? req.file.mimetype : "image/jpeg";
+          isVideo = effectiveMime.startsWith("video/") || /\.(mp4|webm|mov|3gp|mkv)$/i.test(req.file.originalname || req.file.filename);
+          let uploadedDriveUrl = null;
+          if (hasServerDriveOAuthCredentials()) {
+            try {
+              const ext = import_path5.default.extname(req.file.originalname || "") || getExtensionForMimeType(effectiveMime);
+              const driveName = `track-${order.trackingId}-${Date.now()}${ext !== ".bin" ? ext : isVideo ? ".mp4" : ".jpg"}`;
+              const driveRes = await uploadMediaToOwnerDrive(
+                fileBuf,
+                driveName,
+                effectiveMime,
+                isVideo ? "videos" : "delivery",
+                `Order tracking ${order.trackingId} (${stageId || order.currentStageId})`
+              );
+              uploadedDriveUrl = driveRes.url;
+            } catch (driveErr) {
+              console.warn("\u26A0\uFE0F [Tracking Media] Google Drive upload fallback notice:", driveErr?.message);
+            }
           }
-          isVideo = req.file.mimetype.startsWith("video/") || req.file.filename.endsWith(".mp4") || req.file.filename.endsWith(".webm");
-          mediaUrl = `/uploads/${req.file.filename}`;
+          if (uploadedDriveUrl) {
+            mediaUrl = uploadedDriveUrl;
+          } else {
+            try {
+              const backupPath = import_path5.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
+              import_fs5.default.copyFileSync(req.file.path, backupPath);
+              await saveMedia(req.file.filename, effectiveMime, fileBuf, "delivery");
+            } catch {
+            }
+            mediaUrl = `/uploads/${req.file.filename}`;
+          }
         } else {
           isVideo = mediaType === "video" || typeof mediaUrl === "string" && (mediaUrl.includes("/videos") || mediaUrl.endsWith(".mp4") || mediaUrl.endsWith(".webm") || mediaUrl.endsWith(".mov") || mediaUrl.includes("drive.google.com/file/d/") && mediaUrl.includes("/preview"));
         }
@@ -7433,6 +7665,43 @@ var videoUpload = (0, import_multer2.default)({
     }
   }
 });
+var driveMediaUpload = (0, import_multer2.default)({
+  storage: storage2,
+  limits: { fileSize: 60 * 1024 * 1024 },
+  // 60 MB
+  fileFilter: (_req, file, cb) => {
+    const ext = import_path6.default.extname(file.originalname || "").toLowerCase();
+    const mime = (file.mimetype || "").toLowerCase().trim();
+    const allowedExts = [
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".webp",
+      ".gif",
+      ".svg",
+      ".avif",
+      ".heic",
+      ".heif",
+      ".bmp",
+      ".mp4",
+      ".webm",
+      ".mov",
+      ".m4v",
+      ".3gp",
+      ".mkv",
+      ".glb",
+      ".gltf",
+      ".bin",
+      ".pdf"
+    ];
+    const isAllowedMime = !mime || mime === "application/octet-stream" || mime === "binary/octet-stream" || mime.startsWith("image/") || mime.startsWith("video/") || mime === "model/gltf-binary" || mime === "model/gltf+json" || mime === "application/pdf";
+    if (allowedExts.includes(ext) || isAllowedMime) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported media file format (${mime || ext}). Supported: JPG, PNG, WebP, MP4, WebM, MOV, GLB.`));
+    }
+  }
+});
 var activeTokens = /* @__PURE__ */ new Set();
 var revokedTokens = /* @__PURE__ */ new Set();
 function isValidAdminToken(token) {
@@ -7574,18 +7843,45 @@ app.post(["/api/upload-video", "/api/admin/upload-video"], (req, res) => {
 app.post("/api/admin/upload-model", verifyAdminToken, (req, res) => {
   modelUpload.single("file")(req, res, async (err) => {
     if (err) {
-      return res.status(400).json({ error: err.message || "3D file upload failed" });
+      return res.status(400).json({ success: false, errorCode: "UPLOAD_VALIDATION_ERROR", error: err.message || "3D file upload failed" });
     }
     if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
+      return res.status(400).json({ success: false, errorCode: "NO_FILE", error: "No file uploaded" });
     }
-    const ext = import_path6.default.extname(req.file.originalname).toLowerCase();
+    const ext = import_path6.default.extname(req.file.originalname || "").toLowerCase();
     const is3DModel = [".glb", ".gltf"].includes(ext);
+    const mime = is3DModel ? ext === ".gltf" ? "model/gltf+json" : "model/gltf-binary" : req.file.mimetype || "application/octet-stream";
     try {
       const fileBuf = import_fs6.default.readFileSync(req.file.path);
+      let driveResult = null;
+      if (hasServerDriveOAuthCredentials()) {
+        try {
+          driveResult = await uploadMediaToOwnerDrive(
+            fileBuf,
+            req.file.originalname || req.file.filename,
+            mime,
+            "products",
+            `Admin 3D/model upload: ${req.file.originalname || req.file.filename}`
+          );
+        } catch (driveErr) {
+          console.warn("\u26A0\uFE0F [3D Model Upload] Google Drive mirror notice:", driveErr?.message);
+        }
+      }
+      if (driveResult?.url) {
+        return res.json({
+          success: true,
+          url: driveResult.url,
+          fileId: driveResult.fileId,
+          filename: driveResult.name,
+          originalName: req.file.originalname,
+          size: req.file.size,
+          is3DModel,
+          storageType: "google_drive"
+        });
+      }
       const result = await saveMedia(
         req.file.filename,
-        is3DModel ? "model/gltf-binary" : "application/octet-stream",
+        mime,
         fileBuf
       );
       if (!result.success) {
@@ -7605,7 +7901,14 @@ app.post("/api/admin/upload-model", verifyAdminToken, (req, res) => {
         storageType: result.storageType
       });
     } catch (saveErr) {
-      res.status(500).json({ error: saveErr.message || "3D file save failed" });
+      res.status(500).json({ success: false, error: saveErr.message || "3D file save failed" });
+    } finally {
+      try {
+        if (req.file?.path && import_fs6.default.existsSync(req.file.path)) {
+          import_fs6.default.unlinkSync(req.file.path);
+        }
+      } catch {
+      }
     }
   });
 });
@@ -7943,25 +8246,38 @@ app.get("/api/drive/media/:fileId", async (req, res) => {
   try {
     const fileId = req.params.fileId;
     const { buffer, mimeType, size } = await getDriveMediaBuffer(fileId);
+    const commonCorsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      "Cache-Control": "public, max-age=31536000, immutable"
+    };
     const rangeHeader = req.headers.range;
-    if (rangeHeader && mimeType.startsWith("video/")) {
+    if (rangeHeader && (mimeType.startsWith("video/") || size > 0)) {
       const parts = rangeHeader.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : size - 1;
+      const start = Math.max(0, parseInt(parts[0], 10) || 0);
+      const end = parts[1] ? Math.min(size - 1, parseInt(parts[1], 10)) : size - 1;
+      if (start >= size || end < start) {
+        res.writeHead(416, {
+          ...commonCorsHeaders,
+          "Content-Range": `bytes */${size}`
+        });
+        return res.end();
+      }
       const chunkSize = end - start + 1;
       res.writeHead(206, {
+        ...commonCorsHeaders,
         "Content-Range": `bytes ${start}-${end}/${size}`,
         "Accept-Ranges": "bytes",
         "Content-Length": chunkSize,
-        "Content-Type": mimeType,
-        "Cache-Control": "public, max-age=31536000, immutable"
+        "Content-Type": mimeType
       });
       return res.end(buffer.subarray(start, end + 1));
     }
     res.writeHead(200, {
+      ...commonCorsHeaders,
+      "Accept-Ranges": "bytes",
       "Content-Type": mimeType,
-      "Content-Length": size,
-      "Cache-Control": "public, max-age=31536000, immutable"
+      "Content-Length": size
     });
     return res.end(buffer);
   } catch (err) {
@@ -8035,34 +8351,125 @@ app.post("/api/admin/drive/test-upload", verifyAdminToken, async (_req, res) => 
     });
   }
 });
-app.post("/api/admin/drive/upload", verifyAdminToken, upload.single("file"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, error: "No media file attached" });
-  }
-  try {
-    const fileBuf = import_fs6.default.readFileSync(req.file.path);
-    const category = req.body?.category || "products";
-    const description = req.body?.description || `Admin upload for ${category}`;
-    const uploaded = await uploadMediaToOwnerDrive(
-      fileBuf,
-      req.file.originalname,
-      req.file.mimetype,
-      category,
-      description
-    );
-    return res.json({
-      success: true,
-      url: uploaded.url,
-      fileId: uploaded.fileId,
-      name: uploaded.name,
-      size: uploaded.size,
-      category: uploaded.category,
-      webViewLink: uploaded.webViewLink
-    });
-  } catch (err) {
-    console.error("\u26A0\uFE0F [Drive Admin Upload Error]:", err);
-    return res.status(500).json({ success: false, error: err.message || "Upload to owner Google Drive failed" });
-  }
+app.post("/api/admin/drive/upload", verifyAdminToken, (req, res) => {
+  driveMediaUpload.single("file")(req, res, async (multerErr) => {
+    if (multerErr) {
+      const isLimit = multerErr?.code === "LIMIT_FILE_SIZE";
+      return res.status(isLimit ? 413 : 400).json({
+        success: false,
+        errorCode: isLimit ? "FILE_TOO_LARGE" : "UPLOAD_VALIDATION_ERROR",
+        error: isLimit ? "Media file exceeds the 60 MB upload limit." : multerErr?.message || "Invalid media upload request."
+      });
+    }
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        errorCode: "NO_FILE",
+        error: "No media file attached. Select a photo, video, or 3D model first."
+      });
+    }
+    const tempPath = req.file.path;
+    try {
+      const fileBuf = import_fs6.default.readFileSync(tempPath);
+      if (fileBuf.length === 0) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "EMPTY_FILE",
+          error: "Selected file is empty (0 bytes). Please choose a valid photo or video."
+        });
+      }
+      const detectedMime = detectMimeType(fileBuf);
+      const rawMime = String(req.file.mimetype || "").split(";")[0].trim().toLowerCase();
+      const effectiveMime = detectedMime !== "application/octet-stream" ? detectedMime : rawMime && rawMime !== "application/octet-stream" && rawMime !== "binary/octet-stream" ? rawMime : "application/octet-stream";
+      const extFromName = import_path6.default.extname(req.file.originalname || "").toLowerCase();
+      const allowedExts = [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".gif",
+        ".svg",
+        ".avif",
+        ".heic",
+        ".heif",
+        ".bmp",
+        ".mp4",
+        ".webm",
+        ".mov",
+        ".m4v",
+        ".3gp",
+        ".mkv",
+        ".glb",
+        ".gltf",
+        ".pdf"
+      ];
+      const isSupportedContent = effectiveMime.startsWith("image/") || effectiveMime.startsWith("video/") || effectiveMime === "model/gltf-binary" || effectiveMime === "model/gltf+json" || effectiveMime === "application/pdf" || allowedExts.includes(extFromName);
+      if (!isSupportedContent) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "UNSUPPORTED_MEDIA_TYPE",
+          error: `Unsupported file format (${rawMime || "unknown"}). Upload JPG, PNG, WebP, MP4, WebM, MOV, or GLB files.`
+        });
+      }
+      const requestedMediaType = String(req.body?.mediaType || "").toLowerCase();
+      const inferredIsVideo = effectiveMime.startsWith("video/") || requestedMediaType === "video" || [".mp4", ".webm", ".mov", ".m4v", ".3gp", ".mkv"].includes(extFromName);
+      const category = normalizeDriveCategory(
+        req.body?.category || (inferredIsVideo ? "videos" : "products")
+      );
+      if (!hasServerDriveOAuthCredentials()) {
+        return res.status(412).json({
+          success: false,
+          errorCode: "DRIVE_NOT_CONNECTED",
+          error: "Google Drive OAuth is not connected on the backend server (missing refresh token / client secret). Open Admin Panel -> Google Drive Storage to connect or configure GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET, and GOOGLE_DRIVE_REFRESH_TOKEN on Cloud Run."
+        });
+      }
+      const ext = extFromName && allowedExts.includes(extFromName) ? extFromName : getExtensionForMimeType(effectiveMime);
+      const rawBase = import_path6.default.basename(req.file.originalname || "", extFromName).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const stem = rawBase && rawBase !== "blob" && rawBase !== "_" ? rawBase : `jhd_${category}_${Date.now()}`;
+      const preservedFilename = `${stem}${ext !== ".bin" ? ext : inferredIsVideo ? ".mp4" : ".jpg"}`;
+      const description = String(req.body?.description || "").trim() || `Admin upload for ${category}`;
+      const uploaded = await uploadMediaToOwnerDrive(
+        fileBuf,
+        preservedFilename,
+        effectiveMime,
+        category,
+        description
+      );
+      return res.json({
+        success: true,
+        url: uploaded.url,
+        fileId: uploaded.fileId,
+        name: uploaded.name,
+        filename: uploaded.name,
+        mimeType: uploaded.mimeType,
+        size: uploaded.size,
+        category: uploaded.category,
+        isVideo: uploaded.mimeType.startsWith("video/") || inferredIsVideo,
+        is3DModel: ext === ".glb" || ext === ".gltf" || uploaded.mimeType.includes("gltf"),
+        webViewLink: uploaded.webViewLink,
+        storageType: "google_drive"
+      });
+    } catch (err) {
+      const msg = String(err?.message || "Upload to owner Google Drive failed");
+      console.error("\u26A0\uFE0F [Drive Admin Upload Error]:", msg);
+      const isMissingToken = msg.includes("Missing refresh token") || msg.includes("credentials incomplete");
+      const isAuthRejected = msg.includes("invalid_grant") || msg.includes("(401)") || msg.includes("(403)");
+      const status = isMissingToken ? 412 : isAuthRejected ? 502 : 500;
+      const errorCode = isMissingToken ? "DRIVE_NOT_CONNECTED" : isAuthRejected ? "DRIVE_AUTH_FAILED" : "DRIVE_UPLOAD_FAILED";
+      return res.status(status).json({
+        success: false,
+        errorCode,
+        error: msg
+      });
+    } finally {
+      try {
+        if (tempPath && import_fs6.default.existsSync(tempPath)) {
+          import_fs6.default.unlinkSync(tempPath);
+        }
+      } catch {
+      }
+    }
+  });
 });
 app.get("/api/admin/drive/files", verifyAdminToken, async (req, res) => {
   try {

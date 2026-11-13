@@ -14,11 +14,13 @@ import {
   ClipboardPaste,
   RefreshCw,
   Trash2,
+  Camera,
 } from 'lucide-react';
 import {
   uploadImage,
   uploadVideo,
   upload3DModel,
+  inferMediaKindAndMime,
   previewDriveOrExternalMedia,
   importDriveOrExternalMediaToStorage,
   resolveImageUrl,
@@ -134,14 +136,14 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
   // Determine accepted file types for Option A Device Upload
   const fileAccept =
     effectiveMediaType === 'video'
-      ? 'video/mp4,video/webm,video/quicktime,video/mov,video/*'
+      ? 'video/mp4,video/webm,video/quicktime,video/*'
       : effectiveMediaType === 'model3d'
-      ? '.glb,.gltf'
+      ? '.glb,.gltf,model/gltf-binary,model/gltf+json'
       : effectiveMediaType === 'any'
       ? 'image/*,video/*,.glb,.gltf'
-      : 'image/jpeg,image/png,image/webp,image/gif,image/svg+xml,image/*';
+      : 'image/*';
 
-  // Handle Option A: Upload from Device
+  // Handle Option A: Upload from Device (Gallery, File Picker, or Camera Capture)
   const handleDeviceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0 || isUploading || disabled) return;
@@ -157,9 +159,14 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
         const uploadedUrls: string[] = [];
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
-          if (!file.type.startsWith('image/')) continue;
+          const inferred = inferMediaKindAndMime(file);
+          const isImageCandidate =
+            inferred.kind === 'image' ||
+            (inferred.kind === 'unknown' && (!file.type || file.type === 'application/octet-stream'));
+          if (!isImageCandidate) continue;
           setUploadProgress(Math.round(((i + 1) / files.length) * 90));
           const res = await uploadImage(file, {
+            category,
             maxDimension: 1920,
             quality: 0.84,
           });
@@ -167,8 +174,10 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
         }
         if (uploadedUrls.length > 0) {
           onAddMultiple(uploadedUrls);
-          setSuccessMessage(`Uploaded ${uploadedUrls.length} file(s) permanently to Google Drive!`);
-          if (onToast) onToast(`Uploaded ${uploadedUrls.length} file(s) to Google Drive`);
+          setSuccessMessage(`Uploaded ${uploadedUrls.length} photo(s) permanently to Google Drive (${category})!`);
+          if (onToast) onToast(`Uploaded ${uploadedUrls.length} photo(s) to Google Drive`);
+        } else {
+          setErrorMessage('No supported image files found in your selection. Choose JPG, PNG, or WebP.');
         }
       } catch (err: any) {
         const msg = err?.message || 'Device upload failed. Please try again.';
@@ -187,8 +196,13 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       onFileSelect(file);
     }
 
+    const inferred = inferMediaKindAndMime(file);
+
     // Video Upload
-    if (file.type.startsWith('video/') || effectiveMediaType === 'video') {
+    const isVideoFile =
+      inferred.kind === 'video' ||
+      (effectiveMediaType === 'video' && inferred.kind === 'unknown');
+    if (isVideoFile) {
       if (file.size > 55 * 1024 * 1024) {
         const err = 'Video file size exceeds 55 MB limit. Please select a compressed video.';
         setErrorMessage(err);
@@ -200,14 +214,15 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       setIsUploading(true);
       setUploadProgress(10);
       try {
-        const res = await uploadVideo(file, pct => setUploadProgress(pct));
+        const res = await uploadVideo(file, pct => setUploadProgress(pct), 'videos');
         if (res?.url) {
           onChange(res.url, {
+            fileId: res.fileId,
             size: res.size || file.size,
-            mimeType: file.type || 'video/mp4',
+            mimeType: res.mimeType || inferred.mimeType || 'video/mp4',
             isVideo: true,
           });
-          setSuccessMessage('Video uploaded and saved permanently to Google Drive!');
+          setSuccessMessage('Video uploaded and saved permanently to Google Drive (videos folder)!');
           if (onToast) onToast('Video saved to Google Drive!');
         } else {
           throw new Error('Upload server did not return a valid video URL.');
@@ -225,19 +240,24 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
     }
 
     // 3D Model Upload
-    if (file.name.endsWith('.glb') || file.name.endsWith('.gltf') || effectiveMediaType === 'model3d') {
+    if (inferred.kind === 'model3d' || effectiveMediaType === 'model3d') {
       setIsUploading(true);
-      setUploadProgress(20);
+      setUploadProgress(15);
       try {
-        const res = await upload3DModel(file);
+        const res = await upload3DModel(file, pct => setUploadProgress(pct), category);
         if (res?.url) {
           onChange(res.url, {
-            size: file.size,
-            mimeType: 'model/gltf-binary',
+            fileId: res.fileId,
+            size: res.size || file.size,
+            mimeType: inferred.mimeType || 'model/gltf-binary',
             is3DModel: true,
           });
-          setSuccessMessage('3D model uploaded and saved permanently to Google Drive!');
-          if (onToast) onToast('3D model saved to Google Drive!');
+          setSuccessMessage(
+            res.fileId
+              ? '3D model uploaded and saved permanently to Google Drive!'
+              : '3D model uploaded to server storage!'
+          );
+          if (onToast) onToast('3D model uploaded!');
         } else {
           throw new Error('Upload server did not return a valid model URL.');
         }
@@ -253,9 +273,13 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       return;
     }
 
-    // Image Upload
-    if (!file.type.startsWith('image/')) {
-      const err = 'Invalid file type: Please select an image (JPG, PNG, WebP) or video (MP4, WebM).';
+    // Image Upload (supports Android content:// URIs with empty or octet-stream MIME)
+    const isImageCandidate =
+      inferred.kind === 'image' ||
+      (inferred.kind === 'unknown' && (!file.type || file.type === 'application/octet-stream'));
+
+    if (!isImageCandidate) {
+      const err = 'Invalid file type: Please select an image (JPG, PNG, WebP) or video (MP4, WebM, MOV).';
       setErrorMessage(err);
       if (onToast) onToast(err);
       e.target.value = '';
@@ -271,9 +295,10 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
     }
 
     setIsUploading(true);
-    setUploadProgress(15);
+    setUploadProgress(10);
     try {
       const res = await uploadImage(file, {
+        category,
         maxDimension: 1920,
         quality: 0.84,
         onProgress: pct => setUploadProgress(pct),
@@ -281,11 +306,13 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
 
       if (res?.url) {
         onChange(res.url, {
+          fileId: res.fileId,
+          mimeType: res.mimeType || inferred.mimeType || 'image/jpeg',
           size: res.optimizedSize || res.originalSize,
           width: res.width,
           height: res.height,
         });
-        setSuccessMessage('Photo uploaded and saved permanently to Google Drive!');
+        setSuccessMessage(`Photo uploaded and saved permanently to Google Drive (${category})!`);
         if (onToast) onToast('Photo saved to Google Drive!');
       } else {
         throw new Error('Upload server did not return a valid image URL.');
@@ -565,10 +592,10 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
         </div>
       </div>
 
-      {/* Option A: Upload from Device */}
+      {/* Option A: Upload from Device (Gallery / Files + Camera / Video Capture for Android) */}
       {sourceMode === 'device' && (
         <div className="space-y-2 pt-1">
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <label
               className={`px-3.5 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-2 shadow-xs transition ${
                 isUploading || disabled
@@ -597,16 +624,67 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
               />
             </label>
 
+            {(effectiveMediaType === 'image' || effectiveMediaType === 'any') && (
+              <label
+                className={`px-3 py-2 rounded-xl border font-bold text-xs flex items-center gap-1.5 shadow-xs transition ${
+                  isUploading || disabled
+                    ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed'
+                    : 'bg-[#FFF8E7] hover:bg-amber-100 text-[#8F6500] border-[#C89211]/40 cursor-pointer active:scale-95'
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5 text-[#C89211]" />
+                <span>Take Photo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  disabled={isUploading || disabled}
+                  onChange={handleDeviceUpload}
+                  className="hidden"
+                />
+              </label>
+            )}
+
+            {effectiveMediaType === 'video' && (
+              <label
+                className={`px-3 py-2 rounded-xl border font-bold text-xs flex items-center gap-1.5 shadow-xs transition ${
+                  isUploading || disabled
+                    ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed'
+                    : 'bg-[#FFF8E7] hover:bg-amber-100 text-[#8F6500] border-[#C89211]/40 cursor-pointer active:scale-95'
+                }`}
+              >
+                <Video className="w-3.5 h-3.5 text-[#C89211]" />
+                <span>Record Video</span>
+                <input
+                  type="file"
+                  accept="video/*"
+                  capture="environment"
+                  disabled={isUploading || disabled}
+                  onChange={handleDeviceUpload}
+                  className="hidden"
+                />
+              </label>
+            )}
+
             <span className="text-[11px] text-[#666666]">
               {effectiveMediaType === 'video'
-                ? 'MP4, WebM up to 55 MB • Saves permanently to Google Drive'
+                ? 'MP4, WebM, MOV up to 55 MB • Saves to Drive videos'
                 : effectiveMediaType === 'model3d'
-                ? '.glb or .gltf 3D asset • Saves permanently to Google Drive'
+                ? '.glb or .gltf 3D asset'
                 : effectiveMediaType === 'any'
                 ? 'JPG, PNG, WebP (25 MB) or MP4/WebM Video (55 MB)'
-                : 'JPG, PNG, WebP up to 25 MB • Saves permanently to Google Drive'}
+                : `JPG, PNG, WebP up to 25 MB • Saves to Drive ${category}`}
             </span>
           </div>
+
+          {isUploading && uploadProgress !== null && (
+            <div className="w-full h-1.5 rounded-full bg-stone-200 overflow-hidden">
+              <div
+                className="h-full bg-[#C89211] transition-all duration-200"
+                style={{ width: `${Math.max(8, Math.min(100, uploadProgress))}%` }}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -903,7 +981,11 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
           <div className="flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                Saved in Google Drive
+                {value.includes('/api/drive/media/') || value.includes('drive.google.com')
+                  ? 'Saved in Google Drive'
+                  : value.includes('/uploads/')
+                  ? 'Saved on Server'
+                  : 'Media Linked'}
               </span>
               {value.includes('drive.google.com') || value.includes('/api/drive/media/') ? (
                 <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-mono">

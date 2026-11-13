@@ -121,14 +121,14 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
 
     try {
       setIsUploadingImage(true);
-      const res = await uploadImage(file);
+      const res = await uploadImage(file, { category: 'banners' });
       if (res.url) {
         setImageUrl(res.url);
-        onShowToast('Image uploaded successfully');
+        onShowToast('Image uploaded to Google Drive successfully');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to upload image:', err);
-      onShowToast('Failed to upload notification banner');
+      onShowToast(err?.message || 'Failed to upload notification banner');
     } finally {
       setIsUploadingImage(false);
     }

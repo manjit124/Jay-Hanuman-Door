@@ -70,6 +70,9 @@ import {
   hasServerDriveOAuthCredentials,
   findExistingDriveImport,
   recordDriveImport,
+  normalizeDriveCategory,
+  detectMimeType,
+  getExtensionForMimeType,
   type DriveSubfolderCategory,
 } from './server/googleDriveStorage.ts';
 import { analyzeDoorWood, ImageInputPart } from './server/aiWoodDetector.ts';
@@ -457,6 +460,37 @@ const videoUpload = multer({
   },
 });
 
+// Unified Multer configuration for Admin Google Drive Media Uploads (Photos, Videos, 3D Models, PDFs up to 60 MB)
+// Accepts application/octet-stream and extensionless Android WebView blobs; magic-byte detection validates content in handler.
+const driveMediaUpload = multer({
+  storage,
+  limits: { fileSize: 60 * 1024 * 1024 }, // 60 MB
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const mime = (file.mimetype || '').toLowerCase().trim();
+    const allowedExts = [
+      '.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.avif', '.heic', '.heif', '.bmp',
+      '.mp4', '.webm', '.mov', '.m4v', '.3gp', '.mkv',
+      '.glb', '.gltf', '.bin', '.pdf',
+    ];
+    const isAllowedMime =
+      !mime ||
+      mime === 'application/octet-stream' ||
+      mime === 'binary/octet-stream' ||
+      mime.startsWith('image/') ||
+      mime.startsWith('video/') ||
+      mime === 'model/gltf-binary' ||
+      mime === 'model/gltf+json' ||
+      mime === 'application/pdf';
+
+    if (allowedExts.includes(ext) || isAllowedMime) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported media file format (${mime || ext}). Supported: JPG, PNG, WebP, MP4, WebM, MOV, GLB.`));
+    }
+  },
+});
+
 // Admin auth token store (resilient across dev/container restarts)
 const activeTokens = new Set<string>();
 const revokedTokens = new Set<string>();
@@ -632,20 +666,50 @@ app.post(['/api/upload-video', '/api/admin/upload-video'], (req, res) => {
 app.post('/api/admin/upload-model', verifyAdminToken, (req, res) => {
   modelUpload.single('file')(req, res, async (err) => {
     if (err) {
-      return res.status(400).json({ error: err.message || '3D file upload failed' });
+      return res.status(400).json({ success: false, errorCode: 'UPLOAD_VALIDATION_ERROR', error: err.message || '3D file upload failed' });
     }
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      return res.status(400).json({ success: false, errorCode: 'NO_FILE', error: 'No file uploaded' });
     }
 
-    const ext = path.extname(req.file.originalname).toLowerCase();
+    const ext = path.extname(req.file.originalname || '').toLowerCase();
     const is3DModel = ['.glb', '.gltf'].includes(ext);
+    const mime = is3DModel ? (ext === '.gltf' ? 'model/gltf+json' : 'model/gltf-binary') : (req.file.mimetype || 'application/octet-stream');
 
     try {
       const fileBuf = fs.readFileSync(req.file.path);
+      let driveResult: any = null;
+
+      if (hasServerDriveOAuthCredentials()) {
+        try {
+          driveResult = await uploadMediaToOwnerDrive(
+            fileBuf,
+            req.file.originalname || req.file.filename,
+            mime,
+            'products',
+            `Admin 3D/model upload: ${req.file.originalname || req.file.filename}`
+          );
+        } catch (driveErr: any) {
+          console.warn('⚠️ [3D Model Upload] Google Drive mirror notice:', driveErr?.message);
+        }
+      }
+
+      if (driveResult?.url) {
+        return res.json({
+          success: true,
+          url: driveResult.url,
+          fileId: driveResult.fileId,
+          filename: driveResult.name,
+          originalName: req.file.originalname,
+          size: req.file.size,
+          is3DModel,
+          storageType: 'google_drive',
+        });
+      }
+
       const result = await saveMedia(
         req.file.filename,
-        is3DModel ? 'model/gltf-binary' : 'application/octet-stream',
+        mime,
         fileBuf
       );
 
@@ -667,7 +731,13 @@ app.post('/api/admin/upload-model', verifyAdminToken, (req, res) => {
         storageType: result.storageType,
       });
     } catch (saveErr: any) {
-      res.status(500).json({ error: saveErr.message || '3D file save failed' });
+      res.status(500).json({ success: false, error: saveErr.message || '3D file save failed' });
+    } finally {
+      try {
+        if (req.file?.path && fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+      } catch {}
     }
   });
 });
@@ -1075,27 +1145,41 @@ app.get('/api/drive/media/:fileId', async (req, res) => {
     const fileId = req.params.fileId;
     const { buffer, mimeType, size } = await getDriveMediaBuffer(fileId);
 
+    const commonCorsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    };
+
     const rangeHeader = req.headers.range;
-    if (rangeHeader && mimeType.startsWith('video/')) {
+    if (rangeHeader && (mimeType.startsWith('video/') || size > 0)) {
       const parts = rangeHeader.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : size - 1;
+      const start = Math.max(0, parseInt(parts[0], 10) || 0);
+      const end = parts[1] ? Math.min(size - 1, parseInt(parts[1], 10)) : size - 1;
+      if (start >= size || end < start) {
+        res.writeHead(416, {
+          ...commonCorsHeaders,
+          'Content-Range': `bytes */${size}`,
+        });
+        return res.end();
+      }
       const chunkSize = end - start + 1;
 
       res.writeHead(206, {
+        ...commonCorsHeaders,
         'Content-Range': `bytes ${start}-${end}/${size}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunkSize,
         'Content-Type': mimeType,
-        'Cache-Control': 'public, max-age=31536000, immutable',
       });
       return res.end(buffer.subarray(start, end + 1));
     }
 
     res.writeHead(200, {
+      ...commonCorsHeaders,
+      'Accept-Ranges': 'bytes',
       'Content-Type': mimeType,
       'Content-Length': size,
-      'Cache-Control': 'public, max-age=31536000, immutable',
     });
     return res.end(buffer);
   } catch (err: any) {
@@ -1182,38 +1266,138 @@ app.post('/api/admin/drive/test-upload', verifyAdminToken, async (_req, res) => 
   }
 });
 
-// 5. Admin: Direct Media Upload into Owner's Google Drive
-app.post('/api/admin/drive/upload', verifyAdminToken, upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, error: 'No media file attached' });
-  }
+// 5. Admin: Direct Media Upload into Owner's Google Drive (Photos, Videos, 3D Models, Android content:// blobs)
+app.post('/api/admin/drive/upload', verifyAdminToken, (req, res) => {
+  driveMediaUpload.single('file')(req, res, async (multerErr: any) => {
+    if (multerErr) {
+      const isLimit = multerErr?.code === 'LIMIT_FILE_SIZE';
+      return res.status(isLimit ? 413 : 400).json({
+        success: false,
+        errorCode: isLimit ? 'FILE_TOO_LARGE' : 'UPLOAD_VALIDATION_ERROR',
+        error: isLimit
+          ? 'Media file exceeds the 60 MB upload limit.'
+          : multerErr?.message || 'Invalid media upload request.',
+      });
+    }
 
-  try {
-    const fileBuf = fs.readFileSync(req.file.path);
-    const category = (req.body?.category || 'products') as DriveSubfolderCategory;
-    const description = req.body?.description || `Admin upload for ${category}`;
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'NO_FILE',
+        error: 'No media file attached. Select a photo, video, or 3D model first.',
+      });
+    }
 
-    const uploaded = await uploadMediaToOwnerDrive(
-      fileBuf,
-      req.file.originalname,
-      req.file.mimetype,
-      category,
-      description
-    );
+    const tempPath = req.file.path;
+    try {
+      const fileBuf = fs.readFileSync(tempPath);
+      if (fileBuf.length === 0) {
+        return res.status(400).json({
+          success: false,
+          errorCode: 'EMPTY_FILE',
+          error: 'Selected file is empty (0 bytes). Please choose a valid photo or video.',
+        });
+      }
 
-    return res.json({
-      success: true,
-      url: uploaded.url,
-      fileId: uploaded.fileId,
-      name: uploaded.name,
-      size: uploaded.size,
-      category: uploaded.category,
-      webViewLink: uploaded.webViewLink,
-    });
-  } catch (err: any) {
-    console.error('⚠️ [Drive Admin Upload Error]:', err);
-    return res.status(500).json({ success: false, error: err.message || 'Upload to owner Google Drive failed' });
-  }
+      const detectedMime = detectMimeType(fileBuf);
+      const rawMime = String(req.file.mimetype || '').split(';')[0].trim().toLowerCase();
+      const effectiveMime =
+        detectedMime !== 'application/octet-stream'
+          ? detectedMime
+          : rawMime && rawMime !== 'application/octet-stream' && rawMime !== 'binary/octet-stream'
+          ? rawMime
+          : 'application/octet-stream';
+
+      const extFromName = path.extname(req.file.originalname || '').toLowerCase();
+      const allowedExts = [
+        '.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.avif', '.heic', '.heif', '.bmp',
+        '.mp4', '.webm', '.mov', '.m4v', '.3gp', '.mkv', '.glb', '.gltf', '.pdf',
+      ];
+      const isSupportedContent =
+        effectiveMime.startsWith('image/') ||
+        effectiveMime.startsWith('video/') ||
+        effectiveMime === 'model/gltf-binary' ||
+        effectiveMime === 'model/gltf+json' ||
+        effectiveMime === 'application/pdf' ||
+        allowedExts.includes(extFromName);
+
+      if (!isSupportedContent) {
+        return res.status(400).json({
+          success: false,
+          errorCode: 'UNSUPPORTED_MEDIA_TYPE',
+          error: `Unsupported file format (${rawMime || 'unknown'}). Upload JPG, PNG, WebP, MP4, WebM, MOV, or GLB files.`,
+        });
+      }
+
+      const requestedMediaType = String(req.body?.mediaType || '').toLowerCase();
+      const inferredIsVideo = effectiveMime.startsWith('video/') || requestedMediaType === 'video' || ['.mp4', '.webm', '.mov', '.m4v', '.3gp', '.mkv'].includes(extFromName);
+      const category = normalizeDriveCategory(
+        req.body?.category || (inferredIsVideo ? 'videos' : 'products')
+      );
+
+      if (!hasServerDriveOAuthCredentials()) {
+        return res.status(412).json({
+          success: false,
+          errorCode: 'DRIVE_NOT_CONNECTED',
+          error:
+            'Google Drive OAuth is not connected on the backend server (missing refresh token / client secret). Open Admin Panel -> Google Drive Storage to connect or configure GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET, and GOOGLE_DRIVE_REFRESH_TOKEN on Cloud Run.',
+        });
+      }
+
+      const ext = extFromName && allowedExts.includes(extFromName)
+        ? extFromName
+        : getExtensionForMimeType(effectiveMime);
+      const rawBase = path.basename(req.file.originalname || '', extFromName).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const stem = rawBase && rawBase !== 'blob' && rawBase !== '_' ? rawBase : `jhd_${category}_${Date.now()}`;
+      const preservedFilename = `${stem}${ext !== '.bin' ? ext : inferredIsVideo ? '.mp4' : '.jpg'}`;
+      const description = String(req.body?.description || '').trim() || `Admin upload for ${category}`;
+
+      const uploaded = await uploadMediaToOwnerDrive(
+        fileBuf,
+        preservedFilename,
+        effectiveMime,
+        category,
+        description
+      );
+
+      return res.json({
+        success: true,
+        url: uploaded.url,
+        fileId: uploaded.fileId,
+        name: uploaded.name,
+        filename: uploaded.name,
+        mimeType: uploaded.mimeType,
+        size: uploaded.size,
+        category: uploaded.category,
+        isVideo: uploaded.mimeType.startsWith('video/') || inferredIsVideo,
+        is3DModel: ext === '.glb' || ext === '.gltf' || uploaded.mimeType.includes('gltf'),
+        webViewLink: uploaded.webViewLink,
+        storageType: 'google_drive',
+      });
+    } catch (err: any) {
+      const msg = String(err?.message || 'Upload to owner Google Drive failed');
+      console.error('⚠️ [Drive Admin Upload Error]:', msg);
+      const isMissingToken = msg.includes('Missing refresh token') || msg.includes('credentials incomplete');
+      const isAuthRejected = msg.includes('invalid_grant') || msg.includes('(401)') || msg.includes('(403)');
+      const status = isMissingToken ? 412 : isAuthRejected ? 502 : 500;
+      const errorCode = isMissingToken
+        ? 'DRIVE_NOT_CONNECTED'
+        : isAuthRejected
+        ? 'DRIVE_AUTH_FAILED'
+        : 'DRIVE_UPLOAD_FAILED';
+      return res.status(status).json({
+        success: false,
+        errorCode,
+        error: msg,
+      });
+    } finally {
+      try {
+        if (tempPath && fs.existsSync(tempPath)) {
+          fs.unlinkSync(tempPath);
+        }
+      } catch {}
+    }
+  });
 });
 
 // 6. Admin: List Media Files from Specific Category in Owner's Google Drive

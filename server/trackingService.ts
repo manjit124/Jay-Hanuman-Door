@@ -16,6 +16,12 @@ import {
 } from '../src/types.ts';
 import { getDb, saveDb, UPLOAD_DIR, UPLOAD_BACKUP_DIR } from './db.ts';
 import { saveMedia } from './storageService.ts';
+import {
+  hasServerDriveOAuthCredentials,
+  uploadMediaToOwnerDrive,
+  detectMimeType,
+  getExtensionForMimeType,
+} from './googleDriveStorage.ts';
 
 // ---------------- Helpers & Generators ----------------
 
@@ -221,15 +227,22 @@ const storage = multer.diskStorage({
 
 const mediaUpload = multer({
   storage,
-  limits: { fileSize: 40 * 1024 * 1024 }, // 40MB for photo & short progress clip
+  limits: { fileSize: 55 * 1024 * 1024 }, // 55MB for photo & progress video clip
   fileFilter: (_req, file, cb) => {
-    const allowed = /jpeg|jpg|png|webp|gif|mp4|webm|quicktime/;
-    const extname = allowed.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowed.test(file.mimetype) || file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/');
-    if (extname && mimetype) {
+    const allowed = /jpeg|jpg|png|webp|gif|heic|heif|mp4|webm|quicktime|3gp|mkv/;
+    const extname = allowed.test(path.extname(file.originalname || '').toLowerCase());
+    const mime = (file.mimetype || '').toLowerCase();
+    const isAllowedMime =
+      !mime ||
+      mime === 'application/octet-stream' ||
+      mime === 'binary/octet-stream' ||
+      allowed.test(mime) ||
+      mime.startsWith('image/') ||
+      mime.startsWith('video/');
+    if (extname || isAllowedMime) {
       return cb(null, true);
     }
-    cb(new Error('Only images (JPG, PNG, WebP) and videos (MP4, WebM) are allowed'));
+    cb(new Error('Only images (JPG, PNG, WebP) and videos (MP4, WebM, MOV) are allowed'));
   },
 });
 
@@ -607,7 +620,7 @@ export function initTrackingRoutes(
       }
       next();
     },
-    (req, res) => {
+    async (req, res) => {
       try {
         const { id } = req.params;
         const { stageId, caption, isCustomerVisible, mediaUrl: directMediaUrl, mediaType } = req.body;
@@ -629,16 +642,46 @@ export function initTrackingRoutes(
         let isVideo = false;
 
         if (req.file) {
-          // Mirror to backup uploads dir & persist via storageService
-          try {
-            const backupPath = path.join(UPLOAD_BACKUP_DIR, req.file.filename);
-            fs.copyFileSync(req.file.path, backupPath);
-            const fileBuf = fs.readFileSync(req.file.path);
-            saveMedia(req.file.filename, req.file.mimetype || 'image/jpeg', fileBuf).catch(() => {});
-          } catch {}
+          const fileBuf = fs.readFileSync(req.file.path);
+          const detected = detectMimeType(fileBuf);
+          const effectiveMime =
+            detected !== 'application/octet-stream'
+              ? detected
+              : req.file.mimetype && req.file.mimetype !== 'application/octet-stream'
+              ? req.file.mimetype
+              : 'image/jpeg';
 
-          isVideo = req.file.mimetype.startsWith('video/') || req.file.filename.endsWith('.mp4') || req.file.filename.endsWith('.webm');
-          mediaUrl = `/uploads/${req.file.filename}`;
+          isVideo = effectiveMime.startsWith('video/') || /\.(mp4|webm|mov|3gp|mkv)$/i.test(req.file.originalname || req.file.filename);
+
+          let uploadedDriveUrl: string | null = null;
+          if (hasServerDriveOAuthCredentials()) {
+            try {
+              const ext = path.extname(req.file.originalname || '') || getExtensionForMimeType(effectiveMime);
+              const driveName = `track-${order.trackingId}-${Date.now()}${ext !== '.bin' ? ext : isVideo ? '.mp4' : '.jpg'}`;
+              const driveRes = await uploadMediaToOwnerDrive(
+                fileBuf,
+                driveName,
+                effectiveMime,
+                isVideo ? 'videos' : 'delivery',
+                `Order tracking ${order.trackingId} (${stageId || order.currentStageId})`
+              );
+              uploadedDriveUrl = driveRes.url;
+            } catch (driveErr: any) {
+              console.warn('⚠️ [Tracking Media] Google Drive upload fallback notice:', driveErr?.message);
+            }
+          }
+
+          if (uploadedDriveUrl) {
+            mediaUrl = uploadedDriveUrl;
+          } else {
+            // Mirror to backup uploads dir & persist via storageService
+            try {
+              const backupPath = path.join(UPLOAD_BACKUP_DIR, req.file.filename);
+              fs.copyFileSync(req.file.path, backupPath);
+              await saveMedia(req.file.filename, effectiveMime, fileBuf, 'delivery');
+            } catch {}
+            mediaUrl = `/uploads/${req.file.filename}`;
+          }
         } else {
           isVideo =
             mediaType === 'video' ||

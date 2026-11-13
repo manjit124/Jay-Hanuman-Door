@@ -24,6 +24,15 @@ if (!fs.existsSync(DRIVE_CACHE_DIR)) {
 
 export type DriveSubfolderCategory = 'products' | 'catalog' | 'banners' | 'delivery' | 'videos';
 
+export function normalizeDriveCategory(raw?: string): DriveSubfolderCategory {
+  const clean = String(raw || '').trim().toLowerCase();
+  if (clean === 'videos' || clean === 'video') return 'videos';
+  if (clean === 'banners' || clean === 'banner' || clean === 'notifications' || clean === 'slider') return 'banners';
+  if (clean === 'catalog' || clean === 'catalogue' || clean === 'chaukhat' || clean === 'categories') return 'catalog';
+  if (clean === 'delivery' || clean === 'tracking' || clean === 'stories') return 'delivery';
+  return 'products';
+}
+
 export interface DriveImportMetadataRecord {
   sourceFileId: string;
   originalUrl: string;
@@ -160,6 +169,7 @@ export function saveServerDriveCredentials(creds: Partial<StoredDriveCredentials
 export function getDriveConnectionStatus(): {
   configured: boolean;
   connected: boolean;
+  credentialsReady: boolean;
   ownerEmail?: string;
   connectedAt?: string;
   lastVerifiedAt?: string;
@@ -171,11 +181,18 @@ export function getDriveConnectionStatus(): {
   const creds = loadServerDriveCredentials();
   const hasRefreshToken = Boolean(creds.refreshToken);
   const hasClientSecret = Boolean(creds.clientSecret);
-  const connected = Boolean(creds.lastVerifiedAt && (hasRefreshToken || creds.accessToken));
+  const credentialsReady = Boolean(
+    (hasRefreshToken && creds.clientId && hasClientSecret) ||
+      (creds.accessToken && creds.tokenExpiry && creds.tokenExpiry > Date.now())
+  );
+  const connected = Boolean(
+    creds.lastVerifiedAt ? (hasRefreshToken || creds.accessToken) : credentialsReady
+  );
 
   return {
     configured: Boolean(creds.clientId && (creds.refreshToken || creds.clientSecret)),
     connected,
+    credentialsReady,
     ownerEmail: creds.ownerEmail || 'shivshahidoors@gmail.com',
     connectedAt: creds.connectedAt,
     lastVerifiedAt: creds.lastVerifiedAt,
@@ -432,14 +449,35 @@ export async function ensureDriveSubfolder(category: DriveSubfolderCategory): Pr
   return subfolderId!;
 }
 
+export function getExtensionForMimeType(mimeType: string): string {
+  const lower = String(mimeType || '').toLowerCase().split(';')[0].trim();
+  if (lower === 'image/jpeg' || lower === 'image/jpg') return '.jpg';
+  if (lower === 'image/png') return '.png';
+  if (lower === 'image/webp') return '.webp';
+  if (lower === 'image/gif') return '.gif';
+  if (lower === 'image/svg+xml') return '.svg';
+  if (lower === 'image/avif') return '.avif';
+  if (lower === 'image/heic' || lower === 'image/heif') return '.heic';
+  if (lower === 'video/mp4') return '.mp4';
+  if (lower === 'video/webm') return '.webm';
+  if (lower === 'video/quicktime') return '.mov';
+  if (lower === 'video/3gpp') return '.3gp';
+  if (lower === 'video/x-matroska') return '.mkv';
+  if (lower === 'model/gltf-binary') return '.glb';
+  if (lower === 'model/gltf+json') return '.gltf';
+  if (lower === 'application/pdf') return '.pdf';
+  return '.bin';
+}
+
 /**
  * Uploads a file directly into the owner's Google Drive in the specified category subfolder.
+ * Uses multipart upload for files < 4 MB and official Resumable Upload for >= 4 MB (videos / HD files).
  */
 export async function uploadMediaToOwnerDrive(
   buffer: Buffer,
   filename: string,
   mimeType: string,
-  category: DriveSubfolderCategory = 'products',
+  category: DriveSubfolderCategory | string = 'products',
   description?: string
 ): Promise<{
   fileId: string;
@@ -450,50 +488,119 @@ export async function uploadMediaToOwnerDrive(
   webViewLink?: string;
   category: DriveSubfolderCategory;
 }> {
+  const normalizedCat = normalizeDriveCategory(category);
   const token = await getValidAccessToken();
-  const subfolderId = await ensureDriveSubfolder(category);
+  const subfolderId = await ensureDriveSubfolder(normalizedCat);
 
-  const cleanName = path.basename(filename).replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const detectedMime = detectMimeType(buffer);
+  const rawMime = String(mimeType || '').split(';')[0].trim().toLowerCase();
+  const resolvedMime =
+    rawMime && rawMime !== 'application/octet-stream' && rawMime !== 'binary/octet-stream'
+      ? rawMime
+      : detectedMime !== 'application/octet-stream'
+      ? detectedMime
+      : 'application/octet-stream';
+
+  const baseInputName = path.basename(String(filename || '')).replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const existingExt = path.extname(baseInputName).toLowerCase();
+  const expectedExt = getExtensionForMimeType(resolvedMime);
+  const stem =
+    baseInputName && baseInputName !== 'blob' && baseInputName !== '_blob'
+      ? path.basename(baseInputName, existingExt) || `media_${Date.now()}`
+      : `jhd_${normalizedCat}_${Date.now()}`;
+  const finalExt = existingExt && existingExt.length >= 2 && existingExt.length <= 6
+    ? existingExt
+    : expectedExt !== '.bin'
+    ? expectedExt
+    : '.jpg';
+  const cleanName = `${stem}${finalExt}`;
+
   const metadata = {
     name: cleanName,
-    mimeType: mimeType || 'image/jpeg',
+    mimeType: resolvedMime,
     parents: [subfolderId],
-    description: description || `Jai Hanuman Door ${category} upload - ${new Date().toISOString()}`,
+    description: description || `Jai Hanuman Door ${normalizedCat} upload - ${new Date().toISOString()}`,
   };
 
-  const boundary = '-------jhd314159265358979323846';
-  const delimiter = `\r\n--${boundary}\r\n`;
-  const closeDelimiter = `\r\n--${boundary}--`;
+  let result: any;
 
-  const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`;
-  const fileHeaderPart = `${delimiter}Content-Type: ${mimeType}\r\n\r\n`;
+  // Use Resumable Upload for files >= 4 MB (recommended by Google Drive API for videos & large assets)
+  if (buffer.length >= 4 * 1024 * 1024) {
+    const initRes = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size,webViewLink',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Type': resolvedMime,
+          'X-Upload-Content-Length': String(buffer.length),
+        },
+        body: JSON.stringify(metadata),
+      }
+    );
 
-  const payload = Buffer.concat([
-    Buffer.from(metadataPart, 'utf8'),
-    Buffer.from(fileHeaderPart, 'utf8'),
-    buffer,
-    Buffer.from(closeDelimiter, 'utf8'),
-  ]);
-
-  const uploadRes = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,webViewLink',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': `multipart/related; boundary=${boundary}`,
-        'Content-Length': String(payload.length),
-      },
-      body: payload,
+    if (!initRes.ok) {
+      const errText = await initRes.text();
+      throw new Error(`Google Drive resumable session failed (${initRes.status}): ${errText}`);
     }
-  );
 
-  if (!uploadRes.ok) {
-    const errText = await uploadRes.text();
-    throw new Error(`Google Drive upload failed (${uploadRes.status}): ${errText}`);
+    const sessionUri = initRes.headers.get('location');
+    if (!sessionUri) {
+      throw new Error('Google Drive resumable upload failed: missing session Location header.');
+    }
+
+    const putRes = await fetch(sessionUri, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': resolvedMime,
+        'Content-Length': String(buffer.length),
+      },
+      body: new Uint8Array(buffer),
+    });
+
+    if (!putRes.ok) {
+      const errText = await putRes.text();
+      throw new Error(`Google Drive resumable upload transfer failed (${putRes.status}): ${errText}`);
+    }
+
+    result = await putRes.json();
+  } else {
+    const boundary = '-------jhd314159265358979323846';
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
+
+    const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`;
+    const fileHeaderPart = `${delimiter}Content-Type: ${resolvedMime}\r\n\r\n`;
+
+    const payload = Buffer.concat([
+      Buffer.from(metadataPart, 'utf8'),
+      Buffer.from(fileHeaderPart, 'utf8'),
+      buffer,
+      Buffer.from(closeDelimiter, 'utf8'),
+    ]);
+
+    const uploadRes = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,webViewLink',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+          'Content-Length': String(payload.length),
+        },
+        body: new Uint8Array(payload),
+      }
+    );
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(`Google Drive upload failed (${uploadRes.status}): ${errText}`);
+    }
+
+    result = await uploadRes.json();
   }
 
-  const result = await uploadRes.json();
   const fileId = result.id;
 
   // Make file readable via link
@@ -525,10 +632,10 @@ export async function uploadMediaToOwnerDrive(
     fileId,
     name: result.name || cleanName,
     size: buffer.length,
-    mimeType: result.mimeType || mimeType,
+    mimeType: result.mimeType || resolvedMime,
     url: `/api/drive/media/${fileId}`,
     webViewLink: result.webViewLink,
-    category,
+    category: normalizedCat,
   };
 }
 
@@ -696,7 +803,7 @@ export async function testOwnerDriveUpload(): Promise<{
   };
 }
 
-function detectMimeType(buffer: Buffer): string {
+export function detectMimeType(buffer: Buffer): string {
   if (buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
     return 'image/jpeg';
   }
@@ -709,10 +816,15 @@ function detectMimeType(buffer: Buffer): string {
   if (buffer.length > 12 && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
     return 'image/webp';
   }
+  if (buffer.length >= 5 && buffer.subarray(0, 5).toString('ascii') === '%PDF-') {
+    return 'application/pdf';
+  }
   if (buffer.length > 12 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
     const brand = buffer.subarray(8, 12).toString('ascii').toLowerCase();
     if (brand === 'avif' || brand === 'avis') return 'image/avif';
+    if (brand === 'heic' || brand === 'heix' || brand === 'mif1' || brand === 'msf1') return 'image/heic';
     if (brand === 'qt  ') return 'video/quicktime';
+    if (brand.startsWith('3gp')) return 'video/3gpp';
     return 'video/mp4';
   }
   if (buffer.length >= 4 && buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3) {
@@ -728,6 +840,10 @@ function detectMimeType(buffer: Buffer): string {
   }
   if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'glTF') {
     return 'model/gltf-binary';
+  }
+  const headText = buffer.subarray(0, Math.min(256, buffer.length)).toString('utf8').trimStart();
+  if (headText.startsWith('<svg') || (headText.startsWith('<?xml') && headText.includes('<svg'))) {
+    return 'image/svg+xml';
   }
   return 'application/octet-stream';
 }
