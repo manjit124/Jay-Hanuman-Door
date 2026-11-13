@@ -55,6 +55,8 @@ import {
   deliverAdminTrackingOrder,
   cancelAdminTrackingOrder,
   deleteAdminTrackingOrder,
+  resolveImageUrl,
+  isGoogleDriveEmbedUrl,
 } from '../../lib/api.ts';
 import { getWhatsAppUrl } from '../../lib/contactUtils.ts';
 import { GoogleDriveImagePicker } from './GoogleDriveImagePicker.tsx';
@@ -91,6 +93,7 @@ export const AdminOrderTrackingTab: React.FC<AdminOrderTrackingTabProps> = ({
   const [stageNaReason, setStageNaReason] = useState('');
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [stageMediaUrl, setStageMediaUrl] = useState('');
+  const [stageMediaType, setStageMediaType] = useState<'image' | 'video'>('image');
   const [mediaCaption, setMediaCaption] = useState('');
   const [mediaIsCustomerVisible, setMediaIsCustomerVisible] = useState(true);
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -321,10 +324,12 @@ export const AdminOrderTrackingTab: React.FC<AdminOrderTrackingTabProps> = ({
         caption: mediaCaption,
         isCustomerVisible: mediaIsCustomerVisible,
         mediaUrl: stageMediaUrl || undefined,
+        mediaType: stageMediaType,
       });
       setSelectedOrder(res.order);
       setMediaFile(null);
       setStageMediaUrl('');
+      setStageMediaType('image');
       setMediaCaption('');
       showToast('Progress photo/video uploaded successfully to Google Drive & tracking record');
       loadOrders();
@@ -1231,8 +1236,16 @@ Pune, Maharashtra`;
                               <GoogleDriveImagePicker
                                 label={`Stage Proof Image / Video for ${st.name}`}
                                 value={stageMediaUrl}
-                                onChange={url => setStageMediaUrl(url)}
-                                onFileSelect={file => setMediaFile(file)}
+                                onChange={(url, meta) => {
+                                  setMediaFile(null);
+                                  setStageMediaUrl(url);
+                                  const isVid =
+                                    Boolean(meta?.isVideo) ||
+                                    Boolean(meta?.mimeType?.startsWith('video/')) ||
+                                    isGoogleDriveEmbedUrl(url) ||
+                                    /\.(mp4|webm|mov)(\?|$)/i.test(url);
+                                  setStageMediaType(isVid ? 'video' : 'image');
+                                }}
                                 category="delivery"
                                 helperText="Option A: Upload device file (photo/video), or Option B: paste Google Drive sharing link to preview and import permanently"
                                 allowVideo={true}
@@ -1279,9 +1292,18 @@ Pune, Maharashtra`;
                                     className="relative aspect-video rounded-lg overflow-hidden border border-[#E5E5E5] group bg-black"
                                   >
                                     {m.type === 'video' ? (
-                                      <video src={m.url} className="w-full h-full object-cover" />
+                                      isGoogleDriveEmbedUrl(m.url) ? (
+                                        <iframe
+                                          src={m.url}
+                                          title={m.caption || 'Stage Proof Video'}
+                                          className="w-full h-full border-0"
+                                          allow="autoplay"
+                                        />
+                                      ) : (
+                                        <video src={resolveImageUrl(m.url, '')} className="w-full h-full object-cover" />
+                                      )
                                     ) : (
-                                      <img src={m.url} alt="Proof" className="w-full h-full object-cover" />
+                                      <img src={resolveImageUrl(m.url, '')} alt="Proof" className="w-full h-full object-cover" />
                                     )}
                                     <button
                                       type="button"

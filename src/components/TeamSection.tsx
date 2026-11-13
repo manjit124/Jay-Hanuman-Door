@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { TeamMember, BusinessSettings } from '../types.ts';
 import { TeamMemberDetailModal } from './TeamMemberDetailModal.tsx';
+import { resolveImageUrl } from '../lib/api.ts';
 
 interface TeamSectionProps {
   teamMembers: TeamMember[];
@@ -176,7 +177,7 @@ export const TeamSection: React.FC<TeamSectionProps> = ({ teamMembers, settings 
                   <div className="p-1 rounded-full bg-gradient-to-tr from-[#C89211] via-amber-300 to-[#C89211] group-hover:from-amber-500 group-hover:to-amber-400 transition-all duration-300 shadow-sm">
                     <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-stone-100 border-2 border-white relative">
                       <img
-                        src={member.photo}
+                        src={resolveImageUrl(member.photo, 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80')}
                         alt={member.name}
                         loading="lazy"
                         className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-108"

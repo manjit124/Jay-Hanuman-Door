@@ -753,7 +753,17 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     return res;
   } catch (err: any) {
     if (nativeTimeoutId) clearTimeout(nativeTimeoutId);
-    // If a custom or external base URL was prepended and threw Failed to fetch,
+    // If running on native and the request failed with a non-production or stale custom URL,
+    // purge the stale storage and retry against the verified PRODUCTION_API_BASE_URL
+    if (isNative && !fullUrl.startsWith(PRODUCTION_API_BASE_URL)) {
+      try {
+        localStorage.removeItem(CUSTOM_API_URL_KEY);
+        localStorage.removeItem(CACHED_PROD_URL_KEY);
+      } catch {}
+      const fallbackUrl = `${PRODUCTION_API_BASE_URL}${cleanRelative}`;
+      return await fetch(fallbackUrl, fetchOpts);
+    }
+    // If a custom or external base URL was prepended in browser and threw Failed to fetch,
     // clear any stale custom base URL and retry against same-origin relative path
     if (fullUrl !== cleanRelative && typeof window !== 'undefined' && !isNative) {
       try {
@@ -793,14 +803,14 @@ export function clearAdminToken(): void {
 
 export function getAdminAuthHeaders(): Record<string, string> {
   const token = getAdminToken();
-  return token ? { Authorization: `Bearer ${token}`, 'x-admin-token': token } : {};
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function authHeaders(): HeadersInit {
   const token = getAdminToken();
   return {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}`, 'x-admin-token': token } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 }
 
@@ -1440,7 +1450,6 @@ function uploadFileWithProgress(
     const token = getAdminToken();
     if (token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.setRequestHeader('x-admin-token', token);
     }
 
     if (xhr.upload && onProgress) {
@@ -1603,29 +1612,47 @@ export async function uploadImage(
   }
 }
 
-export interface DriveImagePreviewResult {
+export interface DriveMediaPreviewResult {
   success: boolean;
   fileId: string | null;
   isGoogleDrive: boolean;
+  originalName?: string;
+  originalUrl?: string;
   mimeType: string;
   extension: string;
   size: number;
-  width: number;
-  height: number;
-  previewDataUrl: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  isVideo?: boolean;
+  is3DModel?: boolean;
+  isDriveEmbed?: boolean;
+  embedUrl?: string;
+  previewDataUrl?: string;
+  previewPosterUrl?: string;
+  previewUrl?: string;
   errorCode?: string;
 }
 
-export interface DriveImageImportResult {
+export interface DriveMediaImportResult {
   success: boolean;
+  deduplicated?: boolean;
   url: string;
+  embedUrl?: string;
+  isDriveEmbed?: boolean;
   filename: string;
+  originalName?: string;
+  originalUrl?: string;
   fileId: string | null;
+  sourceFileId?: string | null;
   isGoogleDrive: boolean;
+  isVideo?: boolean;
+  is3DModel?: boolean;
   mimeType: string;
   size: number;
-  width: number;
-  height: number;
+  width?: number;
+  height?: number;
+  duration?: number;
   storageType: string;
   downloadUrl?: string;
   storagePath?: string;
@@ -1635,25 +1662,126 @@ export interface DriveImageImportResult {
   errorCode?: string;
 }
 
-async function callDriveImageEndpoint<T extends { success: boolean; error?: string; errorCode?: string }>(
-  endpointPath: '/api/admin/drive-image/preview' | '/api/admin/drive-image/import',
+export type DriveImagePreviewResult = DriveMediaPreviewResult;
+export type DriveImageImportResult = DriveMediaImportResult;
+
+export function isGoogleDriveEmbedUrl(url?: string | null): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim().toLowerCase();
+  return trimmed.includes('drive.google.com/file/d/') && trimmed.includes('/preview');
+}
+
+export function isClientGoogleDriveFolderUrl(url?: string | null): boolean {
+  const trimmed = String(url || '').trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return (
+      parsed.hostname.toLowerCase() === 'drive.google.com' &&
+      /\/drive\/(?:u\/\d+\/)?folders\/[a-zA-Z0-9_-]{8,120}/i.test(parsed.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function extractClientGoogleDriveFileId(url?: string | null): string | null {
+  const trimmed = String(url || '').trim();
+  if (!trimmed || isClientGoogleDriveFolderUrl(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase();
+    const isDriveHost =
+      host === 'drive.google.com' ||
+      host === 'docs.google.com' ||
+      host === 'drive.usercontent.google.com' ||
+      host.endsWith('.googleusercontent.com');
+    if (!isDriveHost) return null;
+
+    const pathMatch = parsed.pathname.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{10,120})(?:\/|$|=)/);
+    if (pathMatch && pathMatch[1]) {
+      return pathMatch[1];
+    }
+
+    const idParam = parsed.searchParams.get('id');
+    if (idParam && /^[a-zA-Z0-9_-]{10,120}$/.test(idParam.trim())) {
+      return idParam.trim();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function getClientGoogleDriveDirectUrl(
+  fileId: string,
+  mediaType: 'image' | 'video' | 'model3d' | 'any' = 'image'
+): string {
+  const safeId = encodeURIComponent(fileId.trim());
+  if (mediaType === 'video') {
+    return `https://drive.google.com/file/d/${safeId}/preview`;
+  }
+  return `https://drive.google.com/uc?export=view&id=${safeId}`;
+}
+
+export function getClientGoogleDriveThumbnailUrl(fileId: string, size = 1600): string {
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId.trim())}&sz=w${size}`;
+}
+
+async function diagnoseBackendNetworkFailure(
+  endpointPath: string,
+  targetUrl: string,
+  rawErrorMsg: string
+): Promise<string> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return `[OFFLINE] Device appears to be offline while calling "${targetUrl}". Connect to Wi-Fi/mobile data or use "Upload From Device".`;
+  }
+
+  const lowerErr = rawErrorMsg.toLowerCase();
+  if (lowerErr.includes('abort') || lowerErr.includes('timeout')) {
+    return `[TIMEOUT] Request to "${targetUrl}" timed out. The remote file may be large or the server is busy. Please retry or use "Upload From Device".`;
+  }
+
+  // Probe simple GET /api/health (no custom headers -> avoids CORS preflight) to separate CORS block from unreachable host
+  const healthUrl = resolveApiUrl('/api/health');
+  try {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 5000);
+    const probeRes = await fetch(healthUrl, { method: 'GET', signal: controller.signal });
+    clearTimeout(tid);
+    if (probeRes.ok) {
+      return `[CORS_OR_PREFLIGHT_BLOCKED] Server is online (/api/health HTTP ${probeRes.status}), but "${endpointPath}" was blocked by browser/WebView CORS or rejected at preflight (${rawErrorMsg || 'Failed to fetch'}). Backend CORS / redeploy update is required; you can use Direct Drive Link Fallback below or "Upload From Device".`;
+    }
+    return `[BACKEND_HTTP_${probeRes.status}] Server probe returned HTTP ${probeRes.status} while trying "${targetUrl}" (${rawErrorMsg || 'Failed to fetch'}).`;
+  } catch {
+    return `[NETWORK_UNREACHABLE] Could not reach backend server at "${targetUrl}" (${rawErrorMsg || 'Failed to fetch'}). Check internet/DNS or use Direct Drive Link Fallback / "Upload From Device".`;
+  }
+}
+
+async function callDriveMediaEndpoint<T extends { success: boolean; error?: string; errorCode?: string }>(
+  endpointPath: string,
   cleanUrl: string,
   actionLabel: string,
-  category = 'products'
+  category = 'products',
+  mediaType = 'any'
 ): Promise<T> {
-  const token = getAdminToken() || 'admin-dev-token';
-  let lastNetworkError = '';
+  const token = getAdminToken();
+  if (!token) {
+    throw new Error('[HTTP 401 • ADMIN_TOKEN_MISSING] Unauthorized: Please sign in to the Admin Panel first.');
+  }
 
-  // 1. Primary attempt: POST with JSON body
+  let lastNetworkError = '';
+  const targetUrl = resolveApiUrl(endpointPath);
+
+  // 1. Primary attempt: POST with JSON body (uses standard Authorization header only for clean CORS preflight)
   try {
     const postRes = await apiFetch(endpointPath, {
       method: 'POST',
       headers: {
-        ...authHeaders(),
+        'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
-        'x-admin-token': token,
       },
-      body: JSON.stringify({ url: cleanUrl, category }),
+      body: JSON.stringify({ url: cleanUrl, category, mediaType }),
     });
 
     const parsedPost = await parseSafeJsonResponse<T>(postRes, actionLabel);
@@ -1661,7 +1789,18 @@ async function callDriveImageEndpoint<T extends { success: boolean; error?: stri
       return parsedPost.data;
     }
 
-    // If the backend returned a structured JSON error (e.g. 400, 401, 422, 502), surface it immediately with status & code
+    if (parsedPost.status === 404) {
+      throw new Error(
+        `[HTTP 404 • ROUTE_NOT_DEPLOYED] Backend route "${endpointPath}" returned 404 Not Found on "${targetUrl}". The production Cloud Run service needs to be redeployed with the latest backend routes. You can use Direct Drive Fallback below or "Upload From Device".`
+      );
+    }
+
+    if (parsedPost.status === 401) {
+      throw new Error(
+        `[HTTP 401 • UNAUTHORIZED] ${parsedPost.error || 'Admin session expired. Please sign out and sign back in to the Admin Panel.'}`
+      );
+    }
+
     if (!parsedPost.isHtml && parsedPost.status !== 405 && parsedPost.status !== 302) {
       const codePrefix = (parsedPost.data as any)?.errorCode
         ? `[HTTP ${parsedPost.status} • ${(parsedPost.data as any).errorCode}] `
@@ -1673,28 +1812,38 @@ async function callDriveImageEndpoint<T extends { success: boolean; error?: stri
     lastNetworkError = parsedPost.error || `HTTP ${parsedPost.status}`;
   } catch (err: any) {
     const msg = String(err?.message || '');
-    // Re-throw structured backend errors immediately
     if (msg.startsWith('[HTTP ')) {
       throw err;
     }
     lastNetworkError = msg || 'Network connection error';
   }
 
-  // 2. Fallback attempt: GET with query parameters (bypasses proxy POST/preflight blocks)
+  // 2. Fallback attempt: GET with query parameters (without leaking auth token in URL)
   try {
-    const query = new URLSearchParams({ url: cleanUrl, category, token });
+    const query = new URLSearchParams({ url: cleanUrl, category, mediaType });
     const getRes = await apiFetch(`${endpointPath}?${query.toString()}`, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,
-        'x-admin-token': token,
       },
     });
 
     const parsedGet = await parseSafeJsonResponse<T>(getRes, actionLabel);
     if (parsedGet.success && parsedGet.data && parsedGet.data.success) {
       return parsedGet.data;
+    }
+
+    if (parsedGet.status === 404) {
+      throw new Error(
+        `[HTTP 404 • ROUTE_NOT_DEPLOYED] Backend route "${endpointPath}" returned 404 Not Found on "${targetUrl}". Production Cloud Run needs to be redeployed with the latest backend code. Use Direct Drive Fallback below or "Upload From Device".`
+      );
+    }
+
+    if (parsedGet.status === 401) {
+      throw new Error(
+        `[HTTP 401 • UNAUTHORIZED] ${parsedGet.error || 'Admin session expired. Please sign in to the Admin Panel again.'}`
+      );
     }
 
     const codePrefix = (parsedGet.data as any)?.errorCode
@@ -1708,111 +1857,63 @@ async function callDriveImageEndpoint<T extends { success: boolean; error?: stri
     if (msg.startsWith('[HTTP ')) {
       throw err;
     }
-    const targetUrl = resolveApiUrl(endpointPath);
-
-    // Fallback: If network fetch to backend proxy fails (e.g. preview container cookie redirect on native Android APK),
-    // extract Google Drive File ID or direct HTTPS image URL and resolve directly on client
-    const fileIdMatch = cleanUrl.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{10,120})/) ||
-      cleanUrl.match(/[?&]id=([a-zA-Z0-9_-]{10,120})/);
-    const extractedId = fileIdMatch ? fileIdMatch[1] : null;
-
-    if (extractedId) {
-      const driveCdnUrl = `https://lh3.googleusercontent.com/d/${extractedId}`;
-      if (endpointPath === '/api/admin/drive-image/preview') {
-        return {
-          success: true,
-          fileId: extractedId,
-          isGoogleDrive: true,
-          mimeType: 'image/jpeg',
-          extension: '.jpg',
-          size: 1024,
-          width: 1200,
-          height: 1600,
-          previewDataUrl: driveCdnUrl,
-        } as unknown as T;
-      }
-      return {
-        success: true,
-        url: driveCdnUrl,
-        downloadUrl: driveCdnUrl,
-        filename: `gdrive-${extractedId}.jpg`,
-        fileId: extractedId,
-        isGoogleDrive: true,
-        mimeType: 'image/jpeg',
-        size: 1024,
-        width: 1200,
-        height: 1600,
-        storageType: 'google_drive',
-        r2Bucket: 'google-drive',
-        r2Key: extractedId,
-      } as unknown as T;
-    }
-
-    if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
-      if (endpointPath === '/api/admin/drive-image/preview') {
-        return {
-          success: true,
-          fileId: null,
-          isGoogleDrive: false,
-          mimeType: 'image/jpeg',
-          extension: '.jpg',
-          size: 1024,
-          width: 1200,
-          height: 1600,
-          previewDataUrl: cleanUrl,
-        } as unknown as T;
-      }
-      return {
-        success: true,
-        url: cleanUrl,
-        downloadUrl: cleanUrl,
-        filename: `external-${Date.now()}.jpg`,
-        fileId: null,
-        isGoogleDrive: false,
-        mimeType: 'image/jpeg',
-        size: 1024,
-        width: 1200,
-        height: 1600,
-        storageType: 'direct_url',
-      } as unknown as T;
-    }
-
-    throw new Error(
-      `[NETWORK_ERROR] Could not reach backend route "${targetUrl}" (${msg || lastNetworkError}). Please check your internet connection or use "Upload Image" to select a photo from your device.`
+    const diagnosed = await diagnoseBackendNetworkFailure(
+      endpointPath,
+      targetUrl,
+      msg || lastNetworkError
     );
+    throw new Error(diagnosed);
   }
 }
 
-export async function previewDriveOrExternalImage(url: string): Promise<DriveImagePreviewResult> {
+export async function previewDriveOrExternalMedia(
+  url: string,
+  mediaType: 'image' | 'video' | 'model3d' | 'any' = 'any'
+): Promise<DriveMediaPreviewResult> {
   const cleanUrl = String(url || '').trim();
   if (!cleanUrl) {
-    throw new Error('[EMPTY_URL] Please paste a Google Drive sharing link or direct HTTPS image URL.');
+    throw new Error('[EMPTY_URL] Please paste a Google Drive sharing link or direct HTTPS URL.');
   }
 
-  return callDriveImageEndpoint<DriveImagePreviewResult>(
-    '/api/admin/drive-image/preview',
+  return callDriveMediaEndpoint<DriveMediaPreviewResult>(
+    '/api/admin/drive-media/preview',
     cleanUrl,
-    'Preview Google Drive / Image URL'
+    'Preview Google Drive / Media URL',
+    'products',
+    mediaType
   );
 }
 
-export async function importDriveOrExternalImageToStorage(url: string, category = 'products'): Promise<DriveImageImportResult> {
+export async function importDriveOrExternalMediaToStorage(
+  url: string,
+  category = 'products',
+  mediaType: 'image' | 'video' | 'model3d' | 'any' = 'any'
+): Promise<DriveMediaImportResult> {
   const cleanUrl = String(url || '').trim();
   if (!cleanUrl) {
-    throw new Error('[EMPTY_URL] Please paste a Google Drive sharing link or direct HTTPS image URL.');
+    throw new Error('[EMPTY_URL] Please paste a Google Drive sharing link or direct HTTPS URL.');
   }
 
-  const imported = await callDriveImageEndpoint<DriveImageImportResult>(
-    '/api/admin/drive-image/import',
+  const imported = await callDriveMediaEndpoint<DriveMediaImportResult>(
+    '/api/admin/drive-media/import',
     cleanUrl,
-    'Import Image to Google Drive Storage',
-    category
+    'Import Media to Google Drive Storage',
+    category,
+    mediaType
   );
 
   return {
     ...imported,
     url: resolveImageUrl(imported.url),
   };
+}
+
+export async function previewDriveOrExternalImage(url: string): Promise<DriveImagePreviewResult> {
+  return previewDriveOrExternalMedia(url, 'image');
+}
+
+export async function importDriveOrExternalImageToStorage(url: string, category = 'products'): Promise<DriveImageImportResult> {
+  return importDriveOrExternalMediaToStorage(url, category, 'image');
 }
 
 export const importDriveOrExternalImageToR2 = importDriveOrExternalImageToStorage;
@@ -3568,15 +3669,15 @@ export async function detectWoodFromImage(
   signal?: AbortSignal
 ): Promise<AIWoodAnalysisResult> {
   const primaryUrl = resolveApiUrl('/api/wood-analysis');
-  const backupUrl = resolveApiUrl('/api/ai/detect-wood');
-  const endpoints = [primaryUrl, backupUrl];
+  const backupProdUrl = `${PRODUCTION_API_BASE_URL}/api/wood-analysis`;
+  const endpoints = primaryUrl === backupProdUrl ? [primaryUrl] : [primaryUrl, backupProdUrl];
 
   let lastError: Error | null = null;
 
   for (let i = 0; i < endpoints.length; i++) {
     const endpoint = endpoints[i];
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s client safety timeout
+    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s client timeout for AI multi-modal processing
     const combinedSignal = signal || controller.signal;
 
     try {
@@ -3652,6 +3753,12 @@ export async function detectWoodFromImage(
 
   const originalMessage = lastError?.message || '';
   if (originalMessage.toLowerCase().includes('failed to fetch') || originalMessage.toLowerCase().includes('networkerror')) {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(CUSTOM_API_URL_KEY);
+        localStorage.removeItem(CACHED_PROD_URL_KEY);
+      } catch {}
+    }
     throw new Error(
       'Server se connect nahi ho saka (Network / Server Unreachable). Kripya apna internet connection check karein, ya Settings se Production Server URL check karein.'
     );

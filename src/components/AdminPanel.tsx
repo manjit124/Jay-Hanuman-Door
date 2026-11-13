@@ -2154,90 +2154,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             )}
                           </div>
 
-                          {/* Door Video (Product Video) Upload Feature */}
-                          <div className="sm:col-span-2 p-3.5 bg-white rounded-xl border border-[#E5E5E5] space-y-2.5">
-                            <div className="flex items-center justify-between">
-                              <label className="block font-semibold text-[#1A1A1A] text-xs flex items-center gap-1.5">
-                                <Video className="w-4 h-4 text-[#C89211]" />
-                                <span>Door Video (Product Video)</span>
-                              </label>
-                              <span className="text-[10px] text-[#666666]">
-                                Recommended Max 50 MB • MP4, WebM, MOV
-                              </span>
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-3">
-                              <label className="cursor-pointer px-4 py-2 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs">
-                                {uploadingVideo ? (
-                                  <>
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    <span>Uploading Video...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Video className="w-3.5 h-3.5" />
-                                    <span>🎥 Choose Video to Upload</span>
-                                  </>
-                                )}
-                                <input
-                                  type="file"
-                                  accept="video/mp4,video/webm,video/quicktime,video/mov,video/*"
-                                  disabled={uploadingVideo}
-                                  onChange={handleVideoUploadHelper}
-                                  className="hidden"
-                                />
-                              </label>
-                              <span className="text-[11px] text-[#666666]">
-                                Upload MP4/WebM product video from your phone or PC
-                              </span>
-                            </div>
-
-                            {/* Video Preview with Controls, Replace & Remove options */}
-                            {editingDoor.videoUrl && (
-                              <div className="mt-3 p-3 bg-[#F8F8F6] rounded-xl border border-[#E5E5E5] space-y-2.5">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="font-bold text-[#1A1A1A] flex items-center gap-1.5">
-                                    <CheckCircle2 className="w-4 h-4 text-[#16803A]" />
-                                    <span>Product Video Uploaded</span>
-                                  </span>
-                                  <div className="flex items-center gap-2">
-                                    {/* Replace Video Button */}
-                                    <label className="cursor-pointer text-[11px] font-semibold text-[#C89211] hover:underline flex items-center gap-1">
-                                      <Edit2 className="w-3 h-3" />
-                                      <span>Replace Video</span>
-                                      <input
-                                        type="file"
-                                        accept="video/mp4,video/webm,video/quicktime,video/mov,video/*"
-                                        disabled={uploadingVideo}
-                                        onChange={handleVideoUploadHelper}
-                                        className="hidden"
-                                      />
-                                    </label>
-                                    <span className="text-[#CCCCCC]">•</span>
-                                    {/* Remove Video Button */}
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditingDoor({ ...editingDoor, videoUrl: undefined })}
-                                      className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                      <span>Remove Video</span>
-                                    </button>
-                                  </div>
-                                </div>
-
-                                <div className="relative rounded-lg overflow-hidden bg-black max-w-sm shadow-sm">
-                                  <video
-                                    src={editingDoor.videoUrl}
-                                    controls
-                                    playsInline
-                                    preload="metadata"
-                                    className="w-full max-h-56 object-contain rounded-lg"
-                                    onContextMenu={e => e.preventDefault()}
-                                  />
-                                </div>
-                              </div>
-                            )}
+                          {/* Door Video (Product Video) Upload Feature: Device Upload & Google Drive Link */}
+                          <div className="sm:col-span-2">
+                            <GoogleDriveImagePicker
+                              label="Door Product Video (Device Upload or Google Drive Link)"
+                              sublabel="Upload MP4/WebM product video from your device or paste Google Drive sharing link"
+                              value={editingDoor.videoUrl || ''}
+                              mediaType="video"
+                              allowVideo={true}
+                              category="videos"
+                              deviceUploadButtonText="Upload Product Video"
+                              onChange={(url) => {
+                                setEditingDoor(prev => prev ? ({ ...prev, videoUrl: url || undefined }) : null);
+                                showToast(url ? 'Product video attached!' : 'Product video removed');
+                              }}
+                              onToast={showToast}
+                            />
                           </div>
 
                           {/* Description */}
@@ -2287,78 +2219,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </label>
                           </div>
 
-                          {/* 3D & AR Model Attachment (.glb / .gltf) */}
-                          <div className="sm:col-span-2 p-4 rounded-xl bg-white border border-[#E5E5E5] space-y-3">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-bold uppercase tracking-wider text-[#C89211] flex items-center gap-1.5">
-                                <Box className="w-3.5 h-3.5" />
-                                <span>3D CAD Model (.glb / .gltf) - Optional</span>
-                              </label>
-                              {editingDoor.model3d?.modelUrl && (
-                                <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
-                                  <Check className="w-3 h-3" /> Custom 3D Attached
-                                </span>
-                              )}
-                            </div>
-
-                            {editingDoor.model3d?.modelUrl ? (
-                              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#F8F8F6] border border-emerald-500/30 text-xs">
-                                <span className="text-[#1A1A1A] font-mono truncate max-w-xs">
-                                  {editingDoor.model3d.modelUrl.split('/').pop()}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setEditingDoor({
-                                      ...editingDoor,
-                                      model3d: { ...editingDoor.model3d, modelUrl: '' },
-                                    })
-                                  }
-                                  className="text-red-400 hover:text-red-300 text-xs p-1"
-                                  title="Remove 3D model and use catalogue image preview"
-                                >
-                                  Remove 3D File
-                                </button>
-                              </div>
-                            ) : (
-                              <p className="text-[11px] text-[#666666] leading-relaxed">
-                                No custom .glb uploaded. This catalogue door automatically uses its image for the 2.5D architectural 3D viewer and AR entrance fitting.
-                              </p>
-                            )}
-
-                            <div>
-                              <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#C89211] border border-[#E5E5E5] text-xs font-semibold cursor-pointer transition">
-                                <Upload className="w-3.5 h-3.5" />
-                                <span>{isUploadingModel ? 'Uploading 3D Model...' : 'Upload / Replace .glb Model'}</span>
-                                <input
-                                  type="file"
-                                  accept=".glb,.gltf"
-                                  disabled={isUploadingModel}
-                                  onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (!file) return;
-                                    try {
-                                      setIsUploadingModel(true);
-                                      const res = await upload3DModel(file);
-                                      setEditingDoor(prev => ({
-                                        ...prev,
-                                        model3d: {
-                                          ...prev?.model3d,
-                                          modelUrl: res.url,
-                                          arEnabled: true,
-                                        },
-                                      }));
-                                      showToast('3D Model uploaded successfully!');
-                                    } catch (err: any) {
-                                      alert(err.message || '3D Model upload failed');
-                                    } finally {
-                                      setIsUploadingModel(false);
-                                    }
-                                  }}
-                                  className="hidden"
-                                />
-                              </label>
-                            </div>
+                          {/* 3D & AR Model Attachment (.glb / .gltf): Device Upload & Google Drive Link */}
+                          <div className="sm:col-span-2 space-y-2">
+                            <GoogleDriveImagePicker
+                              label="3D CAD Model (.glb / .gltf) - Device Upload or Google Drive Link"
+                              sublabel="Upload .glb model or paste Google Drive sharing link for 3D & AR entrance viewer"
+                              value={editingDoor.model3d?.modelUrl || ''}
+                              mediaType="model3d"
+                              category="products"
+                              deviceUploadButtonText="Upload .glb 3D Model"
+                              onChange={(url) => {
+                                setEditingDoor(prev => {
+                                  if (!prev) return null;
+                                  return {
+                                    ...prev,
+                                    model3d: {
+                                      ...prev.model3d,
+                                      modelUrl: url,
+                                      arEnabled: Boolean(url),
+                                    },
+                                  };
+                                });
+                                showToast(url ? '3D Model updated!' : '3D Model removed');
+                              }}
+                              onToast={showToast}
+                              compact
+                            />
                           </div>
 
                           {/* Transparent PNG Door Cutout (.png) - For Fit in Entrance */}
@@ -2380,7 +2266,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <div className="flex items-center gap-3">
                                   <div className="w-12 h-16 rounded-lg bg-[repeating-conic-gradient(#262626_0_25%,#1c1c1c_0_50%)] bg-[size:10px_10px] p-1 flex items-center justify-center border border-[#E5E5E5] shrink-0">
                                     <img
-                                      src={editingDoor.transparentPngUrl}
+                                      src={resolveImageUrl(editingDoor.transparentPngUrl, '')}
                                       alt="Transparent Cutout"
                                       className="w-full h-full object-contain"
                                     />
@@ -3057,6 +2943,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </div>
                           </div>
 
+                          {/* Wood Timber Sample Image */}
+                          <div className="sm:col-span-2">
+                            <GoogleDriveImagePicker
+                              label="Wood Timber Grain / Texture Image"
+                              sublabel="Upload wood grain sample photo or paste Google Drive sharing link"
+                              value={editingMaterial.image || ''}
+                              category="products"
+                              deviceUploadButtonText="Upload Wood Sample Photo"
+                              onChange={(url) => setEditingMaterial({ ...editingMaterial, image: url })}
+                              onToast={showToast}
+                              compact
+                            />
+                          </div>
+
                           {/* Active / Inactive Status */}
                           <div className="flex items-center gap-2">
                             <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -3470,6 +3370,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
                             />
                           </div>
+                          {/* Polish Finish Sample Photo */}
+                          <div className="sm:col-span-2">
+                            <GoogleDriveImagePicker
+                              label="Polish Finish Sample Photo"
+                              sublabel="Upload finish swatch photo or paste Google Drive sharing link"
+                              value={editingFinish.image || ''}
+                              category="products"
+                              deviceUploadButtonText="Upload Finish Swatch"
+                              onChange={(url) => setEditingFinish({ ...editingFinish, image: url })}
+                              onToast={showToast}
+                              compact
+                            />
+                          </div>
                         </div>
                         <div className="flex justify-end gap-2 pt-2 border-t border-[#E5E5E5]">
                           <button onClick={() => setEditingFinish(null)} className="px-3 py-1.5 rounded bg-stone-100 text-[#1A1A1A]">Cancel</button>
@@ -3812,7 +3725,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <div className="flex items-center gap-2.5">
                                 {hwd.image ? (
                                   <div className="w-12 h-12 rounded-xl overflow-hidden bg-white border border-[#E5E5E5] shrink-0">
-                                    <img src={hwd.image} alt={hwd.name} className="w-full h-full object-cover" />
+                                    <img src={resolveImageUrl(hwd.image, '')} alt={hwd.name} className="w-full h-full object-cover" />
                                   </div>
                                 ) : (
                                   <div className="w-12 h-12 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 flex items-center justify-center shrink-0">
@@ -4159,7 +4072,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 {editingBanner.image ? (
                                   <>
                                     <img
-                                      src={editingBanner.image}
+                                      src={resolveImageUrl(editingBanner.image, '')}
                                       alt="Preview"
                                       className="w-full h-full object-cover object-center block"
                                     />
@@ -4615,7 +4528,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               >
                                 {editingBanner.image ? (
                                   <img
-                                    src={editingBanner.image}
+                                    src={resolveImageUrl(editingBanner.image, '')}
                                     alt="Preview"
                                     className="w-full h-full object-cover block"
                                   />
@@ -4778,7 +4691,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <div className="lg:col-span-5 space-y-2">
                               <div className="relative w-full rounded-xl overflow-hidden bg-stone-100 border border-[#E5E5E5] shadow-xs group aspect-[3/1] max-h-[160px] flex items-center justify-center">
                                 <img
-                                  src={primaryBannerA.image}
+                                  src={resolveImageUrl(primaryBannerA.image, '')}
                                   alt={primaryBannerA.title || 'Banner A'}
                                   className="w-full h-full object-cover block"
                                 />
@@ -5079,7 +4992,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <div className="lg:col-span-5 space-y-2">
                               <div className="relative w-full rounded-xl overflow-hidden bg-stone-100 border border-[#E5E5E5] shadow-xs group aspect-[3/1] max-h-[160px] flex items-center justify-center">
                                 <img
-                                  src={primaryBannerB.image}
+                                  src={resolveImageUrl(primaryBannerB.image, '')}
                                   alt={primaryBannerB.title || 'Banner B'}
                                   className="w-full h-full object-cover block"
                                 />
@@ -5271,7 +5184,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <div key={b.id || idx} className="p-2.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] flex items-center justify-between gap-3 text-xs">
                                   <div className="flex items-center gap-2.5 min-w-0">
                                     <span className="font-mono font-bold text-[#C89211]">#{idx + 1}</span>
-                                    <img src={b.image} alt="" className="w-16 h-8 object-cover rounded border border-[#E5E5E5]" />
+                                    <img src={resolveImageUrl(b.image, '')} alt="" className="w-16 h-8 object-cover rounded border border-[#E5E5E5]" />
                                     <span className="font-semibold text-[#1A1A1A] truncate">{b.title || `Slide #${idx + 1}`}</span>
                                     <span className="text-[11px] text-[#666666] hidden sm:inline">🔗 {b.destinationUrl || 'None'}</span>
                                   </div>
@@ -5645,6 +5558,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             value={settings.address}
                             onChange={e => setSettings({ ...settings, address: e.target.value })}
                             className="w-full px-3 py-2 rounded bg-white border border-[#E5E5E5] text-[#1A1A1A]"
+                          />
+                        </div>
+
+                        {/* Brand Logo Upload with Device & Google Drive Link */}
+                        <div className="sm:col-span-2">
+                          <GoogleDriveImagePicker
+                            label="Brand Logo (Website, App & Quotations)"
+                            sublabel="Upload company logo photo or paste Google Drive sharing link. Stored permanently in Google Drive."
+                            value={settings.logoUrl || '/assets/logo.png'}
+                            category="products"
+                            deviceUploadButtonText="Upload Company Logo"
+                            onChange={(url) => {
+                              setSettings({ ...settings, logoUrl: url });
+                              showToast('Brand logo updated!');
+                            }}
+                            onToast={showToast}
                           />
                         </div>
 

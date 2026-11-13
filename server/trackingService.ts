@@ -640,7 +640,14 @@ export function initTrackingRoutes(
           isVideo = req.file.mimetype.startsWith('video/') || req.file.filename.endsWith('.mp4') || req.file.filename.endsWith('.webm');
           mediaUrl = `/uploads/${req.file.filename}`;
         } else {
-          isVideo = mediaType === 'video' || (typeof mediaUrl === 'string' && (mediaUrl.includes('/videos') || mediaUrl.endsWith('.mp4') || mediaUrl.endsWith('.webm')));
+          isVideo =
+            mediaType === 'video' ||
+            (typeof mediaUrl === 'string' &&
+              (mediaUrl.includes('/videos') ||
+                mediaUrl.endsWith('.mp4') ||
+                mediaUrl.endsWith('.webm') ||
+                mediaUrl.endsWith('.mov') ||
+                (mediaUrl.includes('drive.google.com/file/d/') && mediaUrl.includes('/preview'))));
         }
 
         const now = new Date().toISOString();

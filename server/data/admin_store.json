@@ -1235,7 +1235,7 @@
         }
       ]
     },
-    "productionApiUrl": "https://ais-dev-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app"
+    "productionApiUrl": "https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app"
   },
   "adminPasswordHash": "admin123",
   "users": [
@@ -1487,6 +1487,14 @@
   "articleShares": [],
   "aiWoodDetectorLogs": [
     {
+      "id": "scan-1793899390273-d20ra",
+      "timestamp": "2026-11-05T17:23:10.273Z",
+      "likelyWoodType": "Pehchan confirm nahi ho paayi (Clear photo required)",
+      "confidenceLevel": "Low",
+      "success": true,
+      "responseTimeMs": 3232
+    },
+    {
       "id": "scan-1793726226108-hhkfw",
       "timestamp": "2026-11-03T17:17:06.108Z",
       "likelyWoodType": "Pehchan confirm nahi ho paayi (Clear photo required)",
@@ -1672,9 +1680,57 @@
       "responseTimeMs": 23694
     }
   ],
-  "version": 228,
-  "lastModified": "2026-11-03T17:17:06.109Z",
+  "version": 239,
+  "lastModified": "2026-11-13T07:07:20.805Z",
   "auditLogs": [
+    {
+      "id": "audit-1794553640805-wk093",
+      "entity": "orders",
+      "action": "delete",
+      "timestamp": "2026-11-13T07:07:20.805Z",
+      "success": true,
+      "details": "Deleted order JHD-2026-F5Q78 (__TEST_DRIVE_MEDIA__)"
+    },
+    {
+      "id": "audit-1794553640416-41em5",
+      "entity": "orders",
+      "action": "create",
+      "timestamp": "2026-11-13T07:07:20.416Z",
+      "success": true,
+      "details": "Created trackable order JHD-2026-F5Q78"
+    },
+    {
+      "id": "audit-1794553533083-6r17c",
+      "entity": "orders",
+      "action": "delete",
+      "timestamp": "2026-11-13T07:05:33.083Z",
+      "success": true,
+      "details": "Deleted order JHD-2026-MX58X (__TEST_DRIVE_MEDIA__)"
+    },
+    {
+      "id": "audit-1794553532742-0n5el",
+      "entity": "orders",
+      "action": "create",
+      "timestamp": "2026-11-13T07:05:32.742Z",
+      "success": true,
+      "details": "Created trackable order JHD-2026-MX58X"
+    },
+    {
+      "id": "audit-1794553427621-8vj22",
+      "entity": "orders",
+      "action": "delete",
+      "timestamp": "2026-11-13T07:03:47.621Z",
+      "success": true,
+      "details": "Deleted order JHD-2026-8Z9RP (__TEST_DRIVE_MEDIA__)"
+    },
+    {
+      "id": "audit-1794553427447-nlluf",
+      "entity": "orders",
+      "action": "create",
+      "timestamp": "2026-11-13T07:03:47.447Z",
+      "success": true,
+      "details": "Created trackable order JHD-2026-8Z9RP"
+    },
     {
       "id": "audit-1793640640805-lvw4d",
       "entity": "door",
@@ -2923,7 +2979,7 @@
       "plainCarvingCharge": 0,
       "diamondCarvingCharge": 120,
       "handCarvedCharge": 280,
-      "plainImage": "https://ais-dev-um3h2mohb2itzx3vvljosl-768916382182.asia-southeast1.run.app/uploads/189549-1793092081561-584076.jpg",
+      "plainImage": "/uploads/189549-1793092081561-584076.jpg",
       "diamondImage": "/uploads/chaukhat_diamond_chaukhat-main_1793110377437_7057.jpg",
       "handCarvedImage": "/uploads/chaukhat_carved_chaukhat-main_1793110377455_2656.jpg",
       "active": true,

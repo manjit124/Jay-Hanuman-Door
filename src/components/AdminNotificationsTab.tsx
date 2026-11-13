@@ -36,6 +36,7 @@ import {
   cancelAdminScheduledNotification,
   deleteAdminNotificationCampaign,
   uploadImage,
+  resolveImageUrl,
 } from '../lib/api.ts';
 import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 
@@ -572,7 +573,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
                       className="flex-shrink-0 relative rounded-xl overflow-hidden border border-[#E5E5E5] hover:border-amber-500 group transition-all"
                     >
                       <img
-                        src={d.image || d.images?.[0] || '/assets/app-icon.svg'}
+                        src={resolveImageUrl(d.image || d.images?.[0], '/assets/app-icon.svg')}
                         alt={d.name}
                         className="w-14 h-14 object-cover"
                       />
@@ -710,7 +711,7 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
               {imageUrl && (
                 <div className="rounded-xl overflow-hidden border border-[#E5E5E5] mt-2">
                   <img
-                    src={imageUrl}
+                    src={resolveImageUrl(imageUrl, '')}
                     alt="Notification Banner Preview"
                     className="w-full h-36 object-cover"
                   />

@@ -24,7 +24,7 @@ import {
   MapPin,
 } from 'lucide-react';
 import { PublicTrackingView, TrackingStageId, StageStatus } from '../types.ts';
-import { fetchPublicTracking } from '../lib/api.ts';
+import { fetchPublicTracking, resolveImageUrl, isGoogleDriveEmbedUrl } from '../lib/api.ts';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 
 interface CustomerOrderTrackingProps {
@@ -71,7 +71,12 @@ export const CustomerOrderTracking: React.FC<CustomerOrderTrackingProps> = ({
       setTrackingData(data);
     } catch (err: any) {
       setTrackingData(null);
-      setErrorMsg(err.message || 'No order found with this Tracking ID. Please double check the ID.');
+      const msg = err.message || '';
+      if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror')) {
+        setErrorMsg('Server se connect nahi ho saka (Network / Server Unreachable). Kripya apna internet connection check karein ya punah prayas karein.');
+      } else {
+        setErrorMsg(msg || 'No order found with this Tracking ID. Please double check the ID.');
+      }
     } finally {
       setLoading(false);
     }
@@ -565,7 +570,7 @@ export const CustomerOrderTracking: React.FC<CustomerOrderTrackingProps> = ({
                                     </div>
                                   ) : (
                                     <img
-                                      src={m.url}
+                                      src={resolveImageUrl(m.url, '')}
                                       alt={m.caption || 'Progress proof'}
                                       className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                                       loading="lazy"
@@ -623,15 +628,26 @@ export const CustomerOrderTracking: React.FC<CustomerOrderTrackingProps> = ({
 
             <div className="p-2 sm:p-4 flex items-center justify-center bg-black min-h-[300px]">
               {activeMediaModal.type === 'video' ? (
-                <video
-                  src={activeMediaModal.url}
-                  controls
-                  autoPlay
-                  className="max-h-[70vh] w-full rounded-lg"
-                />
+                isGoogleDriveEmbedUrl(activeMediaModal.url) ? (
+                  <iframe
+                    src={activeMediaModal.url}
+                    title={activeMediaModal.caption || 'Order Progress Video'}
+                    className="w-full h-[65vh] rounded-lg border-0 bg-black"
+                    allow="autoplay; fullscreen"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video
+                    src={resolveImageUrl(activeMediaModal.url, '')}
+                    controls
+                    autoPlay
+                    playsInline
+                    className="max-h-[70vh] w-full rounded-lg"
+                  />
+                )
               ) : (
                 <img
-                  src={activeMediaModal.url}
+                  src={resolveImageUrl(activeMediaModal.url, '')}
                   alt={activeMediaModal.caption || 'Enlarged progress proof'}
                   className="max-h-[70vh] w-auto max-w-full object-contain rounded-lg"
                 />

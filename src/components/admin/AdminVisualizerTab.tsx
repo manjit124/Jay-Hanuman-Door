@@ -370,52 +370,18 @@ export const AdminVisualizerTab: React.FC<AdminVisualizerTabProps> = ({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Left: Configuration Form */}
                 <div className="space-y-4">
-                  {/* Model File Upload (.glb / .gltf) */}
-                  <div className="p-4 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-3">
-                    <label className="text-xs font-bold uppercase tracking-wider text-[#C89211] block">
-                      Custom 3D CAD Model (.glb, .gltf)
-                    </label>
-
-                    {editingConfig.modelUrl ? (
-                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-white border border-emerald-500/30 text-xs">
-                        <div className="flex items-center gap-2 overflow-hidden">
-                          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                          <span className="truncate text-[#1A1A1A] font-mono">
-                            {editingConfig.modelUrl.split('/').pop()}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => setEditingConfig(prev => ({ ...prev, modelUrl: '' }))}
-                          className="text-red-400 hover:text-red-300 p-1"
-                          title="Remove custom model and use procedural 3D door"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-[#666666] leading-relaxed">
-                        No custom .glb uploaded. The app automatically constructs an interactive procedural 3D architectural door using the catalog photo.
-                      </p>
-                    )}
-
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => modelFileInputRef.current?.click()}
-                        disabled={isUploadingModel}
-                        className="py-2 px-3 rounded-lg bg-[#F8F8F6] hover:bg-stone-100 text-[#1A1A1A] text-xs font-semibold flex items-center gap-2 border border-[#E5E5E5] transition"
-                      >
-                        <Upload className="w-3.5 h-3.5 text-[#C89211]" />
-                        <span>{isUploadingModel ? 'Uploading...' : 'Upload .glb / .gltf Model'}</span>
-                      </button>
-                    </div>
-
-                    <input
-                      ref={modelFileInputRef}
-                      type="file"
-                      accept=".glb,.gltf"
-                      className="hidden"
-                      onChange={handleUploadModelFile}
+                  {/* Model File Upload (.glb / .gltf) with Device Upload & Google Drive Link */}
+                  <div className="space-y-1">
+                    <GoogleDriveImagePicker
+                      label="Custom 3D CAD Model (.glb / .gltf)"
+                      sublabel="Upload .glb/.gltf 3D model or paste Google Drive sharing link. Saved permanently in Google Drive."
+                      value={editingConfig.modelUrl || ''}
+                      mediaType="model3d"
+                      category="products"
+                      deviceUploadButtonText="Upload .glb Model"
+                      onChange={(url) => setEditingConfig(prev => ({ ...prev, modelUrl: url }))}
+                      onToast={showToast}
+                      compact
                     />
                   </div>
 

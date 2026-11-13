@@ -1,0 +1,16 @@
+{
+  "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=200::products": {
+    "sourceFileId": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=200",
+    "originalUrl": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=200",
+    "mediaType": "image",
+    "mimeType": "image/jpeg",
+    "size": 11219,
+    "width": 200,
+    "height": 133,
+    "category": "products",
+    "storedFileId": "url-door-1794559024276-24186.jpg",
+    "storedUrl": "/uploads/url-door-1794559024276-24186.jpg",
+    "isDriveEmbed": false,
+    "importedAt": "2026-11-13T08:37:11.579Z"
+  }
+}

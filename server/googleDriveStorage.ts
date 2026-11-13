@@ -16,12 +16,44 @@ export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 const CREDENTIALS_FILE = path.join(process.cwd(), 'server', 'data', 'google_drive_credentials.json');
 const DRIVE_CACHE_DIR = path.join(process.cwd(), 'data', 'uploads', 'drive_cache');
+const DRIVE_IMPORT_INDEX_FILE = path.join(process.cwd(), 'data', 'drive_import_index.json');
 
 if (!fs.existsSync(DRIVE_CACHE_DIR)) {
   fs.mkdirSync(DRIVE_CACHE_DIR, { recursive: true });
 }
 
 export type DriveSubfolderCategory = 'products' | 'catalog' | 'banners' | 'delivery' | 'videos';
+
+export interface DriveImportMetadataRecord {
+  sourceFileId: string;
+  originalUrl: string;
+  originalName?: string;
+  mediaType: 'image' | 'video' | 'model3d' | 'any';
+  mimeType: string;
+  size: number;
+  width?: number;
+  height?: number;
+  duration?: number;
+  category: string;
+  storedFileId?: string | null;
+  storedUrl: string;
+  isDriveEmbed?: boolean;
+  importedAt: string;
+}
+
+export interface DriveRemoteMetadata {
+  id: string;
+  name?: string;
+  mimeType?: string;
+  size?: number;
+  webViewLink?: string;
+  webContentLink?: string;
+  thumbnailLink?: string;
+  shared?: boolean;
+  width?: number;
+  height?: number;
+  durationMillis?: number;
+}
 
 export interface StoredDriveCredentials {
   clientId?: string;
@@ -671,11 +703,267 @@ function detectMimeType(buffer: Buffer): string {
   if (buffer.length > 4 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
     return 'image/png';
   }
+  if (buffer.length >= 6 && buffer.subarray(0, 3).toString('ascii') === 'GIF') {
+    return 'image/gif';
+  }
   if (buffer.length > 12 && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
     return 'image/webp';
   }
-  if (buffer.length > 8 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
+  if (buffer.length > 12 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
+    const brand = buffer.subarray(8, 12).toString('ascii').toLowerCase();
+    if (brand === 'avif' || brand === 'avis') return 'image/avif';
+    if (brand === 'qt  ') return 'video/quicktime';
     return 'video/mp4';
   }
+  if (buffer.length >= 4 && buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3) {
+    return 'video/webm';
+  }
+  if (
+    buffer.length >= 8 &&
+    (buffer.subarray(4, 8).toString('ascii') === 'moov' ||
+      buffer.subarray(4, 8).toString('ascii') === 'free' ||
+      buffer.subarray(4, 8).toString('ascii') === 'wide')
+  ) {
+    return 'video/quicktime';
+  }
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'glTF') {
+    return 'model/gltf-binary';
+  }
   return 'application/octet-stream';
+}
+
+/**
+ * Checks whether owner Google Drive OAuth credentials are configured and usable on the backend.
+ */
+export function hasServerDriveOAuthCredentials(): boolean {
+  const creds = loadServerDriveCredentials();
+  return Boolean(
+    (creds.refreshToken && creds.clientId && creds.clientSecret) ||
+      (creds.accessToken && creds.tokenExpiry && creds.tokenExpiry > Date.now())
+  );
+}
+
+/**
+ * Fetches file metadata from Google Drive API using the existing authorized backend OAuth token.
+ * Returns null if Drive OAuth is not connected or the file is inaccessible under the current OAuth scope.
+ */
+export async function getDriveFileMetadataWithOAuth(fileId: string): Promise<{
+  found: boolean;
+  forbidden?: boolean;
+  notFound?: boolean;
+  metadata?: DriveRemoteMetadata;
+  error?: string;
+}> {
+  const cleanId = String(fileId || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!cleanId || !hasServerDriveOAuthCredentials()) {
+    return { found: false };
+  }
+
+  try {
+    const token = await getValidAccessToken();
+    const fields = encodeURIComponent(
+      'id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink,shared,imageMediaMetadata(width,height),videoMediaMetadata(width,height,durationMillis)'
+    );
+    const metaUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(cleanId)}?fields=${fields}&supportsAllDrives=true`;
+    const res = await fetch(metaUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (res.status === 404) {
+      return { found: false, notFound: true };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { found: false, forbidden: true, error: `Google Drive API denied access (HTTP ${res.status}).` };
+    }
+    if (!res.ok) {
+      return { found: false, error: `Google Drive metadata lookup failed (HTTP ${res.status}).` };
+    }
+
+    const data = await res.json();
+    const width = data.imageMediaMetadata?.width ?? data.videoMediaMetadata?.width;
+    const height = data.imageMediaMetadata?.height ?? data.videoMediaMetadata?.height;
+    const durationMillis = data.videoMediaMetadata?.durationMillis
+      ? Number(data.videoMediaMetadata.durationMillis)
+      : undefined;
+
+    return {
+      found: true,
+      metadata: {
+        id: data.id,
+        name: data.name,
+        mimeType: data.mimeType,
+        size: data.size ? Number(data.size) : undefined,
+        webViewLink: data.webViewLink,
+        webContentLink: data.webContentLink,
+        thumbnailLink: data.thumbnailLink,
+        shared: Boolean(data.shared),
+        width: width ? Number(width) : undefined,
+        height: height ? Number(height) : undefined,
+        durationMillis,
+      },
+    };
+  } catch (err: any) {
+    return { found: false, error: err?.message || 'Drive API metadata lookup failed' };
+  }
+}
+
+/**
+ * Downloads a file from Google Drive using the existing authorized backend OAuth token (without altering permissions).
+ */
+export async function downloadDriveFileWithOAuth(
+  fileId: string,
+  maxBytes: number
+): Promise<{
+  ok: boolean;
+  status: number;
+  buffer?: Buffer;
+  contentType?: string;
+  error?: string;
+}> {
+  const cleanId = String(fileId || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!cleanId || !hasServerDriveOAuthCredentials()) {
+    return { ok: false, status: 401, error: 'Google Drive OAuth not connected on backend.' };
+  }
+
+  try {
+    const token = await getValidAccessToken();
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(cleanId)}?alt=media&supportsAllDrives=true`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: `Drive OAuth download failed (HTTP ${res.status})` };
+    }
+
+    const contentLength = Number(res.headers.get('content-length') || '0');
+    if (contentLength > maxBytes) {
+      return {
+        ok: false,
+        status: 413,
+        error: `File size (${(contentLength / (1024 * 1024)).toFixed(1)} MB) exceeds the ${(maxBytes / (1024 * 1024)).toFixed(0)} MB limit.`,
+      };
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      const ab = await res.arrayBuffer();
+      if (ab.byteLength > maxBytes) {
+        return {
+          ok: false,
+          status: 413,
+          error: `File size exceeds the ${(maxBytes / (1024 * 1024)).toFixed(0)} MB limit.`,
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        buffer: Buffer.from(ab),
+        contentType: res.headers.get('content-type') || 'application/octet-stream',
+      };
+    }
+
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          await reader.cancel();
+          return {
+            ok: false,
+            status: 413,
+            error: `File size exceeds the ${(maxBytes / (1024 * 1024)).toFixed(0)} MB limit.`,
+          };
+        }
+        chunks.push(Buffer.from(value));
+      }
+    }
+
+    return {
+      ok: true,
+      status: 200,
+      buffer: Buffer.concat(chunks),
+      contentType: res.headers.get('content-type') || 'application/octet-stream',
+    };
+  } catch (err: any) {
+    return { ok: false, status: 500, error: err?.message || 'OAuth download failed' };
+  }
+}
+
+function loadDriveImportIndex(): Record<string, DriveImportMetadataRecord> {
+  try {
+    if (fs.existsSync(DRIVE_IMPORT_INDEX_FILE)) {
+      const raw = fs.readFileSync(DRIVE_IMPORT_INDEX_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch {}
+  return {};
+}
+
+function saveDriveImportIndex(index: Record<string, DriveImportMetadataRecord>): void {
+  try {
+    const dir = path.dirname(DRIVE_IMPORT_INDEX_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(DRIVE_IMPORT_INDEX_FILE, JSON.stringify(index, null, 2));
+  } catch (err: any) {
+    console.warn('⚠️ [DriveImportIndex] Failed to save index:', err?.message);
+  }
+}
+
+/**
+ * Checks if a Google Drive File ID has already been imported into the target category
+ * and verifies that the stored local/cached asset still exists.
+ */
+export function findExistingDriveImport(
+  sourceFileId: string,
+  category: string
+): DriveImportMetadataRecord | null {
+  const cleanId = String(sourceFileId || '').trim();
+  if (!cleanId) return null;
+
+  const index = loadDriveImportIndex();
+  const key = `${cleanId}::${category}`;
+  const rec = index[key];
+  if (!rec) return null;
+
+  // Verify stored URL is actually usable before returning deduplicated record
+  if (rec.isDriveEmbed) {
+    return rec;
+  }
+  if (rec.storedUrl.startsWith('/api/drive/media/')) {
+    const cacheId = rec.storedUrl.replace('/api/drive/media/', '').split('?')[0];
+    if (cacheId && fs.existsSync(path.join(DRIVE_CACHE_DIR, cacheId))) {
+      return rec;
+    }
+  } else if (rec.storedUrl.startsWith('/uploads/')) {
+    const fname = rec.storedUrl.replace('/uploads/', '').split('?')[0];
+    if (
+      fname &&
+      (fs.existsSync(path.join(process.cwd(), 'data', 'uploads', fname)) ||
+        fs.existsSync(path.join(process.cwd(), 'public', 'uploads', fname)))
+    ) {
+      return rec;
+    }
+  } else if (rec.storedUrl.startsWith('http://') || rec.storedUrl.startsWith('https://')) {
+    return rec;
+  }
+
+  return null;
+}
+
+/**
+ * Saves Drive import metadata (File ID, original URL, media type, dimensions, stored URL) for deduplication and auditing.
+ */
+export function recordDriveImport(record: DriveImportMetadataRecord): void {
+  if (!record.sourceFileId) return;
+  const index = loadDriveImportIndex();
+  const key = `${record.sourceFileId}::${record.category}`;
+  index[key] = record;
+  saveDriveImportIndex(index);
 }

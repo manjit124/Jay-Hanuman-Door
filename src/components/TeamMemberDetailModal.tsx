@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { TeamMember, BusinessSettings } from '../types.ts';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
+import { resolveImageUrl, isGoogleDriveEmbedUrl } from '../lib/api.ts';
 
 interface TeamMemberDetailModalProps {
   member: TeamMember | null;
@@ -83,7 +84,7 @@ export const TeamMemberDetailModal: React.FC<TeamMemberDetailModalProps> = ({
             <div className="relative shrink-0 group">
               <div className="w-36 h-44 sm:w-44 sm:h-52 rounded-2xl overflow-hidden border-2 border-[#C89211]/40 shadow-md bg-stone-100">
                 <img
-                  src={member.photo}
+                  src={resolveImageUrl(member.photo, 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80')}
                   alt={member.name}
                   loading="lazy"
                   className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
@@ -253,20 +254,44 @@ export const TeamMemberDetailModal: React.FC<TeamMemberDetailModalProps> = ({
                 <Play className="w-4 h-4" />
                 Featured Video
               </h4>
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-xl border border-[#E5E5E5]">
-                <span className="text-xs text-[#666666] truncate max-w-md">
-                  Watch introduction or workshop craftsmanship walkthrough.
-                </span>
-                <a
-                  href={member.videoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3.5 py-1.5 rounded-lg bg-[#C89211] hover:bg-amber-600 text-white font-semibold text-xs flex items-center gap-1.5 shadow transition-all shrink-0"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Play Video</span>
-                </a>
-              </div>
+              {isGoogleDriveEmbedUrl(member.videoUrl) ? (
+                <div className="rounded-xl overflow-hidden bg-black border border-[#E5E5E5]">
+                  <iframe
+                    src={member.videoUrl}
+                    title={`${member.name} Featured Video`}
+                    className="w-full h-[260px] sm:h-[340px] border-0"
+                    allow="autoplay; fullscreen"
+                    allowFullScreen
+                  />
+                </div>
+              ) : member.videoUrl.includes('/api/drive/media/') ||
+                member.videoUrl.includes('/uploads/') ||
+                /\.(mp4|webm|mov)(\?|$)/i.test(member.videoUrl) ? (
+                <div className="rounded-xl overflow-hidden bg-black border border-[#E5E5E5]">
+                  <video
+                    src={resolveImageUrl(member.videoUrl)}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="w-full max-h-[340px] object-contain mx-auto block"
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-xl border border-[#E5E5E5]">
+                  <span className="text-xs text-[#666666] truncate max-w-md">
+                    Watch introduction or workshop craftsmanship walkthrough.
+                  </span>
+                  <a
+                    href={member.videoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-1.5 rounded-lg bg-[#C89211] hover:bg-amber-600 text-white font-semibold text-xs flex items-center gap-1.5 shadow transition-all shrink-0"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Play Video</span>
+                  </a>
+                </div>
+              )}
             </div>
           )}
 

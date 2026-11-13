@@ -28,6 +28,25 @@ const distUploadsDir = path.join(rootDir, 'dist', 'uploads');
 
 const isPostBuild = process.argv.includes('--post-build');
 
+function syncDirMissing(srcDir, destDir) {
+  if (!fs.existsSync(srcDir)) return;
+  if (!fs.existsSync(destDir)) {
+    try { fs.mkdirSync(destDir, { recursive: true }); } catch {}
+  }
+  const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const src = path.join(srcDir, entry.name);
+    const dest = path.join(destDir, entry.name);
+    if (entry.isDirectory()) {
+      syncDirMissing(src, dest);
+    } else if (entry.isFile()) {
+      if (!fs.existsSync(dest)) {
+        fs.copyFileSync(src, dest);
+      }
+    }
+  }
+}
+
 if (!isPostBuild) {
   console.log('🛡️ [Pre-Build] Checking production data protection...');
 
@@ -78,22 +97,8 @@ if (!isPostBuild) {
 
   // 2. Sync uploads between public/uploads and data/uploads
   try {
-    const backupFiles = fs.readdirSync(dataUploadsDir);
-    for (const f of backupFiles) {
-      const src = path.join(dataUploadsDir, f);
-      const dest = path.join(uploadsDir, f);
-      if (fs.existsSync(src) && !fs.existsSync(dest)) {
-        fs.copyFileSync(src, dest);
-      }
-    }
-    const publicFiles = fs.readdirSync(uploadsDir);
-    for (const f of publicFiles) {
-      const src = path.join(uploadsDir, f);
-      const dest = path.join(dataUploadsDir, f);
-      if (fs.existsSync(src) && !fs.existsSync(dest)) {
-        fs.copyFileSync(src, dest);
-      }
-    }
+    syncDirMissing(dataUploadsDir, uploadsDir);
+    syncDirMissing(uploadsDir, dataUploadsDir);
   } catch (err) {
     console.warn('⚠️ [Pre-Build] Uploads sync warning:', err.message);
   }
@@ -107,19 +112,8 @@ if (!isPostBuild) {
     }
 
     try {
-      const sources = [uploadsDir, dataUploadsDir];
-      for (const srcDir of sources) {
-        if (fs.existsSync(srcDir)) {
-          const files = fs.readdirSync(srcDir);
-          for (const f of files) {
-            const src = path.join(srcDir, f);
-            const dest = path.join(distUploadsDir, f);
-            if (fs.existsSync(src) && !fs.existsSync(dest)) {
-              fs.copyFileSync(src, dest);
-            }
-          }
-        }
-      }
+      syncDirMissing(uploadsDir, distUploadsDir);
+      syncDirMissing(dataUploadsDir, distUploadsDir);
     } catch (err) {
       console.warn('⚠️ [Post-Build] Dist uploads sync warning:', err.message);
     }

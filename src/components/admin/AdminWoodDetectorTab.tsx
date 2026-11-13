@@ -39,6 +39,7 @@ import {
   deleteWoodReferenceAPI,
   toggleVerifyWoodReferenceAPI,
   runWoodBenchmarkAPI,
+  resolveImageUrl,
 } from '../../lib/api.ts';
 import { GoogleDriveImagePicker } from './GoogleDriveImagePicker.tsx';
 
@@ -537,7 +538,7 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
                 <div>
                   <div className="relative aspect-video bg-white overflow-hidden">
                     <img
-                      src={ref.imageUrl}
+                      src={resolveImageUrl(ref.imageUrl, '')}
                       alt={ref.verifiedLabel}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                     />

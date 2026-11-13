@@ -53,6 +53,7 @@ import {
 } from './server/storageService.ts';
 import {
   fetchAndValidateExternalImage,
+  fetchAndValidateExternalMedia,
   extractGoogleDriveFileId,
 } from './server/driveImageImport.ts';
 import {
@@ -66,6 +67,9 @@ import {
   deleteFileFromOwnerDrive,
   getDriveAuthUrl,
   exchangeDriveAuthCode,
+  hasServerDriveOAuthCredentials,
+  findExistingDriveImport,
+  recordDriveImport,
   type DriveSubfolderCategory,
 } from './server/googleDriveStorage.ts';
 import { analyzeDoorWood, ImageInputPart } from './server/aiWoodDetector.ts';
@@ -111,32 +115,37 @@ const PORT = rawPort ? parseInt(rawPort, 10) : 3000;
 
 // Production & Development CORS Configuration (including Capacitor Android Native)
 const ALLOWED_ORIGIN_PATTERNS = [
-  /^https?:\/\/(www\.)?jaihanumandoor\.com$/,
-  /^https?:\/\/localhost(:\d+)?$/,
-  /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
-  /^capacitor:\/\/localhost$/,
-  /^https?:\/\/com\.doorstudio\.ai$/,
-  /^https:\/\/.*\.run\.app$/,
-  /^https:\/\/.*\.googleusercontent\.com$/,
-  /^https:\/\/.*\.web\.app$/,
-  /^https:\/\/.*\.firebaseapp\.com$/,
-  /^https:\/\/.*\.aistudio\.google\.com$/,
-  /^https:\/\/.*\.google\.com$/,
+  /^https?:\/\/(www\.)?jaihanumandoor\.com$/i,
+  /^https?:\/\/localhost(:\d+)?$/i,
+  /^https?:\/\/127\.0\.0\.1(:\d+)?$/i,
+  /^capacitor:\/\/localhost$/i,
+  /^ionic:\/\/localhost$/i,
+  /^https?:\/\/com\.doorstudio\.ai$/i,
+  /^https:\/\/.*\.run\.app$/i,
+  /^https:\/\/.*\.googleusercontent\.com$/i,
+  /^https:\/\/.*\.web\.app$/i,
+  /^https:\/\/.*\.firebaseapp\.com$/i,
+  /^https:\/\/.*\.aistudio\.google\.com$/i,
+  /^https:\/\/.*\.google\.com$/i,
 ];
 
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
+  const originHeader = req.headers.origin;
+  const origin = typeof originHeader === 'string' ? originHeader.trim() : '';
+  const lowerOrigin = origin.toLowerCase();
   let isAllowed = false;
 
-  if (!origin || origin === 'null') {
+  if (!origin || lowerOrigin === 'null') {
     // Same-origin, direct browser navigation, server-to-server, curl, mobile app, or sandboxed iframe
     isAllowed = true;
   } else if (
-    origin.startsWith('capacitor://') ||
-    origin.includes('com.doorstudio.ai') ||
-    origin.includes('localhost')
+    lowerOrigin.startsWith('capacitor://') ||
+    lowerOrigin.startsWith('ionic://') ||
+    lowerOrigin.includes('com.doorstudio.ai') ||
+    /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
+    /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin)
   ) {
-    // Capacitor Android native WebView request
+    // Capacitor Android native WebView request (https://localhost or capacitor://localhost)
     isAllowed = true;
   } else {
     isAllowed =
@@ -144,8 +153,10 @@ app.use((req, res, next) => {
       ALLOWED_ORIGIN_PATTERNS.some(pattern => pattern.test(origin));
   }
 
+  res.setHeader('Vary', 'Origin');
+
   if (isAllowed) {
-    if (origin && origin !== 'null') {
+    if (origin && lowerOrigin !== 'null') {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     } else {
@@ -159,7 +170,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, x-admin-token'
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, x-admin-token, X-Admin-Token'
   );
   res.setHeader('Access-Control-Max-Age', '86400');
   res.setHeader('Permissions-Policy', 'camera=*, microphone=*');
@@ -172,6 +183,9 @@ app.use((req, res, next) => {
   next();
 });
 
+const VERIFIED_PRODUCTION_API_URL =
+  'https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app';
+
 // Fast Cloud Run & Kubernetes Startup & Liveness Probes
 // Immediate HTTP 200 OK without any blocking disk, database, or external calls
 app.get(
@@ -179,10 +193,13 @@ app.get(
   (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const prodUrl =
-      process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL'
-        ? process.env.APP_URL
-        : '';
+    const envAppUrl = String(process.env.APP_URL || '').trim();
+    const isSafeProdUrl =
+      envAppUrl &&
+      envAppUrl !== 'MY_APP_URL' &&
+      !envAppUrl.includes('ais-dev-') &&
+      !envAppUrl.includes('768916382182');
+    const prodUrl = isSafeProdUrl ? envAppUrl : VERIFIED_PRODUCTION_API_URL;
     return res.status(200).json({
       status: 'ok',
       alive: true,
@@ -655,82 +672,219 @@ app.post('/api/admin/upload-model', verifyAdminToken, (req, res) => {
   });
 });
 
-// Admin: Preview & Validate Google Drive or Direct Image URL (supports POST and GET)
-const handleDriveImagePreview: express.RequestHandler = async (req, res) => {
+// Admin: Preview & Validate Google Drive or Direct Media URL (supports POST and GET)
+const handleDriveMediaPreview: express.RequestHandler = async (req, res) => {
   const rawUrl = String(req.body?.url || req.query?.url || '').trim();
+  const mediaType = (String(req.body?.mediaType || req.query?.mediaType || 'any').trim() as
+    | 'image'
+    | 'video'
+    | 'model3d'
+    | 'any');
+  const origin = req.headers.origin || 'same-origin';
+  console.info(
+    `[DriveMedia] Preview request: method=${req.method} path=${req.path} origin=${origin} mediaType=${mediaType} fileId=${extractGoogleDriveFileId(rawUrl) || 'external'}`
+  );
+
   if (!rawUrl) {
     return res.status(400).json({
       success: false,
       errorCode: 'EMPTY_URL',
-      error: 'Please enter a Google Drive sharing link or direct image URL.',
+      error: 'Please enter a Google Drive sharing link or direct media URL.',
     });
   }
 
   try {
-    const validated = await fetchAndValidateExternalImage(rawUrl);
+    const validated = await fetchAndValidateExternalMedia(rawUrl, mediaType);
+    const isVideo = Boolean(validated.isVideo);
+    const is3DModel = Boolean(validated.is3DModel);
+    const isDriveEmbed = Boolean(validated.isDriveEmbed);
+
+    // If a video binary was downloaded cleanly during preview, cache it so <video controls> can stream it via /api/drive/media/:id
+    let playableVideoPreviewUrl: string | undefined = validated.embedUrl;
+    if (isVideo && !isDriveEmbed && validated.buffer && validated.buffer.length > 0) {
+      const previewCacheId = validated.fileId
+        ? validated.fileId.replace(/[^a-zA-Z0-9_-]/g, '')
+        : `preview_${Date.now()}_${Math.round(Math.random() * 1e5)}`;
+      try {
+        const cacheDir = path.join(process.cwd(), 'data', 'uploads', 'drive_cache');
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(path.join(cacheDir, previewCacheId), validated.buffer);
+        playableVideoPreviewUrl = `/api/drive/media/${previewCacheId}`;
+      } catch {
+        playableVideoPreviewUrl = validated.sourceUrl;
+      }
+    }
+
     return res.json({
       success: true,
       fileId: validated.fileId || null,
       isGoogleDrive: Boolean(validated.fileId),
+      originalName: validated.originalName,
+      originalUrl: rawUrl,
       mimeType: validated.mimeType,
       extension: validated.extension,
       size: validated.size,
       width: validated.width,
       height: validated.height,
-      previewDataUrl: `data:${validated.mimeType};base64,${validated.buffer.toString('base64')}`,
+      duration: validated.duration,
+      isVideo,
+      is3DModel,
+      isDriveEmbed,
+      embedUrl: validated.embedUrl,
+      previewDataUrl: validated.previewDataUrl,
+      previewPosterUrl: validated.previewPosterUrl,
+      previewUrl: playableVideoPreviewUrl,
     });
   } catch (err: any) {
     const statusCode = Number(err?.statusCode) || 422;
     const errorCode = String(err?.errorCode || 'DRIVE_PREVIEW_FAILED');
+    console.warn(`[DriveMedia] Preview failed (${statusCode} ${errorCode}): ${err?.message || 'unknown error'}`);
     return res.status(statusCode).json({
       success: false,
       errorCode,
       fileId: err?.fileId ?? extractGoogleDriveFileId(rawUrl),
-      error: err?.message || 'Failed to validate or preview image from the provided URL.',
+      error: err?.message || 'Failed to validate or preview media from the provided URL.',
     });
   }
 };
-app.post('/api/admin/drive-image/preview', verifyAdminToken, handleDriveImagePreview);
-app.get('/api/admin/drive-image/preview', verifyAdminToken, handleDriveImagePreview);
 
-// Admin: Import Validated Google Drive or Direct Image into Cloudflare R2 Bucket (supports POST and GET)
-const handleDriveImageImport: express.RequestHandler = async (req, res) => {
+app.post(['/api/admin/drive-media/preview', '/api/admin/drive-image/preview'], verifyAdminToken, handleDriveMediaPreview);
+app.get(['/api/admin/drive-media/preview', '/api/admin/drive-image/preview'], verifyAdminToken, handleDriveMediaPreview);
+
+// Admin: Import Validated Google Drive or Direct Media into Storage (supports POST and GET)
+const handleDriveMediaImport: express.RequestHandler = async (req, res) => {
   const rawUrl = String(req.body?.url || req.query?.url || '').trim();
+  const mediaType = (String(req.body?.mediaType || req.query?.mediaType || 'any').trim() as
+    | 'image'
+    | 'video'
+    | 'model3d'
+    | 'any');
+  const targetCategory = (String(req.body?.category || req.query?.category || (mediaType === 'video' ? 'videos' : 'products')).trim() as DriveSubfolderCategory);
+  const origin = req.headers.origin || 'same-origin';
+  console.info(
+    `[DriveMedia] Import request: method=${req.method} path=${req.path} origin=${origin} category=${targetCategory} mediaType=${mediaType} fileId=${extractGoogleDriveFileId(rawUrl) || 'external'}`
+  );
+
   if (!rawUrl) {
     return res.status(400).json({
       success: false,
       errorCode: 'EMPTY_URL',
-      error: 'Please enter a Google Drive sharing link or direct image URL.',
+      error: 'Please enter a Google Drive sharing link or direct media URL.',
     });
   }
 
   try {
-    const validated = await fetchAndValidateExternalImage(rawUrl);
+    // Prevent duplicate imports if the exact same Google Drive file or URL was already imported into this category
+    const incomingDriveId = extractGoogleDriveFileId(rawUrl);
+    const dedupKey = incomingDriveId || rawUrl;
+    if (dedupKey) {
+      const existing = findExistingDriveImport(dedupKey, targetCategory);
+      const isExistingCompatible =
+        existing &&
+        (mediaType === 'any' ||
+          (mediaType === 'video' && existing.mimeType.startsWith('video/')) ||
+          (mediaType === 'image' && existing.mimeType.startsWith('image/')) ||
+          (mediaType === 'model3d' && (existing.mimeType.includes('gltf') || existing.storedUrl.endsWith('.glb'))));
+
+      if (existing && isExistingCompatible) {
+        const existingIsVideo = existing.mimeType.startsWith('video/');
+        const existingIs3d = existing.mimeType.includes('gltf') || existing.storedUrl.endsWith('.glb');
+        const isDriveSource = Boolean(incomingDriveId || (existing.sourceFileId && !existing.sourceFileId.startsWith('http')));
+        return res.json({
+          success: true,
+          deduplicated: true,
+          url: existing.storedUrl,
+          downloadUrl: existing.storedUrl,
+          driveUrl: existing.storedUrl,
+          driveFileId: isDriveSource ? existing.storedFileId || existing.sourceFileId : null,
+          sourceFileId: isDriveSource ? existing.sourceFileId : null,
+          originalUrl: existing.originalUrl,
+          originalName: existing.originalName,
+          filename: existing.originalName || (isDriveSource ? `gdrive-${existing.sourceFileId}` : path.basename(existing.storedUrl.split('?')[0])),
+          fileId: isDriveSource ? existing.storedFileId || existing.sourceFileId : null,
+          isGoogleDrive: isDriveSource,
+          isVideo: existingIsVideo,
+          is3DModel: existingIs3d,
+          isDriveEmbed: Boolean(existing.isDriveEmbed),
+          embedUrl: existing.isDriveEmbed ? existing.storedUrl : undefined,
+          mimeType: existing.mimeType,
+          size: existing.size,
+          width: existing.width,
+          height: existing.height,
+          duration: existing.duration,
+          storageType: existing.isDriveEmbed ? 'google_drive_embed' : isDriveSource ? 'google_drive' : 'firestore',
+        });
+      }
+    }
+
+    const validated = await fetchAndValidateExternalMedia(rawUrl, mediaType);
+    const isVideo = Boolean(validated.isVideo);
+    const is3DModel = Boolean(validated.is3DModel);
+    const isDriveEmbed = Boolean(validated.isDriveEmbed);
+
+    // Verified Google Drive Video Embed fallback (>55MB Drive video verified playable via /preview)
+    if (validated.fileId && isDriveEmbed && validated.embedUrl) {
+      recordDriveImport({
+        sourceFileId: validated.fileId,
+        originalUrl: rawUrl,
+        originalName: validated.originalName,
+        mediaType: 'video',
+        mimeType: validated.mimeType,
+        size: validated.size,
+        width: validated.width,
+        height: validated.height,
+        duration: validated.duration,
+        category: targetCategory,
+        storedFileId: validated.fileId,
+        storedUrl: validated.embedUrl,
+        isDriveEmbed: true,
+        importedAt: new Date().toISOString(),
+      });
+
+      return res.json({
+        success: true,
+        url: validated.embedUrl,
+        embedUrl: validated.embedUrl,
+        downloadUrl: `https://drive.google.com/uc?export=download&id=${validated.fileId}`,
+        driveUrl: validated.embedUrl,
+        driveFileId: validated.fileId,
+        sourceFileId: validated.fileId,
+        originalUrl: rawUrl,
+        originalName: validated.originalName,
+        filename: validated.originalName || `gdrive-${validated.fileId}.mp4`,
+        fileId: validated.fileId,
+        isGoogleDrive: true,
+        isVideo: true,
+        is3DModel: false,
+        isDriveEmbed: true,
+        mimeType: validated.mimeType,
+        size: validated.size,
+        width: validated.width,
+        height: validated.height,
+        duration: validated.duration,
+        storageType: 'google_drive_embed',
+      });
+    }
+
     const safePrefix = validated.fileId
       ? `gdrive-${validated.fileId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)}`
+      : isVideo
+      ? 'video-door'
+      : is3DModel
+      ? 'model-door'
       : 'url-door';
     const filename = `${safePrefix}-${Date.now()}-${Math.round(Math.random() * 1e5)}${validated.extension}`;
 
-    // Save validated binary image to Firebase Storage (and local cache) via storageService
-    const saveRes = await saveMedia(filename, validated.mimeType, validated.buffer);
+    // Save validated binary to storageService
+    const saveRes = await saveMedia(filename, validated.mimeType, validated.buffer, targetCategory);
     if (!saveRes.success) {
       return res.status(502).json({
         success: false,
         errorCode: 'STORAGE_WRITE_FAILED',
         error:
           saveRes.error ||
-          'Failed to persist imported image into Firebase Storage bucket. Please check storage credentials.',
+          'Failed to persist imported media into storage bucket. Please check storage credentials.',
         storageType: saveRes.storageType,
-      });
-    }
-
-    // Verify the saved object can be retrieved from storageService
-    const verifiedObj = await getMediaBuffer(filename);
-    if (!verifiedObj || !verifiedObj.buffer || verifiedObj.buffer.length !== validated.size) {
-      return res.status(502).json({
-        success: false,
-        errorCode: 'STORAGE_VERIFY_FAILED',
-        error: 'Imported image could not be verified after upload.',
       });
     }
 
@@ -739,20 +893,36 @@ const handleDriveImageImport: express.RequestHandler = async (req, res) => {
     try {
       const driveCreds = loadServerDriveCredentials();
       if (driveCreds.refreshToken || driveCreds.accessToken) {
-        const category = (req.body?.category || req.query?.category || 'products') as DriveSubfolderCategory;
         driveUploadResult = await uploadMediaToOwnerDrive(
           validated.buffer,
           filename,
           validated.mimeType,
-          category,
-          `Imported image from ${validated.fileId ? `Google Drive File ID: ${validated.fileId}` : validated.sourceUrl}`
+          targetCategory,
+          `Imported ${isVideo ? 'video' : is3DModel ? '3D model' : 'image'} from ${validated.fileId ? `Google Drive File ID: ${validated.fileId}` : validated.sourceUrl}`
         );
       }
     } catch (driveErr: any) {
-      console.warn('⚠️ [Drive Image Import] Upload to owner Google Drive notice:', driveErr?.message);
+      console.warn('⚠️ [Drive Media Import] Upload to owner Google Drive notice:', driveErr?.message);
     }
 
     const finalUrl = driveUploadResult?.url || saveRes.url;
+
+    recordDriveImport({
+      sourceFileId: validated.fileId || rawUrl,
+      originalUrl: rawUrl,
+      originalName: validated.originalName,
+      mediaType: isVideo ? 'video' : is3DModel ? 'model3d' : 'image',
+      mimeType: validated.mimeType,
+      size: validated.size,
+      width: validated.width,
+      height: validated.height,
+      duration: validated.duration,
+      category: targetCategory,
+      storedFileId: driveUploadResult?.fileId || validated.fileId || filename,
+      storedUrl: finalUrl,
+      isDriveEmbed: false,
+      importedAt: new Date().toISOString(),
+    });
 
     return res.json({
       success: true,
@@ -760,17 +930,23 @@ const handleDriveImageImport: express.RequestHandler = async (req, res) => {
       downloadUrl: driveUploadResult?.url || saveRes.downloadUrl || saveRes.url,
       driveUrl: driveUploadResult?.url,
       driveFileId: driveUploadResult?.fileId || validated.fileId || null,
+      sourceFileId: validated.fileId || null,
+      originalUrl: rawUrl,
+      originalName: validated.originalName,
       filename,
       fileId: driveUploadResult?.fileId || validated.fileId || null,
       isGoogleDrive: Boolean(driveUploadResult?.fileId || validated.fileId),
+      isVideo,
+      is3DModel,
+      isDriveEmbed: false,
       mimeType: validated.mimeType,
       size: validated.size,
       width: validated.width,
       height: validated.height,
+      duration: validated.duration,
       storageType: driveUploadResult ? 'google_drive' : saveRes.storageType,
       firebaseBucket: saveRes.firebaseBucket,
       storagePath: saveRes.storagePath,
-      // Backward compatibility aliases
       r2Bucket: saveRes.firebaseBucket,
       r2Key: saveRes.storagePath,
       metadata: saveRes.metadata,
@@ -778,16 +954,18 @@ const handleDriveImageImport: express.RequestHandler = async (req, res) => {
   } catch (err: any) {
     const statusCode = Number(err?.statusCode) || 422;
     const errorCode = String(err?.errorCode || 'DRIVE_IMPORT_FAILED');
+    console.warn(`[DriveMedia] Import failed (${statusCode} ${errorCode}): ${err?.message || 'unknown error'}`);
     return res.status(statusCode).json({
       success: false,
       errorCode,
       fileId: err?.fileId ?? extractGoogleDriveFileId(rawUrl),
-      error: err?.message || 'Failed to import image into storage.',
+      error: err?.message || 'Failed to import media into storage.',
     });
   }
 };
-app.post('/api/admin/drive-image/import', verifyAdminToken, handleDriveImageImport);
-app.get('/api/admin/drive-image/import', verifyAdminToken, handleDriveImageImport);
+
+app.post(['/api/admin/drive-media/import', '/api/admin/drive-image/import'], verifyAdminToken, handleDriveMediaImport);
+app.get(['/api/admin/drive-media/import', '/api/admin/drive-image/import'], verifyAdminToken, handleDriveMediaImport);
 
 // Storage Management APIs for Admin Panel
 app.get(['/api/admin/storage-status', '/api/admin/r2-status'], verifyAdminToken, async (_req, res) => {

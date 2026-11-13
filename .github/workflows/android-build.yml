@@ -68,8 +68,8 @@ jobs:
 
       - name: Build Web App
         env:
-          VITE_API_BASE_URL: ${{ secrets.PRODUCTION_API_URL || secrets.VITE_API_BASE_URL || secrets.API_URL || vars.PRODUCTION_API_URL || vars.VITE_API_BASE_URL || '' }}
-          VITE_APP_URL: ${{ secrets.PRODUCTION_API_URL || secrets.VITE_API_BASE_URL || secrets.API_URL || vars.PRODUCTION_API_URL || vars.VITE_API_BASE_URL || '' }}
+          VITE_API_BASE_URL: ${{ secrets.PRODUCTION_API_URL || secrets.VITE_API_BASE_URL || secrets.API_URL || vars.PRODUCTION_API_URL || vars.VITE_API_BASE_URL || 'https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app' }}
+          VITE_APP_URL: ${{ secrets.PRODUCTION_API_URL || secrets.VITE_API_BASE_URL || secrets.API_URL || vars.PRODUCTION_API_URL || vars.VITE_API_BASE_URL || 'https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app' }}
         run: npm run build
 
       - name: Sync Capacitor

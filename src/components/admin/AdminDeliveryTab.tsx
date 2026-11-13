@@ -29,6 +29,7 @@ import {
   adminUpdateDeliveryStory,
   adminDeleteDeliveryStory,
   uploadImage,
+  resolveImageUrl,
 } from '../../lib/api.ts';
 import { GoogleDriveImagePicker } from './GoogleDriveImagePicker.tsx';
 
@@ -514,7 +515,7 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
                   <div className="relative h-44 bg-stone-100 overflow-hidden">
                     {story.deliveryPhotoUrl || story.doorPhotoUrl ? (
                       <img
-                        src={story.deliveryPhotoUrl || story.doorPhotoUrl}
+                        src={resolveImageUrl(story.deliveryPhotoUrl || story.doorPhotoUrl, '')}
                         alt={story.orderDescription}
                         className="w-full h-full object-cover"
                       />

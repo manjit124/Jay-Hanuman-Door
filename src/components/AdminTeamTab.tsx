@@ -32,6 +32,7 @@ import {
   toggleTeamMemberActive,
   reorderTeamMembers,
   uploadImage,
+  resolveImageUrl,
 } from '../lib/api.ts';
 import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 import { TeamMemberDetailModal } from './TeamMemberDetailModal.tsx';
@@ -508,7 +509,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-14 rounded-xl overflow-hidden bg-[#F8F8F6] border border-[#E5E5E5] shrink-0">
                           <img
-                            src={member.photo}
+                            src={resolveImageUrl(member.photo, 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80')}
                             alt={member.name}
                             className="w-full h-full object-cover object-top"
                             onError={(e) => {
@@ -840,17 +841,20 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                       className="w-full bg-white border border-[#E5E5E5] rounded-xl px-3 py-1.5 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
                     />
                   </div>
+                </div>
 
-                  <div className="flex items-center gap-2">
-                    <Video className="w-4 h-4 text-[#666666] shrink-0" />
-                    <input
-                      type="url"
-                      value={formData.videoUrl}
-                      onChange={(e) => setFormData(p => ({ ...p, videoUrl: e.target.value }))}
-                      placeholder="Intro / Workshop Video URL"
-                      className="w-full bg-white border border-[#E5E5E5] rounded-xl px-3 py-1.5 text-xs text-[#1A1A1A] focus:border-[#C89211] focus:outline-none"
-                    />
-                  </div>
+                {/* Intro / Workshop Video (Device Upload OR Google Drive Link) */}
+                <div className="pt-2 border-t border-[#E5E5E5]">
+                  <GoogleDriveImagePicker
+                    label="Intro / Workshop Video (Optional)"
+                    sublabel="Option A: Upload video from device, or Option B: Paste Google Drive sharing link to preview & import"
+                    value={formData.videoUrl || ''}
+                    category="videos"
+                    mediaType="video"
+                    deviceUploadButtonText="Upload Workshop Video"
+                    onChange={(url) => setFormData(p => ({ ...p, videoUrl: url }))}
+                    compact
+                  />
                 </div>
               </div>
 

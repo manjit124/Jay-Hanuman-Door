@@ -63,6 +63,7 @@ import {
   updateArticleCategory,
   deleteArticleCategory,
   uploadImage,
+  resolveImageUrl,
 } from '../lib/api.ts';
 import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 
@@ -661,7 +662,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                   {/* Article Info */}
                   <div className="flex items-start gap-3.5 flex-1">
                     <img
-                      src={art.image}
+                      src={resolveImageUrl(art.image, 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80')}
                       alt={art.title}
                       className="w-20 h-14 rounded-xl object-cover border border-[#E5E5E5] shrink-0 bg-[#F8F8F6]"
                       onError={e => {
@@ -1539,7 +1540,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                               key={idx}
                               className="relative group rounded-xl overflow-hidden border border-[#E5E5E5] bg-white aspect-video"
                             >
-                              <img src={img.url} alt="" className="w-full h-full object-cover" />
+                              <img src={resolveImageUrl(img.url, '')} alt="" className="w-full h-full object-cover" />
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1596,7 +1597,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                           >
                             <div className="flex items-center gap-2 overflow-hidden">
                               <img
-                                src={door.images?.[0] || 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80'}
+                                src={resolveImageUrl(door.images?.[0], 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=400&q=80')}
                                 alt=""
                                 className="w-8 h-8 rounded-lg object-cover shrink-0"
                               />

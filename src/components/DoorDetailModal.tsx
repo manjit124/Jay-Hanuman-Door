@@ -5,6 +5,7 @@ import { ProtectedImage } from './ProtectedImage.tsx';
 import { ContentProtectionWarning } from './ContentProtectionWarning.tsx';
 import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
 import { getWhatsAppUrl } from '../lib/contactUtils.ts';
+import { resolveImageUrl, isGoogleDriveEmbedUrl } from '../lib/api.ts';
 
 interface DoorDetailModalProps {
   door: Door | null;
@@ -190,21 +191,31 @@ export const DoorDetailModal: React.FC<DoorDetailModalProps> = ({
               {/* Video View */}
               {door.videoUrl && mediaTab === 'video' && (
                 <div className="w-full rounded-2xl bg-black border border-[#E5E5E5] shadow-inner p-2 flex flex-col items-center justify-center overflow-hidden min-h-[300px] sm:min-h-[400px] md:min-h-[480px]">
-                  <video
-                    src={door.videoUrl}
-                    controls
-                    playsInline
-                    preload="none"
-                    controlsList="nodownload"
-                    onContextMenu={e => e.preventDefault()}
-                    className="w-full h-auto max-h-[55vh] sm:max-h-[65vh] md:max-h-[72vh] object-contain mx-auto block rounded-xl"
-                    style={{
-                      width: '100%',
-                      height: 'auto',
-                      maxHeight: '72vh',
-                      objectFit: 'contain',
-                    }}
-                  />
+                  {isGoogleDriveEmbedUrl(door.videoUrl) ? (
+                    <iframe
+                      src={door.videoUrl}
+                      title={`${door.name} Video`}
+                      className="w-full h-[320px] sm:h-[420px] md:h-[460px] rounded-xl border-0 bg-black"
+                      allow="autoplay; fullscreen"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <video
+                      src={resolveImageUrl(door.videoUrl, '')}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      controlsList="nodownload"
+                      onContextMenu={e => e.preventDefault()}
+                      className="w-full h-auto max-h-[55vh] sm:max-h-[65vh] md:max-h-[72vh] object-contain mx-auto block rounded-xl"
+                      style={{
+                        width: '100%',
+                        height: 'auto',
+                        maxHeight: '72vh',
+                        objectFit: 'contain',
+                      }}
+                    />
+                  )}
                   <div className="w-full px-3 py-1.5 text-center text-[11px] text-white/70">
                     Product Video • {door.name}
                   </div>
