@@ -753,7 +753,7 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                   value={editingProduct.plainImage || ''}
                   category="catalog"
                   deviceUploadButtonText="Upload Plain Photo"
-                  onChange={(url) => setEditingProduct({ ...editingProduct, plainImage: url })}
+                  onChange={(url) => setEditingProduct(prev => prev ? { ...prev, plainImage: url } : prev)}
                   onToast={showToast}
                   compact
                 />
@@ -765,7 +765,7 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                   value={editingProduct.diamondImage || ''}
                   category="catalog"
                   deviceUploadButtonText="Upload Diamond Photo"
-                  onChange={(url) => setEditingProduct({ ...editingProduct, diamondImage: url })}
+                  onChange={(url) => setEditingProduct(prev => prev ? { ...prev, diamondImage: url } : prev)}
                   onToast={showToast}
                   compact
                 />
@@ -777,7 +777,7 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                   value={editingProduct.handCarvedImage || ''}
                   category="catalog"
                   deviceUploadButtonText="Upload Hand-Carved Photo"
-                  onChange={(url) => setEditingProduct({ ...editingProduct, handCarvedImage: url })}
+                  onChange={(url) => setEditingProduct(prev => prev ? { ...prev, handCarvedImage: url } : prev)}
                   onToast={showToast}
                   compact
                 />

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Award, Sparkles, CheckCircle2 } from 'lucide-react';
 import { TeamMember, BusinessSettings } from '../types.ts';
-import { DEFAULT_STORY_SETTINGS } from './AdminBrandStoryTab.tsx';
+import { DEFAULT_STORY_SETTINGS } from '../data/defaultCatalogData.ts';
 import { resolveImageUrl } from '../lib/api.ts';
 
 interface OurStorySectionProps {

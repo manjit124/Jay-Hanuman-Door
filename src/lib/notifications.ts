@@ -1,3 +1,4 @@
+import { initializeApp, getApps } from 'firebase/app';
 import {
   fetchNotificationConfig,
   registerDeviceToken,
@@ -196,7 +197,6 @@ export async function setupPushNotifications(
     // 5. Try Firebase Web SDK if client config is present
     if (config.firebaseClientConfig && config.vapidKey) {
       try {
-        const { initializeApp, getApps } = await import('firebase/app');
         const { getMessaging, getToken } = await import('firebase/messaging');
 
         const app = getApps().length === 0 ? initializeApp(config.firebaseClientConfig) : getApps()[0];

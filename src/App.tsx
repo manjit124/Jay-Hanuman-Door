@@ -57,7 +57,6 @@ import { ArticlesSection } from './components/ArticlesSection.tsx';
 import { ArticlesGuidesCarousel } from './components/ArticlesGuidesCarousel.tsx';
 import { AllIndiaDeliverySection } from './components/AllIndiaDeliverySection.tsx';
 import { DEFAULT_INDIA_STATES, DEFAULT_DELIVERY_STORIES } from './data/indiaDeliveryData.ts';
-import { AdminPanel } from './components/AdminPanel.tsx';
 import { UserProfileModal } from './components/UserProfileModal.tsx';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
@@ -70,10 +69,12 @@ import { PrivacyPolicyPage } from './components/legal/PrivacyPolicyPage.tsx';
 import { AboutUsPage } from './components/legal/AboutUsPage.tsx';
 import { ContactUsPage } from './components/legal/ContactUsPage.tsx';
 import { DisclaimerPage } from './components/legal/DisclaimerPage.tsx';
-import { AIWoodDetector } from './components/AIWoodDetector.tsx';
-import { CustomerOrderTracking } from './components/CustomerOrderTracking.tsx';
-import { DoorVisualizerPage } from './components/visualizer/DoorVisualizerPage.tsx';
 import { PromotionalBannerCarousel } from './components/PromotionalBannerCarousel.tsx';
+
+const AdminPanel = React.lazy(() => import('./components/AdminPanel.tsx').then(m => ({ default: m.AdminPanel })));
+const AIWoodDetector = React.lazy(() => import('./components/AIWoodDetector.tsx').then(m => ({ default: m.AIWoodDetector })));
+const CustomerOrderTracking = React.lazy(() => import('./components/CustomerOrderTracking.tsx').then(m => ({ default: m.CustomerOrderTracking })));
+const DoorVisualizerPage = React.lazy(() => import('./components/visualizer/DoorVisualizerPage.tsx').then(m => ({ default: m.DoorVisualizerPage })));
 import { HomepageBannerSlider } from './components/HomepageBannerSlider.tsx';
 import { ContentProtectionWarning } from './components/ContentProtectionWarning.tsx';
 import { useContentProtection } from './lib/contentProtection.ts';
@@ -1211,27 +1212,29 @@ export const App: React.FC = () => {
 
         {/* VIEW: 3D & AR DOOR FITTING STUDIO */}
         {activeView === 'visualizer' && (
-          <DoorVisualizerPage
-            doors={doors}
-            categories={categories}
-            initialDoor={visualizerDoor}
-            materials={materials}
-            finishes={finishes}
-            frames={frames}
-            hardware={hardware}
-            settings={settings}
-            onNavigateHome={() => {
-              navigateToView('home');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            onNavigateCatalog={() => {
-              navigateToView('gallery');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            onOpenQuotationModal={(calc, door) => {
-              handleOpenQuotationModal(calc, door);
-            }}
-          />
+          <React.Suspense fallback={<div className="py-16 text-center text-sm text-stone-500">Loading 3D & AR Studio...</div>}>
+            <DoorVisualizerPage
+              doors={doors}
+              categories={categories}
+              initialDoor={visualizerDoor}
+              materials={materials}
+              finishes={finishes}
+              frames={frames}
+              hardware={hardware}
+              settings={settings}
+              onNavigateHome={() => {
+                navigateToView('home');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onNavigateCatalog={() => {
+                navigateToView('gallery');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onOpenQuotationModal={(calc, door) => {
+                handleOpenQuotationModal(calc, door);
+              }}
+            />
+          </React.Suspense>
         )}
 
         {/* VIEW 4: ARTICLES & GUIDES (Section 17) */}
@@ -1295,26 +1298,28 @@ export const App: React.FC = () => {
 
         {/* VIEW 9: AI WOOD DETECTOR (LAKDI KI PEHCHAN) */}
         {activeView === 'wood-detector' && (
-          <AIWoodDetector
-            settings={settings}
-            onNavigateToCatalog={() => {
-              setActiveView('gallery');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            onNavigateToCalculator={() => {
-              setActiveView('calculator');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            onNavigateToContact={() => {
-              setActiveView('contact');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-          />
+          <React.Suspense fallback={<div className="py-16 text-center text-sm text-stone-500">Loading AI Wood Detector...</div>}>
+            <AIWoodDetector
+              settings={settings}
+              onNavigateToCatalog={() => {
+                setActiveView('gallery');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onNavigateToCalculator={() => {
+                setActiveView('calculator');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onNavigateToContact={() => {
+                setActiveView('contact');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+          </React.Suspense>
         )}
 
         {/* VIEW 10: CUSTOMER ORDER TRACKING */}
         {activeView === 'tracking' && (
-          <>
+          <React.Suspense fallback={<div className="py-16 text-center text-sm text-stone-500">Loading Order Tracking...</div>}>
             <CustomerOrderTracking
               initialTrackingId={trackingInitialId}
               onNavigateHome={() => {
@@ -1330,7 +1335,7 @@ export const App: React.FC = () => {
             <div className="max-w-4xl mx-auto px-3 sm:px-6 mt-4 mb-2">
               <AdMobBannerSlot placement="tracking" settings={settings} />
             </div>
-          </>
+          </React.Suspense>
         )}
       </main>
 
@@ -1621,16 +1626,20 @@ export const App: React.FC = () => {
       )}
 
       {/* MODAL 4: Full Admin Control Center (Sections 13, 14, 15, 16, 22) */}
-      <AdminPanel
-        isOpen={showAdminPanel}
-        onClose={handleCloseAdminPanel}
-        onDataUpdated={loadAppData}
-        isLoggedIn={isAdminLoggedIn}
-        setIsLoggedIn={setIsAdminLoggedIn}
-        initialTab={adminInitialTab}
-        onNavigateTab={handleAdminTabNavigate}
-        onLogoutSuccess={handleAdminLogoutSuccess}
-      />
+      {showAdminPanel && (
+        <React.Suspense fallback={null}>
+          <AdminPanel
+            isOpen={showAdminPanel}
+            onClose={handleCloseAdminPanel}
+            onDataUpdated={loadAppData}
+            isLoggedIn={isAdminLoggedIn}
+            setIsLoggedIn={setIsAdminLoggedIn}
+            initialTab={adminInitialTab}
+            onNavigateTab={handleAdminTabNavigate}
+            onLogoutSuccess={handleAdminLogoutSuccess}
+          />
+        </React.Suspense>
+      )}
 
       {/* MODAL 5: Saved Doors & Calculations History (Public Browser Storage) */}
       {showProfileModal && (

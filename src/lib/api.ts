@@ -53,6 +53,13 @@ import {
   DEFAULT_ARTICLES,
 } from '../data/defaultCatalogData.ts';
 import {
+  DEFAULT_CHAUKHAT_WOOD_TYPES,
+  DEFAULT_CHAUKHAT_SECTION_SIZES,
+  DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+  DEFAULT_CHAUKHAT_DESIGNS,
+  DEFAULT_CHAUKHAT_PRODUCT,
+} from '../data/chaukhatDefaults.ts';
+import {
   verifyAdminCredentialsViaFirestore,
   fetchDirectFirestoreData,
   saveDoorDirectFirestore,
@@ -744,6 +751,7 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     url.includes('/api/upload') ||
     url.includes('video') ||
     url.includes('drive-image') ||
+    url.includes('drive-media') ||
     url.includes('import') ||
     url.includes('preview') ||
     url.includes('/api/admin/all-data') ||
@@ -754,7 +762,14 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   if (!options.signal) {
     nativeController = new AbortController();
     fetchOpts.signal = nativeController.signal;
-    const timeoutMs = isHeavyMediaEndpoint ? 45000 : (isNative ? 15000 : 25000);
+    const timeoutMs =
+      url.includes('import') || url.includes('video')
+        ? 90000
+        : isHeavyMediaEndpoint
+        ? 45000
+        : isNative
+        ? 15000
+        : 25000;
     nativeTimeoutId = setTimeout(() => {
       try { nativeController?.abort(); } catch {}
     }, timeoutMs);
@@ -1854,6 +1869,91 @@ export function extractClientGoogleDriveFileId(url?: string | null): string | nu
   return null;
 }
 
+export interface DriveUrlInputValidation {
+  isValid: boolean;
+  isGoogleDrive: boolean;
+  isFolder: boolean;
+  fileId: string | null;
+  normalizedUrl: string;
+  error?: string;
+}
+
+export function validateDriveOrMediaUrlInput(rawUrl?: string | null): DriveUrlInputValidation {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) {
+    return {
+      isValid: false,
+      isGoogleDrive: false,
+      isFolder: false,
+      fileId: null,
+      normalizedUrl: '',
+    };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return {
+      isValid: false,
+      isGoogleDrive: false,
+      isFolder: false,
+      fileId: null,
+      normalizedUrl: trimmed,
+      error: 'Please enter a valid https:// Google Drive sharing URL or media link.',
+    };
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return {
+      isValid: false,
+      isGoogleDrive: false,
+      isFolder: false,
+      fileId: null,
+      normalizedUrl: trimmed,
+      error: 'Only https:// or http:// URLs are supported.',
+    };
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const isDriveHost =
+    host === 'drive.google.com' ||
+    host === 'docs.google.com' ||
+    host === 'drive.usercontent.google.com' ||
+    host.endsWith('.googleusercontent.com');
+
+  if (isClientGoogleDriveFolderUrl(trimmed)) {
+    return {
+      isValid: false,
+      isGoogleDrive: true,
+      isFolder: true,
+      fileId: null,
+      normalizedUrl: trimmed,
+      error: 'Google Drive folder links cannot be imported directly. Open the folder and copy an individual file link.',
+    };
+  }
+
+  const fileId = extractClientGoogleDriveFileId(trimmed);
+  if (isDriveHost && !fileId) {
+    return {
+      isValid: false,
+      isGoogleDrive: true,
+      isFolder: false,
+      fileId: null,
+      normalizedUrl: trimmed,
+      error: 'Could not extract a Google Drive File ID from this link. Expected /file/d/FILE_ID/view or ?id=FILE_ID.',
+    };
+  }
+
+  return {
+    isValid: true,
+    isGoogleDrive: Boolean(fileId),
+    isFolder: false,
+    fileId,
+    normalizedUrl: trimmed,
+  };
+}
+
 export function getClientGoogleDriveDirectUrl(
   fileId: string,
   mediaType: 'image' | 'video' | 'model3d' | 'any' = 'image'
@@ -1908,58 +2008,69 @@ async function callDriveMediaEndpoint<T extends { success: boolean; error?: stri
 ): Promise<T> {
   const token = getAdminToken();
   if (!token) {
-    throw new Error('[HTTP 401 • ADMIN_TOKEN_MISSING] Unauthorized: Please sign in to the Admin Panel first.');
+    throw new Error(`[HTTP 401 • ADMIN_TOKEN_MISSING] Route "${endpointPath}": Unauthorized. Please sign in to the Admin Panel first.`);
   }
 
   let lastNetworkError = '';
   const targetUrl = resolveApiUrl(endpointPath);
+  const candidateEndpoints = endpointPath.includes('/api/admin/drive-media/')
+    ? mediaType === 'model3d'
+      ? [endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-model/'), endpointPath]
+      : mediaType === 'video'
+      ? [endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-video/'), endpointPath]
+      : [endpointPath, endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-image/')]
+    : [endpointPath];
 
-  // 1. Primary attempt: POST with JSON body (uses standard Authorization header only for clean CORS preflight)
-  try {
-    const postRes = await apiFetch(endpointPath, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ url: cleanUrl, category, mediaType }),
-    });
+  for (const ep of candidateEndpoints) {
+    try {
+      const postRes = await apiFetch(ep, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ url: cleanUrl, category, mediaType }),
+      });
 
-    const parsedPost = await parseSafeJsonResponse<T>(postRes, actionLabel);
-    if (parsedPost.success && parsedPost.data && parsedPost.data.success) {
-      return parsedPost.data;
-    }
+      const parsedPost = await parseSafeJsonResponse<T>(postRes, actionLabel);
+      if (parsedPost.success && parsedPost.data && parsedPost.data.success) {
+        return parsedPost.data;
+      }
 
-    if (parsedPost.status === 404) {
-      throw new Error(
-        `[HTTP 404 • ROUTE_NOT_DEPLOYED] Backend route "${endpointPath}" returned 404 Not Found on "${targetUrl}". The production Cloud Run service needs to be redeployed with the latest backend routes. You can use Direct Drive Fallback below or "Upload From Device".`
-      );
-    }
+      if (parsedPost.status === 401) {
+        throw new Error(
+          `[HTTP 401 • UNAUTHORIZED] Route "${ep}": ${parsedPost.error || 'Admin session expired. Please sign out and sign back in to the Admin Panel.'}`
+        );
+      }
 
-    if (parsedPost.status === 401) {
-      throw new Error(
-        `[HTTP 401 • UNAUTHORIZED] ${parsedPost.error || 'Admin session expired. Please sign out and sign back in to the Admin Panel.'}`
-      );
-    }
+      if (parsedPost.status === 404) {
+        if (ep !== candidateEndpoints[candidateEndpoints.length - 1]) {
+          continue;
+        }
+        throw new Error(
+          `[HTTP 404 • ROUTE_NOT_DEPLOYED] Backend route "${ep}" returned 404 Not Found on "${resolveApiUrl(ep)}". Redeploy the backend to Cloud Run or use "Switch to Upload From Device".`
+        );
+      }
 
-    if (!parsedPost.isHtml && parsedPost.status !== 405 && parsedPost.status !== 302) {
-      const codePrefix = (parsedPost.data as any)?.errorCode
-        ? `[HTTP ${parsedPost.status} • ${(parsedPost.data as any).errorCode}] `
-        : `[HTTP ${parsedPost.status}] `;
-      throw new Error(
-        `${codePrefix}${parsedPost.error || (parsedPost.data as any)?.error || `${actionLabel} failed.`}`
-      );
+      if (!parsedPost.isHtml && parsedPost.status !== 405 && parsedPost.status !== 302) {
+        const codePrefix = (parsedPost.data as any)?.errorCode
+          ? `[HTTP ${parsedPost.status} • ${(parsedPost.data as any).errorCode}] `
+          : `[HTTP ${parsedPost.status}] `;
+        throw new Error(
+          `${codePrefix}Route "${ep}": ${parsedPost.error || (parsedPost.data as any)?.error || `${actionLabel} failed.`}`
+        );
+      }
+      lastNetworkError = parsedPost.error || `HTTP ${parsedPost.status} on ${ep}`;
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      if (msg.startsWith('[HTTP ')) {
+        throw err;
+      }
+      lastNetworkError = msg || 'Network connection error';
     }
-    lastNetworkError = parsedPost.error || `HTTP ${parsedPost.status}`;
-  } catch (err: any) {
-    const msg = String(err?.message || '');
-    if (msg.startsWith('[HTTP ')) {
-      throw err;
-    }
-    lastNetworkError = msg || 'Network connection error';
   }
 
-  // 2. Fallback attempt: GET with query parameters (without leaking auth token in URL)
+  // Fallback attempt: GET with query parameters (without leaking auth token in URL)
   try {
     const query = new URLSearchParams({ url: cleanUrl, category, mediaType });
     const getRes = await apiFetch(`${endpointPath}?${query.toString()}`, {
@@ -1977,13 +2088,13 @@ async function callDriveMediaEndpoint<T extends { success: boolean; error?: stri
 
     if (parsedGet.status === 404) {
       throw new Error(
-        `[HTTP 404 • ROUTE_NOT_DEPLOYED] Backend route "${endpointPath}" returned 404 Not Found on "${targetUrl}". Production Cloud Run needs to be redeployed with the latest backend code. Use Direct Drive Fallback below or "Upload From Device".`
+        `[HTTP 404 • ROUTE_NOT_DEPLOYED] Backend route "${endpointPath}" returned 404 Not Found on "${targetUrl}". Redeploy the backend to Cloud Run or use "Switch to Upload From Device".`
       );
     }
 
     if (parsedGet.status === 401) {
       throw new Error(
-        `[HTTP 401 • UNAUTHORIZED] ${parsedGet.error || 'Admin session expired. Please sign in to the Admin Panel again.'}`
+        `[HTTP 401 • UNAUTHORIZED] Route "${endpointPath}": ${parsedGet.error || 'Admin session expired. Please sign in to the Admin Panel again.'}`
       );
     }
 
@@ -1991,7 +2102,7 @@ async function callDriveMediaEndpoint<T extends { success: boolean; error?: stri
       ? `[HTTP ${parsedGet.status} • ${(parsedGet.data as any).errorCode}] `
       : `[HTTP ${parsedGet.status}] `;
     throw new Error(
-      `${codePrefix}${parsedGet.error || (parsedGet.data as any)?.error || `${actionLabel} failed.`}`
+      `${codePrefix}Route "${endpointPath}": ${parsedGet.error || (parsedGet.data as any)?.error || `${actionLabel} failed.`}`
     );
   } catch (err: any) {
     const msg = String(err?.message || '');
@@ -4355,28 +4466,27 @@ export async function fetchChaukhatConfig(): Promise<ChaukhatConfigResponse> {
     console.warn('Could not fetch Chaukhat config from server, trying Firestore:', err);
   }
 
-  const defaults = await import('../data/chaukhatDefaults.ts');
   try {
     const fsData = await fetchDirectFirestoreData();
     if (fsData) {
       return {
-        woodTypes: Array.isArray(fsData.chaukhatWoodTypes) && fsData.chaukhatWoodTypes.length > 0 ? fsData.chaukhatWoodTypes : defaults.DEFAULT_CHAUKHAT_WOOD_TYPES,
-        sectionSizes: Array.isArray(fsData.chaukhatSectionSizes) && fsData.chaukhatSectionSizes.length > 0 ? fsData.chaukhatSectionSizes : defaults.DEFAULT_CHAUKHAT_SECTION_SIZES,
-        dimensionPresets: Array.isArray(fsData.chaukhatDimensionPresets) && fsData.chaukhatDimensionPresets.length > 0 ? fsData.chaukhatDimensionPresets : defaults.DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
-        designs: Array.isArray(fsData.chaukhatDesigns) && fsData.chaukhatDesigns.length > 0 ? fsData.chaukhatDesigns : defaults.DEFAULT_CHAUKHAT_DESIGNS,
+        woodTypes: Array.isArray(fsData.chaukhatWoodTypes) && fsData.chaukhatWoodTypes.length > 0 ? fsData.chaukhatWoodTypes : DEFAULT_CHAUKHAT_WOOD_TYPES,
+        sectionSizes: Array.isArray(fsData.chaukhatSectionSizes) && fsData.chaukhatSectionSizes.length > 0 ? fsData.chaukhatSectionSizes : DEFAULT_CHAUKHAT_SECTION_SIZES,
+        dimensionPresets: Array.isArray(fsData.chaukhatDimensionPresets) && fsData.chaukhatDimensionPresets.length > 0 ? fsData.chaukhatDimensionPresets : DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+        designs: Array.isArray(fsData.chaukhatDesigns) && fsData.chaukhatDesigns.length > 0 ? fsData.chaukhatDesigns : DEFAULT_CHAUKHAT_DESIGNS,
         products: Array.isArray(fsData.chaukhatProducts) && fsData.chaukhatProducts.length > 0
           ? fsData.chaukhatProducts.filter((p: any) => p.active !== false).sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0))
-          : [defaults.DEFAULT_CHAUKHAT_PRODUCT],
+          : [DEFAULT_CHAUKHAT_PRODUCT],
       };
     }
   } catch {}
 
   return {
-    woodTypes: defaults.DEFAULT_CHAUKHAT_WOOD_TYPES,
-    sectionSizes: defaults.DEFAULT_CHAUKHAT_SECTION_SIZES,
-    dimensionPresets: defaults.DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
-    designs: defaults.DEFAULT_CHAUKHAT_DESIGNS,
-    products: [defaults.DEFAULT_CHAUKHAT_PRODUCT],
+    woodTypes: DEFAULT_CHAUKHAT_WOOD_TYPES,
+    sectionSizes: DEFAULT_CHAUKHAT_SECTION_SIZES,
+    dimensionPresets: DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+    designs: DEFAULT_CHAUKHAT_DESIGNS,
+    products: [DEFAULT_CHAUKHAT_PRODUCT],
   };
 }
 
@@ -4425,13 +4535,12 @@ export async function fetchAdminChaukhatAll(): Promise<{
     console.warn('[AdminAPI] Server fetchAdminChaukhatAll failed, using Firestore fallback:', err.message);
   }
 
-  const defaults = await import('../data/chaukhatDefaults.ts');
   const fsData = await fetchDirectFirestoreData();
   return {
-    products: Array.isArray(fsData?.chaukhatProducts) && fsData.chaukhatProducts.length > 0 ? fsData.chaukhatProducts : [defaults.DEFAULT_CHAUKHAT_PRODUCT],
-    sectionSizes: Array.isArray(fsData?.chaukhatSectionSizes) && fsData.chaukhatSectionSizes.length > 0 ? fsData.chaukhatSectionSizes : defaults.DEFAULT_CHAUKHAT_SECTION_SIZES,
-    dimensionPresets: Array.isArray(fsData?.chaukhatDimensionPresets) && fsData.chaukhatDimensionPresets.length > 0 ? fsData.chaukhatDimensionPresets : defaults.DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
-    woodTypes: Array.isArray(fsData?.chaukhatWoodTypes) && fsData.chaukhatWoodTypes.length > 0 ? fsData.chaukhatWoodTypes : defaults.DEFAULT_CHAUKHAT_WOOD_TYPES,
+    products: Array.isArray(fsData?.chaukhatProducts) && fsData.chaukhatProducts.length > 0 ? fsData.chaukhatProducts : [DEFAULT_CHAUKHAT_PRODUCT],
+    sectionSizes: Array.isArray(fsData?.chaukhatSectionSizes) && fsData.chaukhatSectionSizes.length > 0 ? fsData.chaukhatSectionSizes : DEFAULT_CHAUKHAT_SECTION_SIZES,
+    dimensionPresets: Array.isArray(fsData?.chaukhatDimensionPresets) && fsData.chaukhatDimensionPresets.length > 0 ? fsData.chaukhatDimensionPresets : DEFAULT_CHAUKHAT_DIMENSION_PRESETS,
+    woodTypes: Array.isArray(fsData?.chaukhatWoodTypes) && fsData.chaukhatWoodTypes.length > 0 ? fsData.chaukhatWoodTypes : DEFAULT_CHAUKHAT_WOOD_TYPES,
   };
 }
 

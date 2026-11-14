@@ -1,10 +1,17 @@
 import dns from 'dns';
 import net from 'net';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import {
   getDriveFileMetadataWithOAuth,
   downloadDriveFileWithOAuth,
   hasServerDriveOAuthCredentials,
 } from './googleDriveStorage.ts';
+
+const execFileAsync = promisify(execFile);
 
 try {
   dns.setDefaultResultOrder('ipv4first');
@@ -54,11 +61,11 @@ export interface ValidatedMediaBuffer {
   previewPosterUrl?: string;
 }
 
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024; // 15 MB max for images
-const MAX_MEDIA_BYTES = 55 * 1024 * 1024; // 55 MB max for videos and 3D models
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB max for images (resized to <=1680px after download)
+const MAX_MEDIA_BYTES = 60 * 1024 * 1024; // 60 MB max for videos and 3D models
 const MIN_MEDIA_BYTES = 16;
-const FETCH_TIMEOUT_MS = 25000;
-const MAX_REDIRECTS = 6;
+const FETCH_TIMEOUT_MS = 30000;
+const MAX_REDIRECTS = 8;
 
 /**
  * Checks if an IP address is private, loopback, link-local, or reserved (SSRF protection).
@@ -467,8 +474,9 @@ export function inspectMediaBuffer(
     };
   }
 
-  // 9. 3D Model GLTF (JSON): starts with { and contains "asset"
-  if (headAscii.startsWith('{') && (headAscii.includes('"asset"') || headAscii.includes('"scene"'))) {
+  // 9. 3D Model GLTF (JSON): starts with { and contains "asset" or "scene"
+  const gltfScan = buf.subarray(0, Math.min(8192, buf.length)).toString('utf8').trimStart().toLowerCase();
+  if (gltfScan.startsWith('{') && (gltfScan.includes('"asset"') || gltfScan.includes('"scene"'))) {
     return {
       valid: true,
       is3DModel: true,
@@ -498,13 +506,44 @@ export function inspectImageBuffer(buf: Buffer): {
   return inspectMediaBuffer(buf, 'image');
 }
 
+function mergeSetCookiesIntoJar(headers: Headers, jar: Map<string, string>): void {
+  const anyHeaders = headers as unknown as { getSetCookie?: () => string[] };
+  const rawList: string[] =
+    typeof anyHeaders.getSetCookie === 'function'
+      ? anyHeaders.getSetCookie()
+      : headers.get('set-cookie')
+      ? [headers.get('set-cookie') as string]
+      : [];
+
+  for (const rawCookie of rawList) {
+    if (!rawCookie) continue;
+    const firstPart = rawCookie.split(';')[0]?.trim();
+    if (!firstPart) continue;
+    const eqIdx = firstPart.indexOf('=');
+    if (eqIdx > 0) {
+      const name = firstPart.slice(0, eqIdx).trim();
+      const value = firstPart.slice(eqIdx + 1).trim();
+      if (name) jar.set(name, value);
+    }
+  }
+}
+
+function serializeCookieJar(jar: Map<string, string>): string {
+  const pairs: string[] = [];
+  for (const [k, v] of jar.entries()) {
+    pairs.push(`${k}=${v}`);
+  }
+  return pairs.join('; ');
+}
+
 /**
- * Safely downloads a URL with redirect validation, timeout, and byte size limit.
+ * Safely downloads a URL with redirect validation, cookie forwarding, timeout, and byte size limit.
  */
 async function fetchBufferSafely(
   targetUrl: string,
-  maxBytes: number = MAX_IMAGE_BYTES
-): Promise<{ buffer: Buffer; contentType: string; status: number }> {
+  maxBytes: number = MAX_IMAGE_BYTES,
+  cookieJar: Map<string, string> = new Map()
+): Promise<{ buffer: Buffer; contentType: string; status: number; cookies: Map<string, string> }> {
   let currentUrl = targetUrl;
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
@@ -513,15 +552,23 @@ async function fetchBufferSafely(
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
+      const reqHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'image/webp,image/png,image/jpeg,image/apng,image/*,video/mp4,video/webm,model/gltf-binary,*/*;q=0.8',
+      };
+      const cookieHeader = serializeCookieJar(cookieJar);
+      if (cookieHeader) {
+        reqHeaders['Cookie'] = cookieHeader;
+      }
+
       const response = await fetch(validatedUrl.toString(), {
         method: 'GET',
         redirect: 'manual',
         signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'image/webp,image/png,image/jpeg,image/apng,image/*,video/mp4,video/webm,*/*;q=0.8',
-        },
+        headers: reqHeaders,
       });
+
+      mergeSetCookiesIntoJar(response.headers, cookieJar);
 
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
@@ -537,6 +584,7 @@ async function fetchBufferSafely(
           buffer: Buffer.alloc(0),
           contentType: response.headers.get('content-type') || '',
           status: response.status,
+          cookies: cookieJar,
         };
       }
 
@@ -558,6 +606,7 @@ async function fetchBufferSafely(
           buffer: Buffer.from(arrayBuf),
           contentType: response.headers.get('content-type') || '',
           status: response.status,
+          cookies: cookieJar,
         };
       }
 
@@ -580,6 +629,7 @@ async function fetchBufferSafely(
         buffer: Buffer.concat(chunks),
         contentType: response.headers.get('content-type') || '',
         status: response.status,
+        cookies: cookieJar,
       };
     } finally {
       clearTimeout(timeout);
@@ -594,31 +644,62 @@ function extractDriveConfirmationUrl(html: string, fileId: string): string | nul
   const hasDownloadForm =
     html.includes('drive.usercontent.google.com/download') ||
     html.includes('id="download-form"') ||
-    html.includes('export=download');
+    html.includes('id="uc-download-link"') ||
+    html.includes('export=download') ||
+    html.includes('confirm=');
   if (!hasDownloadForm) {
     return null;
   }
 
-  const actionMatch = html.match(/<form[^>]+action="([^"]+)"/i);
+  // Match legacy <a id="uc-download-link" href="/uc?export=download&amp;confirm=...">
+  const anchorMatch =
+    html.match(/<a[^>]+id=["']uc-download-link["'][^>]+href=["']([^"']+)["']/i) ||
+    html.match(/href=["']([^"']*export=download[^"']*confirm=[^"']+)["']/i);
+  if (anchorMatch?.[1]) {
+    const rawHref = anchorMatch[1].replace(/&amp;/g, '&');
+    try {
+      const absUrl = new URL(rawHref, 'https://drive.google.com');
+      if (!absUrl.searchParams.get('id')) absUrl.searchParams.set('id', fileId);
+      if (!absUrl.searchParams.get('export')) absUrl.searchParams.set('export', 'download');
+      return absUrl.toString();
+    } catch {}
+  }
+
+  const actionMatch = html.match(/<form[^>]+action=["']([^"']+)["']/i);
   const baseAction =
     actionMatch?.[1] && actionMatch[1].startsWith('https://')
       ? actionMatch[1].replace(/&amp;/g, '&')
       : 'https://drive.usercontent.google.com/download';
 
-  const uuidMatch = html.match(/name="uuid"\s+value="([^"]+)"/i) || html.match(/[?&]uuid=([^&"'\s]+)/i);
-  const confirmMatch = html.match(/name="confirm"\s+value="([^"]+)"/i) || html.match(/[?&]confirm=([^&"'\s]+)/i);
-  const atMatch = html.match(/name="at"\s+value="([^"]+)"/i);
+  // Extract all hidden <input ...> name/value pairs regardless of attribute ordering
+  const hiddenFields: Record<string, string> = {};
+  const inputTags = html.match(/<input\b[^>]*>/gi) || [];
+  for (const tag of inputTags) {
+    const nameMatch = tag.match(/\bname=["']([^"']+)["']/i);
+    const valMatch = tag.match(/\bvalue=["']([^"']*)["']/i);
+    if (nameMatch?.[1] && valMatch) {
+      hiddenFields[nameMatch[1]] = valMatch[1].replace(/&amp;/g, '&');
+    }
+  }
 
-  const confirmVal = confirmMatch?.[1] || 't';
-  const uuidVal = uuidMatch?.[1] || '';
+  const uuidVal =
+    hiddenFields.uuid ||
+    (html.match(/[?&]uuid=([^&"'\s]+)/i)?.[1] ?? '');
+  const confirmVal =
+    hiddenFields.confirm ||
+    (html.match(/[?&]confirm=([^&"'\s]+)/i)?.[1] ?? 't');
+  const atVal = hiddenFields.at || '';
 
   try {
     const targetUrl = new URL(baseAction);
+    for (const [k, v] of Object.entries(hiddenFields)) {
+      if (v) targetUrl.searchParams.set(k, v);
+    }
     targetUrl.searchParams.set('id', fileId);
     targetUrl.searchParams.set('export', 'download');
     targetUrl.searchParams.set('confirm', confirmVal);
     if (uuidVal) targetUrl.searchParams.set('uuid', uuidVal);
-    if (atMatch?.[1]) targetUrl.searchParams.set('at', atMatch[1]);
+    if (atVal) targetUrl.searchParams.set('at', atVal);
     return targetUrl.toString();
   } catch {
     const params = new URLSearchParams({
@@ -627,6 +708,7 @@ function extractDriveConfirmationUrl(html: string, fileId: string): string | nul
       confirm: confirmVal,
     });
     if (uuidVal) params.set('uuid', uuidVal);
+    if (atVal) params.set('at', atVal);
     return `https://drive.usercontent.google.com/download?${params.toString()}`;
   }
 }
@@ -898,16 +980,18 @@ export async function fetchAndValidateExternalMedia(
       }
     }
 
-    // Step B: Public Google Drive endpoints fallback (works for "Anyone with the link can view" files even outside drive.file scope)
+    // Step B: Public Google Drive endpoints without OAuth ("Anyone with the link" can view)
+    // Always try https://drive.google.com/uc?export=download&id=FILE_ID first for images, videos, and .glb 3D models.
     const candidateUrls: string[] = [
       `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`,
       `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t`,
-      `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w2000`,
-      `https://lh3.googleusercontent.com/d/${encodeURIComponent(fileId)}=w2000`,
     ];
 
-    if (expectedType === 'image') {
-      candidateUrls.unshift(`https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w2000`);
+    if (expectedType === 'image' || expectedType === 'any') {
+      candidateUrls.push(
+        `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w2000`,
+        `https://lh3.googleusercontent.com/d/${encodeURIComponent(fileId)}=w2000`
+      );
     }
 
     let lastError =
@@ -918,6 +1002,7 @@ export async function fetchAndValidateExternalMedia(
     let sawHtmlPreview = false;
     let sawQuotaExceeded = false;
     let thumbnailPosterUrl: string | undefined = oauthThumbnailLink;
+    const sharedCookieJar = new Map<string, string>();
 
     if (!thumbnailPosterUrl && expectedType !== 'model3d') {
       try {
@@ -943,7 +1028,7 @@ export async function fetchAndValidateExternalMedia(
       }
 
       try {
-        const { buffer, status } = await fetchBufferSafely(candidateUrl, maxBytes);
+        const { buffer, status } = await fetchBufferSafely(candidateUrl, maxBytes, sharedCookieJar);
         if (status === 401 || status === 403) {
           saw403 = true;
           lastCode = 'DRIVE_PERMISSION_DENIED';
@@ -996,12 +1081,34 @@ export async function fetchAndValidateExternalMedia(
 
         if (inspection.isHtml) {
           sawHtmlPreview = true;
-          const htmlPreview = buffer.subarray(0, Math.min(24576, buffer.length)).toString('utf8');
-          if (htmlPreview.toLowerCase().includes('quota exceeded') || htmlPreview.toLowerCase().includes('too many users')) {
+          const htmlPreview = buffer.subarray(0, Math.min(131072, buffer.length)).toString('utf8');
+          const lowerHtml = htmlPreview.toLowerCase();
+          if (lowerHtml.includes('quota exceeded') || lowerHtml.includes('too many users')) {
             sawQuotaExceeded = true;
             lastCode = 'DRIVE_QUOTA_EXCEEDED';
             lastError =
               'Google Drive download quota exceeded for this file. Please download the file to your device and use "Upload From Device".';
+          } else if (
+            lowerHtml.includes('you need access') ||
+            lowerHtml.includes('request access') ||
+            lowerHtml.includes('sign in to continue') ||
+            lowerHtml.includes('accounts.google.com/servicelogin') ||
+            lowerHtml.includes('accounts.google.com/v3/signin')
+          ) {
+            saw403 = true;
+            lastCode = 'DRIVE_PERMISSION_DENIED';
+            lastError =
+              'This Google Drive file is private or restricted. In Google Drive, open Share and set General Access to "Anyone with the link -> Viewer".';
+          } else if (
+            lowerHtml.includes('file you have requested does not exist') ||
+            lowerHtml.includes('sorry, unable to open') ||
+            lowerHtml.includes("file is in owner's trash") ||
+            lowerHtml.includes('moved to trash')
+          ) {
+            saw404 = true;
+            lastCode = 'DRIVE_NOT_FOUND';
+            lastError =
+              'Google Drive file was deleted, moved to trash, or does not exist.';
           } else {
             const confirmUrl = extractDriveConfirmationUrl(htmlPreview, fileId);
             if (confirmUrl && !candidateUrls.includes(confirmUrl)) {
@@ -1142,6 +1249,162 @@ export async function fetchAndValidateExternalMedia(
     sourceUrl: cleanInput,
     previewDataUrl: isVideo ? undefined : `data:${inspection.mimeType};base64,${buffer.toString('base64')}`,
   };
+}
+
+/**
+ * Optimizes an imported raster image buffer so its largest dimension is at most 1680px.
+ * Uses ImageMagick `convert` (or `ffmpeg` fallback) and safely falls back to the original buffer if unavailable.
+ */
+export async function optimizeImportedImageBuffer(
+  buffer: Buffer,
+  mimeType: string,
+  extension: string,
+  maxDimension = 1680
+): Promise<{
+  buffer: Buffer;
+  mimeType: string;
+  extension: string;
+  width?: number;
+  height?: number;
+  optimized: boolean;
+}> {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    return { buffer, mimeType, extension, optimized: false };
+  }
+
+  // Leave animated GIFs / SVGs untouched
+  const lowerMime = (mimeType || '').toLowerCase();
+  if (lowerMime === 'image/gif' || lowerMime === 'image/svg+xml') {
+    return { buffer, mimeType, extension, optimized: false };
+  }
+
+  const initialInsp = inspectMediaBuffer(buffer, 'image');
+  const origWidth = initialInsp.width;
+  const origHeight = initialInsp.height;
+  const needsResize =
+    (typeof origWidth === 'number' && origWidth > maxDimension) ||
+    (typeof origHeight === 'number' && origHeight > maxDimension);
+  const isLargeFile = buffer.length > 450 * 1024;
+
+  if (!needsResize && !isLargeFile) {
+    return {
+      buffer,
+      mimeType,
+      extension,
+      width: origWidth,
+      height: origHeight,
+      optimized: false,
+    };
+  }
+
+  const tmpId = `jhd_opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const inExt = extension && extension.startsWith('.') ? extension : '.jpg';
+  const outExt = inExt === '.png' ? '.png' : inExt === '.webp' ? '.webp' : '.jpg';
+  const inPath = path.join(os.tmpdir(), `${tmpId}_in${inExt}`);
+  const outPath = path.join(os.tmpdir(), `${tmpId}_out${outExt}`);
+
+  try {
+    fs.writeFileSync(inPath, buffer);
+
+    let converted = false;
+    try {
+      await execFileAsync(
+        'convert',
+        [
+          inPath,
+          '-auto-orient',
+          '-resize',
+          `${maxDimension}x${maxDimension}>`,
+          '-strip',
+          '-quality',
+          '84',
+          outPath,
+        ],
+        { timeout: 15000 }
+      );
+      converted = fs.existsSync(outPath) && fs.statSync(outPath).size > 0;
+    } catch {
+      try {
+        await execFileAsync(
+          'ffmpeg',
+          [
+            '-y',
+            '-i',
+            inPath,
+            '-vf',
+            `scale='min(${maxDimension},iw)':'min(${maxDimension},ih)':force_original_aspect_ratio=decrease`,
+            '-q:v',
+            '4',
+            outPath,
+          ],
+          { timeout: 15000 }
+        );
+        converted = fs.existsSync(outPath) && fs.statSync(outPath).size > 0;
+      } catch {
+        converted = false;
+      }
+    }
+
+    if (!converted) {
+      return {
+        buffer,
+        mimeType,
+        extension,
+        width: origWidth,
+        height: origHeight,
+        optimized: false,
+      };
+    }
+
+    const outBuf = fs.readFileSync(outPath);
+    const outInsp = inspectMediaBuffer(outBuf, 'image');
+    if (!outInsp.valid || !outInsp.mimeType || !outInsp.extension) {
+      return {
+        buffer,
+        mimeType,
+        extension,
+        width: origWidth,
+        height: origHeight,
+        optimized: false,
+      };
+    }
+
+    if (!needsResize && outBuf.length >= buffer.length) {
+      return {
+        buffer,
+        mimeType,
+        extension,
+        width: origWidth,
+        height: origHeight,
+        optimized: false,
+      };
+    }
+
+    return {
+      buffer: outBuf,
+      mimeType: outInsp.mimeType,
+      extension: outInsp.extension,
+      width: outInsp.width || origWidth,
+      height: outInsp.height || origHeight,
+      optimized: true,
+    };
+  } catch {
+    return {
+      buffer,
+      mimeType,
+      extension,
+      width: origWidth,
+      height: origHeight,
+      optimized: false,
+    };
+  } finally {
+    try {
+      if (fs.existsSync(inPath)) fs.unlinkSync(inPath);
+    } catch {}
+    try {
+      if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+    } catch {}
+  }
 }
 
 /**

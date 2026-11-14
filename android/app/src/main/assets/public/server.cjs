@@ -34,8 +34,8 @@ __export(server_exports, {
 module.exports = __toCommonJS(server_exports);
 var import_dotenv = __toESM(require("dotenv"), 1);
 var import_express = __toESM(require("express"), 1);
-var import_path6 = __toESM(require("path"), 1);
-var import_fs6 = __toESM(require("fs"), 1);
+var import_path7 = __toESM(require("path"), 1);
+var import_fs7 = __toESM(require("fs"), 1);
 var import_crypto = __toESM(require("crypto"), 1);
 var import_multer2 = __toESM(require("multer"), 1);
 var import_vite = require("vite");
@@ -3585,6 +3585,11 @@ async function syncPendingLocalFilesToR2() {
 // server/driveImageImport.ts
 var import_dns = __toESM(require("dns"), 1);
 var import_net = __toESM(require("net"), 1);
+var import_fs5 = __toESM(require("fs"), 1);
+var import_os = __toESM(require("os"), 1);
+var import_path5 = __toESM(require("path"), 1);
+var import_child_process = require("child_process");
+var import_util = require("util");
 
 // server/googleDriveStorage.ts
 var import_fs4 = __toESM(require("fs"), 1);
@@ -4332,6 +4337,7 @@ function recordDriveImport(record) {
 }
 
 // server/driveImageImport.ts
+var execFileAsync = (0, import_util.promisify)(import_child_process.execFile);
 try {
   import_dns.default.setDefaultResultOrder("ipv4first");
 } catch {
@@ -4345,11 +4351,11 @@ var DriveImportError = class extends Error {
     this.fileId = fileId;
   }
 };
-var MAX_IMAGE_BYTES = 15 * 1024 * 1024;
-var MAX_MEDIA_BYTES = 55 * 1024 * 1024;
+var MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+var MAX_MEDIA_BYTES = 60 * 1024 * 1024;
 var MIN_MEDIA_BYTES = 16;
-var FETCH_TIMEOUT_MS = 25e3;
-var MAX_REDIRECTS = 6;
+var FETCH_TIMEOUT_MS = 3e4;
+var MAX_REDIRECTS = 8;
 function isPrivateOrReservedIp(ip) {
   const cleanIp = ip.trim().toLowerCase();
   if (!cleanIp) return true;
@@ -4624,7 +4630,8 @@ function inspectMediaBuffer(buf, expectedType = "any") {
       extension: ".glb"
     };
   }
-  if (headAscii.startsWith("{") && (headAscii.includes('"asset"') || headAscii.includes('"scene"'))) {
+  const gltfScan = buf.subarray(0, Math.min(8192, buf.length)).toString("utf8").trimStart().toLowerCase();
+  if (gltfScan.startsWith("{") && (gltfScan.includes('"asset"') || gltfScan.includes('"scene"'))) {
     return {
       valid: true,
       is3DModel: true,
@@ -4637,22 +4644,50 @@ function inspectMediaBuffer(buf, expectedType = "any") {
     error: `Unsupported media format. Expected ${expectedType === "video" ? "MP4 or WebM video" : expectedType === "image" ? "JPEG, PNG, WebP or GIF image" : "supported image, video (MP4/WebM), or 3D model (.glb)"}.`
   };
 }
-async function fetchBufferSafely(targetUrl, maxBytes = MAX_IMAGE_BYTES) {
+function mergeSetCookiesIntoJar(headers, jar) {
+  const anyHeaders = headers;
+  const rawList = typeof anyHeaders.getSetCookie === "function" ? anyHeaders.getSetCookie() : headers.get("set-cookie") ? [headers.get("set-cookie")] : [];
+  for (const rawCookie of rawList) {
+    if (!rawCookie) continue;
+    const firstPart = rawCookie.split(";")[0]?.trim();
+    if (!firstPart) continue;
+    const eqIdx = firstPart.indexOf("=");
+    if (eqIdx > 0) {
+      const name = firstPart.slice(0, eqIdx).trim();
+      const value = firstPart.slice(eqIdx + 1).trim();
+      if (name) jar.set(name, value);
+    }
+  }
+}
+function serializeCookieJar(jar) {
+  const pairs = [];
+  for (const [k, v] of jar.entries()) {
+    pairs.push(`${k}=${v}`);
+  }
+  return pairs.join("; ");
+}
+async function fetchBufferSafely(targetUrl, maxBytes = MAX_IMAGE_BYTES, cookieJar = /* @__PURE__ */ new Map()) {
   let currentUrl = targetUrl;
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
     const validatedUrl = await validateSafeRemoteUrl(currentUrl);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
+      const reqHeaders = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "image/webp,image/png,image/jpeg,image/apng,image/*,video/mp4,video/webm,model/gltf-binary,*/*;q=0.8"
+      };
+      const cookieHeader = serializeCookieJar(cookieJar);
+      if (cookieHeader) {
+        reqHeaders["Cookie"] = cookieHeader;
+      }
       const response = await fetch(validatedUrl.toString(), {
         method: "GET",
         redirect: "manual",
         signal: controller.signal,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          "Accept": "image/webp,image/png,image/jpeg,image/apng,image/*,video/mp4,video/webm,*/*;q=0.8"
-        }
+        headers: reqHeaders
       });
+      mergeSetCookiesIntoJar(response.headers, cookieJar);
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get("location");
         if (!location) {
@@ -4665,7 +4700,8 @@ async function fetchBufferSafely(targetUrl, maxBytes = MAX_IMAGE_BYTES) {
         return {
           buffer: Buffer.alloc(0),
           contentType: response.headers.get("content-type") || "",
-          status: response.status
+          status: response.status,
+          cookies: cookieJar
         };
       }
       const contentLengthHeader = response.headers.get("content-length");
@@ -4684,7 +4720,8 @@ async function fetchBufferSafely(targetUrl, maxBytes = MAX_IMAGE_BYTES) {
         return {
           buffer: Buffer.from(arrayBuf),
           contentType: response.headers.get("content-type") || "",
-          status: response.status
+          status: response.status,
+          cookies: cookieJar
         };
       }
       const chunks = [];
@@ -4704,7 +4741,8 @@ async function fetchBufferSafely(targetUrl, maxBytes = MAX_IMAGE_BYTES) {
       return {
         buffer: Buffer.concat(chunks),
         contentType: response.headers.get("content-type") || "",
-        status: response.status
+        status: response.status,
+        cookies: cookieJar
       };
     } finally {
       clearTimeout(timeout);
@@ -4714,24 +4752,45 @@ async function fetchBufferSafely(targetUrl, maxBytes = MAX_IMAGE_BYTES) {
 }
 function extractDriveConfirmationUrl(html, fileId) {
   if (!html) return null;
-  const hasDownloadForm = html.includes("drive.usercontent.google.com/download") || html.includes('id="download-form"') || html.includes("export=download");
+  const hasDownloadForm = html.includes("drive.usercontent.google.com/download") || html.includes('id="download-form"') || html.includes('id="uc-download-link"') || html.includes("export=download") || html.includes("confirm=");
   if (!hasDownloadForm) {
     return null;
   }
-  const actionMatch = html.match(/<form[^>]+action="([^"]+)"/i);
+  const anchorMatch = html.match(/<a[^>]+id=["']uc-download-link["'][^>]+href=["']([^"']+)["']/i) || html.match(/href=["']([^"']*export=download[^"']*confirm=[^"']+)["']/i);
+  if (anchorMatch?.[1]) {
+    const rawHref = anchorMatch[1].replace(/&amp;/g, "&");
+    try {
+      const absUrl = new URL(rawHref, "https://drive.google.com");
+      if (!absUrl.searchParams.get("id")) absUrl.searchParams.set("id", fileId);
+      if (!absUrl.searchParams.get("export")) absUrl.searchParams.set("export", "download");
+      return absUrl.toString();
+    } catch {
+    }
+  }
+  const actionMatch = html.match(/<form[^>]+action=["']([^"']+)["']/i);
   const baseAction = actionMatch?.[1] && actionMatch[1].startsWith("https://") ? actionMatch[1].replace(/&amp;/g, "&") : "https://drive.usercontent.google.com/download";
-  const uuidMatch = html.match(/name="uuid"\s+value="([^"]+)"/i) || html.match(/[?&]uuid=([^&"'\s]+)/i);
-  const confirmMatch = html.match(/name="confirm"\s+value="([^"]+)"/i) || html.match(/[?&]confirm=([^&"'\s]+)/i);
-  const atMatch = html.match(/name="at"\s+value="([^"]+)"/i);
-  const confirmVal = confirmMatch?.[1] || "t";
-  const uuidVal = uuidMatch?.[1] || "";
+  const hiddenFields = {};
+  const inputTags = html.match(/<input\b[^>]*>/gi) || [];
+  for (const tag of inputTags) {
+    const nameMatch = tag.match(/\bname=["']([^"']+)["']/i);
+    const valMatch = tag.match(/\bvalue=["']([^"']*)["']/i);
+    if (nameMatch?.[1] && valMatch) {
+      hiddenFields[nameMatch[1]] = valMatch[1].replace(/&amp;/g, "&");
+    }
+  }
+  const uuidVal = hiddenFields.uuid || (html.match(/[?&]uuid=([^&"'\s]+)/i)?.[1] ?? "");
+  const confirmVal = hiddenFields.confirm || (html.match(/[?&]confirm=([^&"'\s]+)/i)?.[1] ?? "t");
+  const atVal = hiddenFields.at || "";
   try {
     const targetUrl = new URL(baseAction);
+    for (const [k, v] of Object.entries(hiddenFields)) {
+      if (v) targetUrl.searchParams.set(k, v);
+    }
     targetUrl.searchParams.set("id", fileId);
     targetUrl.searchParams.set("export", "download");
     targetUrl.searchParams.set("confirm", confirmVal);
     if (uuidVal) targetUrl.searchParams.set("uuid", uuidVal);
-    if (atMatch?.[1]) targetUrl.searchParams.set("at", atMatch[1]);
+    if (atVal) targetUrl.searchParams.set("at", atVal);
     return targetUrl.toString();
   } catch {
     const params = new URLSearchParams({
@@ -4740,6 +4799,7 @@ function extractDriveConfirmationUrl(html, fileId) {
       confirm: confirmVal
     });
     if (uuidVal) params.set("uuid", uuidVal);
+    if (atVal) params.set("at", atVal);
     return `https://drive.usercontent.google.com/download?${params.toString()}`;
   }
 }
@@ -4956,12 +5016,13 @@ async function fetchAndValidateExternalMedia(rawUrl, expectedType = "any") {
     }
     const candidateUrls = [
       `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`,
-      `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t`,
-      `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w2000`,
-      `https://lh3.googleusercontent.com/d/${encodeURIComponent(fileId)}=w2000`
+      `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t`
     ];
-    if (expectedType === "image") {
-      candidateUrls.unshift(`https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w2000`);
+    if (expectedType === "image" || expectedType === "any") {
+      candidateUrls.push(
+        `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w2000`,
+        `https://lh3.googleusercontent.com/d/${encodeURIComponent(fileId)}=w2000`
+      );
     }
     let lastError = 'Unable to access this Google Drive file. Please verify the file sharing permission is set to "Anyone with the link can view", or connect Google Drive OAuth in Admin Settings.';
     let lastCode = "DRIVE_ACCESS_FAILED";
@@ -4970,6 +5031,7 @@ async function fetchAndValidateExternalMedia(rawUrl, expectedType = "any") {
     let sawHtmlPreview = false;
     let sawQuotaExceeded = false;
     let thumbnailPosterUrl = oauthThumbnailLink;
+    const sharedCookieJar = /* @__PURE__ */ new Map();
     if (!thumbnailPosterUrl && expectedType !== "model3d") {
       try {
         const thumbUrl = `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1200`;
@@ -4989,7 +5051,7 @@ async function fetchAndValidateExternalMedia(rawUrl, expectedType = "any") {
         continue;
       }
       try {
-        const { buffer: buffer2, status: status2 } = await fetchBufferSafely(candidateUrl, maxBytes);
+        const { buffer: buffer2, status: status2 } = await fetchBufferSafely(candidateUrl, maxBytes, sharedCookieJar);
         if (status2 === 401 || status2 === 403) {
           saw403 = true;
           lastCode = "DRIVE_PERMISSION_DENIED";
@@ -5034,11 +5096,20 @@ async function fetchAndValidateExternalMedia(rawUrl, expectedType = "any") {
         }
         if (inspection2.isHtml) {
           sawHtmlPreview = true;
-          const htmlPreview = buffer2.subarray(0, Math.min(24576, buffer2.length)).toString("utf8");
-          if (htmlPreview.toLowerCase().includes("quota exceeded") || htmlPreview.toLowerCase().includes("too many users")) {
+          const htmlPreview = buffer2.subarray(0, Math.min(131072, buffer2.length)).toString("utf8");
+          const lowerHtml = htmlPreview.toLowerCase();
+          if (lowerHtml.includes("quota exceeded") || lowerHtml.includes("too many users")) {
             sawQuotaExceeded = true;
             lastCode = "DRIVE_QUOTA_EXCEEDED";
             lastError = 'Google Drive download quota exceeded for this file. Please download the file to your device and use "Upload From Device".';
+          } else if (lowerHtml.includes("you need access") || lowerHtml.includes("request access") || lowerHtml.includes("sign in to continue") || lowerHtml.includes("accounts.google.com/servicelogin") || lowerHtml.includes("accounts.google.com/v3/signin")) {
+            saw403 = true;
+            lastCode = "DRIVE_PERMISSION_DENIED";
+            lastError = 'This Google Drive file is private or restricted. In Google Drive, open Share and set General Access to "Anyone with the link -> Viewer".';
+          } else if (lowerHtml.includes("file you have requested does not exist") || lowerHtml.includes("sorry, unable to open") || lowerHtml.includes("file is in owner's trash") || lowerHtml.includes("moved to trash")) {
+            saw404 = true;
+            lastCode = "DRIVE_NOT_FOUND";
+            lastError = "Google Drive file was deleted, moved to trash, or does not exist.";
           } else {
             const confirmUrl = extractDriveConfirmationUrl(htmlPreview, fileId);
             if (confirmUrl && !candidateUrls.includes(confirmUrl)) {
@@ -5168,6 +5239,134 @@ async function fetchAndValidateExternalMedia(rawUrl, expectedType = "any") {
     sourceUrl: cleanInput,
     previewDataUrl: isVideo ? void 0 : `data:${inspection.mimeType};base64,${buffer.toString("base64")}`
   };
+}
+async function optimizeImportedImageBuffer(buffer, mimeType, extension, maxDimension = 1680) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    return { buffer, mimeType, extension, optimized: false };
+  }
+  const lowerMime = (mimeType || "").toLowerCase();
+  if (lowerMime === "image/gif" || lowerMime === "image/svg+xml") {
+    return { buffer, mimeType, extension, optimized: false };
+  }
+  const initialInsp = inspectMediaBuffer(buffer, "image");
+  const origWidth = initialInsp.width;
+  const origHeight = initialInsp.height;
+  const needsResize = typeof origWidth === "number" && origWidth > maxDimension || typeof origHeight === "number" && origHeight > maxDimension;
+  const isLargeFile = buffer.length > 450 * 1024;
+  if (!needsResize && !isLargeFile) {
+    return {
+      buffer,
+      mimeType,
+      extension,
+      width: origWidth,
+      height: origHeight,
+      optimized: false
+    };
+  }
+  const tmpId = `jhd_opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const inExt = extension && extension.startsWith(".") ? extension : ".jpg";
+  const outExt = inExt === ".png" ? ".png" : inExt === ".webp" ? ".webp" : ".jpg";
+  const inPath = import_path5.default.join(import_os.default.tmpdir(), `${tmpId}_in${inExt}`);
+  const outPath = import_path5.default.join(import_os.default.tmpdir(), `${tmpId}_out${outExt}`);
+  try {
+    import_fs5.default.writeFileSync(inPath, buffer);
+    let converted = false;
+    try {
+      await execFileAsync(
+        "convert",
+        [
+          inPath,
+          "-auto-orient",
+          "-resize",
+          `${maxDimension}x${maxDimension}>`,
+          "-strip",
+          "-quality",
+          "84",
+          outPath
+        ],
+        { timeout: 15e3 }
+      );
+      converted = import_fs5.default.existsSync(outPath) && import_fs5.default.statSync(outPath).size > 0;
+    } catch {
+      try {
+        await execFileAsync(
+          "ffmpeg",
+          [
+            "-y",
+            "-i",
+            inPath,
+            "-vf",
+            `scale='min(${maxDimension},iw)':'min(${maxDimension},ih)':force_original_aspect_ratio=decrease`,
+            "-q:v",
+            "4",
+            outPath
+          ],
+          { timeout: 15e3 }
+        );
+        converted = import_fs5.default.existsSync(outPath) && import_fs5.default.statSync(outPath).size > 0;
+      } catch {
+        converted = false;
+      }
+    }
+    if (!converted) {
+      return {
+        buffer,
+        mimeType,
+        extension,
+        width: origWidth,
+        height: origHeight,
+        optimized: false
+      };
+    }
+    const outBuf = import_fs5.default.readFileSync(outPath);
+    const outInsp = inspectMediaBuffer(outBuf, "image");
+    if (!outInsp.valid || !outInsp.mimeType || !outInsp.extension) {
+      return {
+        buffer,
+        mimeType,
+        extension,
+        width: origWidth,
+        height: origHeight,
+        optimized: false
+      };
+    }
+    if (!needsResize && outBuf.length >= buffer.length) {
+      return {
+        buffer,
+        mimeType,
+        extension,
+        width: origWidth,
+        height: origHeight,
+        optimized: false
+      };
+    }
+    return {
+      buffer: outBuf,
+      mimeType: outInsp.mimeType,
+      extension: outInsp.extension,
+      width: outInsp.width || origWidth,
+      height: outInsp.height || origHeight,
+      optimized: true
+    };
+  } catch {
+    return {
+      buffer,
+      mimeType,
+      extension,
+      width: origWidth,
+      height: origHeight,
+      optimized: false
+    };
+  } finally {
+    try {
+      if (import_fs5.default.existsSync(inPath)) import_fs5.default.unlinkSync(inPath);
+    } catch {
+    }
+    try {
+      if (import_fs5.default.existsSync(outPath)) import_fs5.default.unlinkSync(outPath);
+    } catch {
+    }
+  }
 }
 
 // server/aiWoodDetector.ts
@@ -6520,8 +6719,8 @@ function startScheduledNotificationWorker() {
 }
 
 // server/trackingService.ts
-var import_fs5 = __toESM(require("fs"), 1);
-var import_path5 = __toESM(require("path"), 1);
+var import_fs6 = __toESM(require("fs"), 1);
+var import_path6 = __toESM(require("path"), 1);
 var import_multer = __toESM(require("multer"), 1);
 
 // src/types.ts
@@ -6815,7 +7014,7 @@ var storage = import_multer.default.diskStorage({
     cb(null, UPLOAD_DIR);
   },
   filename: (_req, file, cb) => {
-    const ext = import_path5.default.extname(file.originalname).toLowerCase();
+    const ext = import_path6.default.extname(file.originalname).toLowerCase();
     const cleanExt = [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".webm", ".gif"].includes(ext) ? ext : ".jpg";
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     cb(null, `track-${uniqueSuffix}${cleanExt}`);
@@ -6827,7 +7026,7 @@ var mediaUpload = (0, import_multer.default)({
   // 55MB for photo & progress video clip
   fileFilter: (_req, file, cb) => {
     const allowed = /jpeg|jpg|png|webp|gif|heic|heif|mp4|webm|quicktime|3gp|mkv/;
-    const extname = allowed.test(import_path5.default.extname(file.originalname || "").toLowerCase());
+    const extname = allowed.test(import_path6.default.extname(file.originalname || "").toLowerCase());
     const mime = (file.mimetype || "").toLowerCase();
     const isAllowedMime = !mime || mime === "application/octet-stream" || mime === "binary/octet-stream" || allowed.test(mime) || mime.startsWith("image/") || mime.startsWith("video/");
     if (extname || isAllowedMime) {
@@ -7158,14 +7357,14 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
         let mediaUrl = directMediaUrl ? String(directMediaUrl).trim() : "";
         let isVideo = false;
         if (req.file) {
-          const fileBuf = import_fs5.default.readFileSync(req.file.path);
+          const fileBuf = import_fs6.default.readFileSync(req.file.path);
           const detected = detectMimeType(fileBuf);
           const effectiveMime = detected !== "application/octet-stream" ? detected : req.file.mimetype && req.file.mimetype !== "application/octet-stream" ? req.file.mimetype : "image/jpeg";
           isVideo = effectiveMime.startsWith("video/") || /\.(mp4|webm|mov|3gp|mkv)$/i.test(req.file.originalname || req.file.filename);
           let uploadedDriveUrl = null;
           if (hasServerDriveOAuthCredentials()) {
             try {
-              const ext = import_path5.default.extname(req.file.originalname || "") || getExtensionForMimeType(effectiveMime);
+              const ext = import_path6.default.extname(req.file.originalname || "") || getExtensionForMimeType(effectiveMime);
               const driveName = `track-${order.trackingId}-${Date.now()}${ext !== ".bin" ? ext : isVideo ? ".mp4" : ".jpg"}`;
               const driveRes = await uploadMediaToOwnerDrive(
                 fileBuf,
@@ -7183,8 +7382,8 @@ function initTrackingRoutes(app2, verifyAdminToken2) {
             mediaUrl = uploadedDriveUrl;
           } else {
             try {
-              const backupPath = import_path5.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
-              import_fs5.default.copyFileSync(req.file.path, backupPath);
+              const backupPath = import_path6.default.join(UPLOAD_BACKUP_DIR, req.file.filename);
+              import_fs6.default.copyFileSync(req.file.path, backupPath);
               await saveMedia(req.file.filename, effectiveMime, fileBuf, "delivery");
             } catch {
             }
@@ -7437,6 +7636,27 @@ app.use((req, res, next) => {
   next();
 });
 var VERIFIED_PRODUCTION_API_URL = "https://door-price-calculator-door-catalog-322201013200.asia-southeast1.run.app";
+var SERVER_VERSION = "2.4.0";
+function getRegisteredRoutes(expressApp) {
+  const routes = [];
+  const seen = /* @__PURE__ */ new Set();
+  const stack = expressApp?._router?.stack || [];
+  for (const layer of stack) {
+    if (layer?.route) {
+      const methods = Object.keys(layer.route.methods || {}).filter((m) => layer.route.methods[m]).map((m) => m.toUpperCase());
+      const rawPaths = Array.isArray(layer.route.path) ? layer.route.path : [layer.route.path];
+      for (const p of rawPaths) {
+        const pathStr = String(p || "");
+        const key = `${methods.join(",")} ${pathStr}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          routes.push({ methods, path: pathStr });
+        }
+      }
+    }
+  }
+  return routes;
+}
 app.get(
   ["/health", "/healthz", "/live", "/api/health", "/api/server-info"],
   (_req, res) => {
@@ -7445,14 +7665,25 @@ app.get(
     const envAppUrl = String(process.env.APP_URL || "").trim();
     const isSafeProdUrl = envAppUrl && envAppUrl !== "MY_APP_URL" && !envAppUrl.includes("ais-dev-") && !envAppUrl.includes("768916382182");
     const prodUrl = isSafeProdUrl ? envAppUrl : VERIFIED_PRODUCTION_API_URL;
+    const registeredRoutes = getRegisteredRoutes(app);
     return res.status(200).json({
       status: "ok",
       alive: true,
       service: "Jai Hanuman Door",
+      version: SERVER_VERSION,
       uptime: Math.round(process.uptime()),
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       environment: process.env.NODE_ENV || "production",
-      productionApiUrl: prodUrl
+      productionApiUrl: prodUrl,
+      driveImportRoutes: [
+        "/api/admin/drive-image/import",
+        "/api/admin/drive-media/import",
+        "/api/admin/drive-model/import",
+        "/api/admin/drive-video/import",
+        "/api/admin/drive/import"
+      ],
+      registeredRoutesCount: registeredRoutes.length,
+      registeredRoutes
     });
   }
 );
@@ -7524,13 +7755,13 @@ app.get(["/uploads/*", "/api/uploads/*", "/api/media/*"], async (req, res, next)
   } else if (cleanName.startsWith("uploads/")) {
     cleanName = cleanName.slice("uploads/".length);
   }
-  cleanName = import_path6.default.basename(cleanName.split("?")[0].split("#")[0]);
+  cleanName = import_path7.default.basename(cleanName.split("?")[0].split("#")[0]);
   const cleanFilename = cleanName.replace(/[^a-zA-Z0-9_.-]/g, "_");
   if (!cleanFilename) {
     return next();
   }
   const getMimeTypeFromFilename = (filename) => {
-    const ext = import_path6.default.extname(filename).toLowerCase();
+    const ext = import_path7.default.extname(filename).toLowerCase();
     if ([".jpg", ".jpeg"].includes(ext)) return "image/jpeg";
     if (ext === ".png") return "image/png";
     if (ext === ".webp") return "image/webp";
@@ -7542,15 +7773,15 @@ app.get(["/uploads/*", "/api/uploads/*", "/api/media/*"], async (req, res, next)
     if (ext === ".webm") return "video/webm";
     return "image/jpeg";
   };
-  const localPath = import_path6.default.join(UPLOAD_DIR, cleanFilename);
-  if (import_fs6.default.existsSync(localPath)) {
+  const localPath = import_path7.default.join(UPLOAD_DIR, cleanFilename);
+  if (import_fs7.default.existsSync(localPath)) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     res.setHeader("Content-Type", getMimeTypeFromFilename(cleanFilename));
     return res.sendFile(localPath);
   }
-  const backupPath = import_path6.default.join(UPLOAD_BACKUP_DIR, cleanFilename);
-  if (import_fs6.default.existsSync(backupPath)) {
+  const backupPath = import_path7.default.join(UPLOAD_BACKUP_DIR, cleanFilename);
+  if (import_fs7.default.existsSync(backupPath)) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     res.setHeader("Content-Type", getMimeTypeFromFilename(cleanFilename));
@@ -7573,19 +7804,19 @@ app.get(["/uploads/*", "/api/uploads/*", "/api/media/*"], async (req, res, next)
   try {
     const prefix = cleanFilename.split("-")[0];
     if (prefix && prefix.length >= 4) {
-      if (import_fs6.default.existsSync(UPLOAD_DIR)) {
-        const matches = import_fs6.default.readdirSync(UPLOAD_DIR).filter((f) => f.startsWith(prefix));
+      if (import_fs7.default.existsSync(UPLOAD_DIR)) {
+        const matches = import_fs7.default.readdirSync(UPLOAD_DIR).filter((f) => f.startsWith(prefix));
         if (matches.length > 0) {
-          const matchPath = import_path6.default.join(UPLOAD_DIR, matches[0]);
+          const matchPath = import_path7.default.join(UPLOAD_DIR, matches[0]);
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           return res.sendFile(matchPath);
         }
       }
-      if (import_fs6.default.existsSync(UPLOAD_BACKUP_DIR)) {
-        const matches = import_fs6.default.readdirSync(UPLOAD_BACKUP_DIR).filter((f) => f.startsWith(prefix));
+      if (import_fs7.default.existsSync(UPLOAD_BACKUP_DIR)) {
+        const matches = import_fs7.default.readdirSync(UPLOAD_BACKUP_DIR).filter((f) => f.startsWith(prefix));
         if (matches.length > 0) {
-          const matchPath = import_path6.default.join(UPLOAD_BACKUP_DIR, matches[0]);
+          const matchPath = import_path7.default.join(UPLOAD_BACKUP_DIR, matches[0]);
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           return res.sendFile(matchPath);
@@ -7593,6 +7824,46 @@ app.get(["/uploads/*", "/api/uploads/*", "/api/media/*"], async (req, res, next)
       }
     }
   } catch {
+  }
+  const requestHost = String(req.get("host") || "").toLowerCase();
+  const isOriginFallbackLoop = Boolean(req.headers["x-media-origin-fallback"]) || requestHost.includes("door-price-calculator-door-catalog");
+  if (!isOriginFallbackLoop) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5e3);
+      const originRes = await fetch(
+        `${VERIFIED_PRODUCTION_API_URL}/uploads/${encodeURIComponent(cleanFilename)}`,
+        {
+          method: "GET",
+          headers: { "x-media-origin-fallback": "1" },
+          signal: controller.signal
+        }
+      );
+      clearTimeout(timeoutId);
+      if (originRes.ok) {
+        const originMime = (originRes.headers.get("content-type") || "").toLowerCase();
+        if (!originMime.includes("text/html") && !originMime.includes("application/json")) {
+          const originBuf = Buffer.from(await originRes.arrayBuffer());
+          if (originBuf.length > 0) {
+            try {
+              if (!import_fs7.default.existsSync(UPLOAD_DIR)) {
+                import_fs7.default.mkdirSync(UPLOAD_DIR, { recursive: true });
+              }
+              import_fs7.default.writeFileSync(localPath, originBuf);
+            } catch {
+            }
+            res.setHeader("Content-Type", originMime || getMimeTypeFromFilename(cleanFilename));
+            res.setHeader("Content-Length", originBuf.length);
+            res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+            res.setHeader("Accept-Ranges", "bytes");
+            return res.send(originBuf);
+          }
+        }
+      }
+    } catch {
+    }
   }
   return res.status(404).json({
     error: `Media asset "${cleanFilename}" not found in local disk cache, Cloudflare R2 bucket, or Firestore cloud store.`,
@@ -7605,8 +7876,8 @@ var storage2 = import_multer2.default.diskStorage({
     cb(null, UPLOAD_DIR);
   },
   filename: (_req, file, cb) => {
-    const ext = import_path6.default.extname(file.originalname) || ".jpg";
-    const cleanName = import_path6.default.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const ext = import_path7.default.extname(file.originalname) || ".jpg";
+    const cleanName = import_path7.default.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e6);
     cb(null, `${cleanName}-${uniqueSuffix}${ext}`);
   }
@@ -7640,7 +7911,7 @@ var modelUpload = (0, import_multer2.default)({
   limits: { fileSize: 50 * 1024 * 1024 },
   // 50 MB
   fileFilter: (_req, file, cb) => {
-    const ext = import_path6.default.extname(file.originalname).toLowerCase();
+    const ext = import_path7.default.extname(file.originalname).toLowerCase();
     const allowedExts = [".glb", ".gltf", ".bin", ".jpg", ".jpeg", ".png", ".webp"];
     const isModelMime = file.mimetype === "model/gltf-binary" || file.mimetype === "model/gltf+json" || file.mimetype === "application/octet-stream";
     if (allowedExts.includes(ext) || file.mimetype.startsWith("image/") || isModelMime) {
@@ -7655,7 +7926,7 @@ var videoUpload = (0, import_multer2.default)({
   limits: { fileSize: 50 * 1024 * 1024 },
   // 50 MB
   fileFilter: (_req, file, cb) => {
-    const ext = import_path6.default.extname(file.originalname).toLowerCase();
+    const ext = import_path7.default.extname(file.originalname).toLowerCase();
     const allowedExts = [".mp4", ".webm", ".mov", ".m4v", ".mkv"];
     const isVideoMime = file.mimetype.startsWith("video/") || file.mimetype === "video/mp4" || file.mimetype === "video/webm" || file.mimetype === "video/quicktime" || file.mimetype === "application/octet-stream";
     if (allowedExts.includes(ext) || isVideoMime) {
@@ -7670,7 +7941,7 @@ var driveMediaUpload = (0, import_multer2.default)({
   limits: { fileSize: 60 * 1024 * 1024 },
   // 60 MB
   fileFilter: (_req, file, cb) => {
-    const ext = import_path6.default.extname(file.originalname || "").toLowerCase();
+    const ext = import_path7.default.extname(file.originalname || "").toLowerCase();
     const mime = (file.mimetype || "").toLowerCase().trim();
     const allowedExts = [
       ".jpg",
@@ -7745,7 +8016,7 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
     return res.status(400).json({ success: false, errorCode: "NO_FILE", error: "No image file uploaded" });
   }
   try {
-    const fileBuf = import_fs6.default.readFileSync(req.file.path);
+    const fileBuf = import_fs7.default.readFileSync(req.file.path);
     const category = typeof req.body?.category === "string" && req.body.category.trim() ? req.body.category.trim() : "doors";
     const result = await saveMedia(req.file.filename, req.file.mimetype, fileBuf, category);
     if (!result.success) {
@@ -7786,7 +8057,7 @@ app.post("/api/upload-multiple", upload.array("files", 10), async (req, res) => 
   const category = typeof req.body?.category === "string" && req.body.category.trim() ? req.body.category.trim() : "doors";
   for (const f of multerFiles) {
     try {
-      const fileBuf = import_fs6.default.readFileSync(f.path);
+      const fileBuf = import_fs7.default.readFileSync(f.path);
       const resVal = await saveMedia(f.filename, f.mimetype, fileBuf, category);
       if (resVal.success) {
         urls.push(resVal.url);
@@ -7817,7 +8088,7 @@ app.post(["/api/upload-video", "/api/admin/upload-video"], (req, res) => {
       return res.status(400).json({ error: "No video file uploaded" });
     }
     try {
-      const fileBuf = import_fs6.default.readFileSync(req.file.path);
+      const fileBuf = import_fs7.default.readFileSync(req.file.path);
       const result = await saveMedia(req.file.filename, req.file.mimetype || "video/mp4", fileBuf);
       if (!result.success) {
         return res.status(502).json({
@@ -7848,11 +8119,11 @@ app.post("/api/admin/upload-model", verifyAdminToken, (req, res) => {
     if (!req.file) {
       return res.status(400).json({ success: false, errorCode: "NO_FILE", error: "No file uploaded" });
     }
-    const ext = import_path6.default.extname(req.file.originalname || "").toLowerCase();
+    const ext = import_path7.default.extname(req.file.originalname || "").toLowerCase();
     const is3DModel = [".glb", ".gltf"].includes(ext);
     const mime = is3DModel ? ext === ".gltf" ? "model/gltf+json" : "model/gltf-binary" : req.file.mimetype || "application/octet-stream";
     try {
-      const fileBuf = import_fs6.default.readFileSync(req.file.path);
+      const fileBuf = import_fs7.default.readFileSync(req.file.path);
       let driveResult = null;
       if (hasServerDriveOAuthCredentials()) {
         try {
@@ -7904,17 +8175,31 @@ app.post("/api/admin/upload-model", verifyAdminToken, (req, res) => {
       res.status(500).json({ success: false, error: saveErr.message || "3D file save failed" });
     } finally {
       try {
-        if (req.file?.path && import_fs6.default.existsSync(req.file.path)) {
-          import_fs6.default.unlinkSync(req.file.path);
+        if (req.file?.path && import_fs7.default.existsSync(req.file.path)) {
+          import_fs7.default.unlinkSync(req.file.path);
         }
       } catch {
       }
     }
   });
 });
+var inferRequestedMediaType = (reqPath, explicitType) => {
+  const clean = explicitType.trim().toLowerCase();
+  if (clean === "image" || clean === "video" || clean === "model3d" || clean === "any") {
+    if (clean !== "any") return clean;
+  }
+  const lowerPath = reqPath.toLowerCase();
+  if (lowerPath.includes("drive-model")) return "model3d";
+  if (lowerPath.includes("drive-video")) return "video";
+  if (lowerPath.includes("drive-image")) return "image";
+  return "any";
+};
 var handleDriveMediaPreview = async (req, res) => {
   const rawUrl = String(req.body?.url || req.query?.url || "").trim();
-  const mediaType = String(req.body?.mediaType || req.query?.mediaType || "any").trim();
+  const mediaType = inferRequestedMediaType(
+    req.path,
+    String(req.body?.mediaType || req.query?.mediaType || "")
+  );
   const origin = req.headers.origin || "same-origin";
   console.info(
     `[DriveMedia] Preview request: method=${req.method} path=${req.path} origin=${origin} mediaType=${mediaType} fileId=${extractGoogleDriveFileId(rawUrl) || "external"}`
@@ -7931,18 +8216,21 @@ var handleDriveMediaPreview = async (req, res) => {
     const isVideo = Boolean(validated.isVideo);
     const is3DModel = Boolean(validated.is3DModel);
     const isDriveEmbed = Boolean(validated.isDriveEmbed);
-    let playableVideoPreviewUrl = validated.embedUrl;
-    if (isVideo && !isDriveEmbed && validated.buffer && validated.buffer.length > 0) {
-      const previewCacheId = validated.fileId ? validated.fileId.replace(/[^a-zA-Z0-9_-]/g, "") : `preview_${Date.now()}_${Math.round(Math.random() * 1e5)}`;
+    let playablePreviewUrl = validated.embedUrl;
+    if (!isDriveEmbed && validated.buffer && validated.buffer.length > 0) {
+      const previewCacheId = validated.fileId ? `prev_${validated.fileId.replace(/[^a-zA-Z0-9_-]/g, "")}` : `preview_${Date.now()}_${Math.round(Math.random() * 1e5)}`;
       try {
-        const cacheDir = import_path6.default.join(process.cwd(), "data", "uploads", "drive_cache");
-        if (!import_fs6.default.existsSync(cacheDir)) import_fs6.default.mkdirSync(cacheDir, { recursive: true });
-        import_fs6.default.writeFileSync(import_path6.default.join(cacheDir, previewCacheId), validated.buffer);
-        playableVideoPreviewUrl = `/api/drive/media/${previewCacheId}`;
+        const cacheDir = import_path7.default.join(process.cwd(), "data", "uploads", "drive_cache");
+        if (!import_fs7.default.existsSync(cacheDir)) import_fs7.default.mkdirSync(cacheDir, { recursive: true });
+        import_fs7.default.writeFileSync(import_path7.default.join(cacheDir, previewCacheId), validated.buffer);
+        playablePreviewUrl = `/api/drive/media/${previewCacheId}`;
       } catch {
-        playableVideoPreviewUrl = validated.sourceUrl;
+        if (isVideo) {
+          playablePreviewUrl = validated.sourceUrl;
+        }
       }
     }
+    const inlineDataUrl = !isVideo && !is3DModel && validated.buffer && validated.buffer.length <= 4 * 1024 * 1024 ? validated.previewDataUrl : isVideo || is3DModel ? validated.previewDataUrl : void 0;
     return res.json({
       success: true,
       fileId: validated.fileId || null,
@@ -7959,9 +8247,9 @@ var handleDriveMediaPreview = async (req, res) => {
       is3DModel,
       isDriveEmbed,
       embedUrl: validated.embedUrl,
-      previewDataUrl: validated.previewDataUrl,
+      previewDataUrl: inlineDataUrl,
       previewPosterUrl: validated.previewPosterUrl,
-      previewUrl: playableVideoPreviewUrl
+      previewUrl: playablePreviewUrl
     });
   } catch (err) {
     const statusCode = Number(err?.statusCode) || 422;
@@ -7975,12 +8263,36 @@ var handleDriveMediaPreview = async (req, res) => {
     });
   }
 };
-app.post(["/api/admin/drive-media/preview", "/api/admin/drive-image/preview"], verifyAdminToken, handleDriveMediaPreview);
-app.get(["/api/admin/drive-media/preview", "/api/admin/drive-image/preview"], verifyAdminToken, handleDriveMediaPreview);
+app.post(
+  [
+    "/api/admin/drive-media/preview",
+    "/api/admin/drive-image/preview",
+    "/api/admin/drive-video/preview",
+    "/api/admin/drive-model/preview",
+    "/api/admin/drive/preview"
+  ],
+  verifyAdminToken,
+  handleDriveMediaPreview
+);
+app.get(
+  [
+    "/api/admin/drive-media/preview",
+    "/api/admin/drive-image/preview",
+    "/api/admin/drive-video/preview",
+    "/api/admin/drive-model/preview",
+    "/api/admin/drive/preview"
+  ],
+  verifyAdminToken,
+  handleDriveMediaPreview
+);
 var handleDriveMediaImport = async (req, res) => {
   const rawUrl = String(req.body?.url || req.query?.url || "").trim();
-  const mediaType = String(req.body?.mediaType || req.query?.mediaType || "any").trim();
-  const targetCategory = String(req.body?.category || req.query?.category || (mediaType === "video" ? "videos" : "products")).trim();
+  const mediaType = inferRequestedMediaType(
+    req.path,
+    String(req.body?.mediaType || req.query?.mediaType || "")
+  );
+  const defaultCategory = mediaType === "video" ? "videos" : mediaType === "model3d" ? "models3d" : "products";
+  const targetCategory = String(req.body?.category || req.query?.category || defaultCategory).trim();
   const origin = req.headers.origin || "same-origin";
   console.info(
     `[DriveMedia] Import request: method=${req.method} path=${req.path} origin=${origin} category=${targetCategory} mediaType=${mediaType} fileId=${extractGoogleDriveFileId(rawUrl) || "external"}`
@@ -8012,7 +8324,7 @@ var handleDriveMediaImport = async (req, res) => {
           sourceFileId: isDriveSource ? existing.sourceFileId : null,
           originalUrl: existing.originalUrl,
           originalName: existing.originalName,
-          filename: existing.originalName || (isDriveSource ? `gdrive-${existing.sourceFileId}` : import_path6.default.basename(existing.storedUrl.split("?")[0])),
+          filename: existing.originalName || (isDriveSource ? `gdrive-${existing.sourceFileId}` : import_path7.default.basename(existing.storedUrl.split("?")[0])),
           fileId: isDriveSource ? existing.storedFileId || existing.sourceFileId : null,
           isGoogleDrive: isDriveSource,
           isVideo: existingIsVideo,
@@ -8073,9 +8385,31 @@ var handleDriveMediaImport = async (req, res) => {
         storageType: "google_drive_embed"
       });
     }
+    let finalBuffer = validated.buffer;
+    let finalMimeType = validated.mimeType;
+    let finalExtension = validated.extension;
+    let finalWidth = validated.width;
+    let finalHeight = validated.height;
+    let finalSize = validated.size;
+    let imageOptimized = false;
+    if (!isVideo && !is3DModel && !isDriveEmbed && finalBuffer && finalBuffer.length > 0) {
+      const optimizedResult = await optimizeImportedImageBuffer(
+        finalBuffer,
+        finalMimeType,
+        finalExtension,
+        1680
+      );
+      finalBuffer = optimizedResult.buffer;
+      finalMimeType = optimizedResult.mimeType;
+      finalExtension = optimizedResult.extension;
+      finalWidth = optimizedResult.width ?? finalWidth;
+      finalHeight = optimizedResult.height ?? finalHeight;
+      finalSize = optimizedResult.buffer.length;
+      imageOptimized = optimizedResult.optimized;
+    }
     const safePrefix = validated.fileId ? `gdrive-${validated.fileId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 20)}` : isVideo ? "video-door" : is3DModel ? "model-door" : "url-door";
-    const filename = `${safePrefix}-${Date.now()}-${Math.round(Math.random() * 1e5)}${validated.extension}`;
-    const saveRes = await saveMedia(filename, validated.mimeType, validated.buffer, targetCategory);
+    const filename = `${safePrefix}-${Date.now()}-${Math.round(Math.random() * 1e5)}${finalExtension}`;
+    const saveRes = await saveMedia(filename, finalMimeType, finalBuffer, targetCategory);
     if (!saveRes.success) {
       return res.status(502).json({
         success: false,
@@ -8086,12 +8420,11 @@ var handleDriveMediaImport = async (req, res) => {
     }
     let driveUploadResult = null;
     try {
-      const driveCreds = loadServerDriveCredentials();
-      if (driveCreds.refreshToken || driveCreds.accessToken) {
+      if (hasServerDriveOAuthCredentials()) {
         driveUploadResult = await uploadMediaToOwnerDrive(
-          validated.buffer,
+          finalBuffer,
           filename,
-          validated.mimeType,
+          finalMimeType,
           targetCategory,
           `Imported ${isVideo ? "video" : is3DModel ? "3D model" : "image"} from ${validated.fileId ? `Google Drive File ID: ${validated.fileId}` : validated.sourceUrl}`
         );
@@ -8105,10 +8438,10 @@ var handleDriveMediaImport = async (req, res) => {
       originalUrl: rawUrl,
       originalName: validated.originalName,
       mediaType: isVideo ? "video" : is3DModel ? "model3d" : "image",
-      mimeType: validated.mimeType,
-      size: validated.size,
-      width: validated.width,
-      height: validated.height,
+      mimeType: finalMimeType,
+      size: finalSize,
+      width: finalWidth,
+      height: finalHeight,
       duration: validated.duration,
       category: targetCategory,
       storedFileId: driveUploadResult?.fileId || validated.fileId || filename,
@@ -8131,10 +8464,11 @@ var handleDriveMediaImport = async (req, res) => {
       isVideo,
       is3DModel,
       isDriveEmbed: false,
-      mimeType: validated.mimeType,
-      size: validated.size,
-      width: validated.width,
-      height: validated.height,
+      optimized: imageOptimized,
+      mimeType: finalMimeType,
+      size: finalSize,
+      width: finalWidth,
+      height: finalHeight,
       duration: validated.duration,
       storageType: driveUploadResult ? "google_drive" : saveRes.storageType,
       firebaseBucket: saveRes.firebaseBucket,
@@ -8155,8 +8489,28 @@ var handleDriveMediaImport = async (req, res) => {
     });
   }
 };
-app.post(["/api/admin/drive-media/import", "/api/admin/drive-image/import"], verifyAdminToken, handleDriveMediaImport);
-app.get(["/api/admin/drive-media/import", "/api/admin/drive-image/import"], verifyAdminToken, handleDriveMediaImport);
+app.post(
+  [
+    "/api/admin/drive-media/import",
+    "/api/admin/drive-image/import",
+    "/api/admin/drive-video/import",
+    "/api/admin/drive-model/import",
+    "/api/admin/drive/import"
+  ],
+  verifyAdminToken,
+  handleDriveMediaImport
+);
+app.get(
+  [
+    "/api/admin/drive-media/import",
+    "/api/admin/drive-image/import",
+    "/api/admin/drive-video/import",
+    "/api/admin/drive-model/import",
+    "/api/admin/drive/import"
+  ],
+  verifyAdminToken,
+  handleDriveMediaImport
+);
 app.get(["/api/admin/storage-status", "/api/admin/r2-status"], verifyAdminToken, async (_req, res) => {
   const status = await checkR2Availability(true);
   const stats = await getR2StorageStats();
@@ -8351,126 +8705,168 @@ app.post("/api/admin/drive/test-upload", verifyAdminToken, async (_req, res) => 
     });
   }
 });
-app.post("/api/admin/drive/upload", verifyAdminToken, (req, res) => {
-  driveMediaUpload.single("file")(req, res, async (multerErr) => {
-    if (multerErr) {
-      const isLimit = multerErr?.code === "LIMIT_FILE_SIZE";
-      return res.status(isLimit ? 413 : 400).json({
-        success: false,
-        errorCode: isLimit ? "FILE_TOO_LARGE" : "UPLOAD_VALIDATION_ERROR",
-        error: isLimit ? "Media file exceeds the 60 MB upload limit." : multerErr?.message || "Invalid media upload request."
-      });
-    }
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        errorCode: "NO_FILE",
-        error: "No media file attached. Select a photo, video, or 3D model first."
-      });
-    }
-    const tempPath = req.file.path;
-    try {
-      const fileBuf = import_fs6.default.readFileSync(tempPath);
-      if (fileBuf.length === 0) {
+app.post(
+  ["/api/admin/drive/upload", "/api/admin/upload-image", "/api/admin/upload-media"],
+  verifyAdminToken,
+  (req, res) => {
+    driveMediaUpload.single("file")(req, res, async (multerErr) => {
+      if (multerErr) {
+        const isLimit = multerErr?.code === "LIMIT_FILE_SIZE";
+        return res.status(isLimit ? 413 : 400).json({
+          success: false,
+          errorCode: isLimit ? "FILE_TOO_LARGE" : "UPLOAD_VALIDATION_ERROR",
+          error: isLimit ? "Media file exceeds the 60 MB upload limit." : multerErr?.message || "Invalid media upload request."
+        });
+      }
+      if (!req.file) {
         return res.status(400).json({
           success: false,
-          errorCode: "EMPTY_FILE",
-          error: "Selected file is empty (0 bytes). Please choose a valid photo or video."
+          errorCode: "NO_FILE",
+          error: "No media file attached. Select a photo, video, or 3D model first."
         });
       }
-      const detectedMime = detectMimeType(fileBuf);
-      const rawMime = String(req.file.mimetype || "").split(";")[0].trim().toLowerCase();
-      const effectiveMime = detectedMime !== "application/octet-stream" ? detectedMime : rawMime && rawMime !== "application/octet-stream" && rawMime !== "binary/octet-stream" ? rawMime : "application/octet-stream";
-      const extFromName = import_path6.default.extname(req.file.originalname || "").toLowerCase();
-      const allowedExts = [
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".webp",
-        ".gif",
-        ".svg",
-        ".avif",
-        ".heic",
-        ".heif",
-        ".bmp",
-        ".mp4",
-        ".webm",
-        ".mov",
-        ".m4v",
-        ".3gp",
-        ".mkv",
-        ".glb",
-        ".gltf",
-        ".pdf"
-      ];
-      const isSupportedContent = effectiveMime.startsWith("image/") || effectiveMime.startsWith("video/") || effectiveMime === "model/gltf-binary" || effectiveMime === "model/gltf+json" || effectiveMime === "application/pdf" || allowedExts.includes(extFromName);
-      if (!isSupportedContent) {
-        return res.status(400).json({
-          success: false,
-          errorCode: "UNSUPPORTED_MEDIA_TYPE",
-          error: `Unsupported file format (${rawMime || "unknown"}). Upload JPG, PNG, WebP, MP4, WebM, MOV, or GLB files.`
-        });
-      }
-      const requestedMediaType = String(req.body?.mediaType || "").toLowerCase();
-      const inferredIsVideo = effectiveMime.startsWith("video/") || requestedMediaType === "video" || [".mp4", ".webm", ".mov", ".m4v", ".3gp", ".mkv"].includes(extFromName);
-      const category = normalizeDriveCategory(
-        req.body?.category || (inferredIsVideo ? "videos" : "products")
-      );
-      if (!hasServerDriveOAuthCredentials()) {
-        return res.status(412).json({
-          success: false,
-          errorCode: "DRIVE_NOT_CONNECTED",
-          error: "Google Drive OAuth is not connected on the backend server (missing refresh token / client secret). Open Admin Panel -> Google Drive Storage to connect or configure GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET, and GOOGLE_DRIVE_REFRESH_TOKEN on Cloud Run."
-        });
-      }
-      const ext = extFromName && allowedExts.includes(extFromName) ? extFromName : getExtensionForMimeType(effectiveMime);
-      const rawBase = import_path6.default.basename(req.file.originalname || "", extFromName).replace(/[^a-zA-Z0-9_-]/g, "_");
-      const stem = rawBase && rawBase !== "blob" && rawBase !== "_" ? rawBase : `jhd_${category}_${Date.now()}`;
-      const preservedFilename = `${stem}${ext !== ".bin" ? ext : inferredIsVideo ? ".mp4" : ".jpg"}`;
-      const description = String(req.body?.description || "").trim() || `Admin upload for ${category}`;
-      const uploaded = await uploadMediaToOwnerDrive(
-        fileBuf,
-        preservedFilename,
-        effectiveMime,
-        category,
-        description
-      );
-      return res.json({
-        success: true,
-        url: uploaded.url,
-        fileId: uploaded.fileId,
-        name: uploaded.name,
-        filename: uploaded.name,
-        mimeType: uploaded.mimeType,
-        size: uploaded.size,
-        category: uploaded.category,
-        isVideo: uploaded.mimeType.startsWith("video/") || inferredIsVideo,
-        is3DModel: ext === ".glb" || ext === ".gltf" || uploaded.mimeType.includes("gltf"),
-        webViewLink: uploaded.webViewLink,
-        storageType: "google_drive"
-      });
-    } catch (err) {
-      const msg = String(err?.message || "Upload to owner Google Drive failed");
-      console.error("\u26A0\uFE0F [Drive Admin Upload Error]:", msg);
-      const isMissingToken = msg.includes("Missing refresh token") || msg.includes("credentials incomplete");
-      const isAuthRejected = msg.includes("invalid_grant") || msg.includes("(401)") || msg.includes("(403)");
-      const status = isMissingToken ? 412 : isAuthRejected ? 502 : 500;
-      const errorCode = isMissingToken ? "DRIVE_NOT_CONNECTED" : isAuthRejected ? "DRIVE_AUTH_FAILED" : "DRIVE_UPLOAD_FAILED";
-      return res.status(status).json({
-        success: false,
-        errorCode,
-        error: msg
-      });
-    } finally {
+      const tempPath = req.file.path;
       try {
-        if (tempPath && import_fs6.default.existsSync(tempPath)) {
-          import_fs6.default.unlinkSync(tempPath);
+        const fileBuf = import_fs7.default.readFileSync(tempPath);
+        if (fileBuf.length === 0) {
+          return res.status(400).json({
+            success: false,
+            errorCode: "EMPTY_FILE",
+            error: "Selected file is empty (0 bytes). Please choose a valid photo or video."
+          });
         }
-      } catch {
+        const detectedMime = detectMimeType(fileBuf);
+        const rawMime = String(req.file.mimetype || "").split(";")[0].trim().toLowerCase();
+        const effectiveMime = detectedMime !== "application/octet-stream" ? detectedMime : rawMime && rawMime !== "application/octet-stream" && rawMime !== "binary/octet-stream" ? rawMime : "application/octet-stream";
+        const extFromName = import_path7.default.extname(req.file.originalname || "").toLowerCase();
+        const allowedExts = [
+          ".jpg",
+          ".jpeg",
+          ".png",
+          ".webp",
+          ".gif",
+          ".svg",
+          ".avif",
+          ".heic",
+          ".heif",
+          ".bmp",
+          ".mp4",
+          ".webm",
+          ".mov",
+          ".m4v",
+          ".3gp",
+          ".mkv",
+          ".glb",
+          ".gltf",
+          ".pdf"
+        ];
+        const isSupportedContent = effectiveMime.startsWith("image/") || effectiveMime.startsWith("video/") || effectiveMime === "model/gltf-binary" || effectiveMime === "model/gltf+json" || effectiveMime === "application/pdf" || allowedExts.includes(extFromName);
+        if (!isSupportedContent) {
+          return res.status(400).json({
+            success: false,
+            errorCode: "UNSUPPORTED_MEDIA_TYPE",
+            error: `Unsupported file format (${rawMime || "unknown"}). Upload JPG, PNG, WebP, MP4, WebM, MOV, or GLB files.`
+          });
+        }
+        const requestedMediaType = String(req.body?.mediaType || "").toLowerCase();
+        const inferredIsVideo = effectiveMime.startsWith("video/") || requestedMediaType === "video" || [".mp4", ".webm", ".mov", ".m4v", ".3gp", ".mkv"].includes(extFromName);
+        const is3D = extFromName === ".glb" || extFromName === ".gltf" || effectiveMime.includes("gltf");
+        const category = normalizeDriveCategory(
+          req.body?.category || (inferredIsVideo ? "videos" : "products")
+        );
+        const ext = extFromName && allowedExts.includes(extFromName) ? extFromName : getExtensionForMimeType(effectiveMime);
+        const rawBase = import_path7.default.basename(req.file.originalname || "", extFromName).replace(/[^a-zA-Z0-9_-]/g, "_");
+        const stem = rawBase && rawBase !== "blob" && rawBase !== "_" ? rawBase : `jhd_${category}_${Date.now()}`;
+        const preservedFilename = `${stem}${ext !== ".bin" ? ext : inferredIsVideo ? ".mp4" : ".jpg"}`;
+        const description = String(req.body?.description || "").trim() || `Admin upload for ${category}`;
+        const requireDriveOnly = String(req.body?.requireDriveOnly || "").toLowerCase() === "true";
+        if (hasServerDriveOAuthCredentials()) {
+          try {
+            const uploaded = await uploadMediaToOwnerDrive(
+              fileBuf,
+              preservedFilename,
+              effectiveMime,
+              category,
+              description
+            );
+            return res.json({
+              success: true,
+              url: uploaded.url,
+              fileId: uploaded.fileId,
+              name: uploaded.name,
+              filename: uploaded.name,
+              mimeType: uploaded.mimeType,
+              size: uploaded.size,
+              category: uploaded.category,
+              isVideo: uploaded.mimeType.startsWith("video/") || inferredIsVideo,
+              is3DModel: is3D,
+              webViewLink: uploaded.webViewLink,
+              storageType: "google_drive"
+            });
+          } catch (driveErr) {
+            const msg = String(driveErr?.message || "Upload to owner Google Drive failed");
+            if (requireDriveOnly) {
+              const isMissingToken = msg.includes("Missing refresh token") || msg.includes("credentials incomplete");
+              const isAuthRejected = msg.includes("invalid_grant") || msg.includes("(401)") || msg.includes("(403)");
+              return res.status(isMissingToken ? 412 : isAuthRejected ? 502 : 500).json({
+                success: false,
+                errorCode: isMissingToken ? "DRIVE_NOT_CONNECTED" : isAuthRejected ? "DRIVE_AUTH_FAILED" : "DRIVE_UPLOAD_FAILED",
+                error: msg
+              });
+            }
+            console.warn("\u26A0\uFE0F [Drive Admin Upload] Falling back to primary cloud storage:", msg);
+          }
+        } else if (requireDriveOnly) {
+          return res.status(412).json({
+            success: false,
+            errorCode: "DRIVE_NOT_CONNECTED",
+            error: "Google Drive OAuth is not connected on the backend server (missing refresh token / client secret). Open Admin Panel -> Google Drive Storage to connect or configure GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET, and GOOGLE_DRIVE_REFRESH_TOKEN."
+          });
+        }
+        const saveRes = await saveMedia(preservedFilename, effectiveMime, fileBuf, category);
+        if (!saveRes.success) {
+          return res.status(saveRes.statusCode || 502).json({
+            success: false,
+            errorCode: saveRes.errorCode || "STORAGE_WRITE_FAILED",
+            error: saveRes.error || "Failed to save uploaded media to cloud storage.",
+            storageType: saveRes.storageType
+          });
+        }
+        return res.json({
+          success: true,
+          url: saveRes.url,
+          downloadUrl: saveRes.downloadUrl || saveRes.url,
+          name: preservedFilename,
+          filename: preservedFilename,
+          mimeType: effectiveMime,
+          size: fileBuf.length,
+          category,
+          isVideo: inferredIsVideo,
+          is3DModel: is3D,
+          storageType: saveRes.storageType,
+          firebaseBucket: saveRes.firebaseBucket,
+          storagePath: saveRes.storagePath,
+          metadata: saveRes.metadata
+        });
+      } catch (err) {
+        const msg = String(err?.message || "Media upload failed");
+        console.error("\u26A0\uFE0F [Drive Admin Upload Error]:", msg);
+        return res.status(500).json({
+          success: false,
+          errorCode: "UPLOAD_FAILED",
+          error: msg
+        });
+      } finally {
+        try {
+          if (tempPath && import_fs7.default.existsSync(tempPath)) {
+            import_fs7.default.unlinkSync(tempPath);
+          }
+        } catch {
+        }
       }
-    }
-  });
-});
+    });
+  }
+);
 app.get("/api/admin/drive/files", verifyAdminToken, async (req, res) => {
   try {
     const category = req.query.category || "products";
@@ -8736,13 +9132,13 @@ app.get("/api/media/render", async (req, res) => {
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
   if (rawUrl.startsWith("/uploads/") || rawUrl.startsWith("uploads/")) {
-    const filename = import_path6.default.basename(rawUrl.split("?")[0]);
-    const safeFilePath = import_path6.default.join(UPLOAD_DIR, filename);
-    if (import_fs6.default.existsSync(safeFilePath)) {
+    const filename = import_path7.default.basename(rawUrl.split("?")[0]);
+    const safeFilePath = import_path7.default.join(UPLOAD_DIR, filename);
+    if (import_fs7.default.existsSync(safeFilePath)) {
       return res.sendFile(safeFilePath);
     }
-    const backupFilePath = import_path6.default.join(UPLOAD_BACKUP_DIR, filename);
-    if (import_fs6.default.existsSync(backupFilePath)) {
+    const backupFilePath = import_path7.default.join(UPLOAD_BACKUP_DIR, filename);
+    if (import_fs7.default.existsSync(backupFilePath)) {
       return res.sendFile(backupFilePath);
     }
     try {
@@ -8757,9 +9153,9 @@ app.get("/api/media/render", async (req, res) => {
     return res.status(404).send("Image not found");
   }
   if (rawUrl.startsWith("/assets/") || rawUrl.startsWith("assets/")) {
-    const filename = import_path6.default.basename(rawUrl.split("?")[0]);
-    const safeFilePath = import_path6.default.join(process.cwd(), "public", "assets", filename);
-    if (import_fs6.default.existsSync(safeFilePath)) {
+    const filename = import_path7.default.basename(rawUrl.split("?")[0]);
+    const safeFilePath = import_path7.default.join(process.cwd(), "public", "assets", filename);
+    if (import_fs7.default.existsSync(safeFilePath)) {
       return res.sendFile(safeFilePath);
     }
   }
@@ -8775,9 +9171,9 @@ app.get("/api/media/proxy-image", async (req, res) => {
   }
   try {
     if (targetUrl.startsWith("/uploads/") || targetUrl.startsWith("uploads/")) {
-      const filename = import_path6.default.basename(targetUrl.split("?")[0]);
-      const safeFilePath = import_path6.default.join(UPLOAD_DIR, filename);
-      if (import_fs6.default.existsSync(safeFilePath)) {
+      const filename = import_path7.default.basename(targetUrl.split("?")[0]);
+      const safeFilePath = import_path7.default.join(UPLOAD_DIR, filename);
+      if (import_fs7.default.existsSync(safeFilePath)) {
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
         res.setHeader("Content-Type", filename.endsWith(".png") ? "image/png" : "image/jpeg");
@@ -8813,9 +9209,9 @@ app.get("/api/admin/media/download-original", verifyAdminToken, async (req, res)
   if (!target) {
     return res.status(400).json({ error: "filename or url is required" });
   }
-  const baseName = import_path6.default.basename(target);
-  const filePath = import_path6.default.join(UPLOAD_DIR, baseName);
-  if (import_fs6.default.existsSync(filePath)) {
+  const baseName = import_path7.default.basename(target);
+  const filePath = import_path7.default.join(UPLOAD_DIR, baseName);
+  if (import_fs7.default.existsSync(filePath)) {
     res.setHeader("Content-Disposition", `attachment; filename="original-${baseName}"`);
     return res.sendFile(filePath);
   }
@@ -11357,15 +11753,15 @@ var handleSitemapRequest = (_req, res) => {
     console.error("\u274C Error dynamically generating /sitemap.xml:", err);
     const appDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
     const staticCandidates = [
-      import_path6.default.join(process.cwd(), "dist", "sitemap.xml"),
-      import_path6.default.join(process.cwd(), "public", "sitemap.xml"),
-      import_path6.default.join(appDir, "dist", "sitemap.xml"),
-      import_path6.default.join(appDir, "public", "sitemap.xml")
+      import_path7.default.join(process.cwd(), "dist", "sitemap.xml"),
+      import_path7.default.join(process.cwd(), "public", "sitemap.xml"),
+      import_path7.default.join(appDir, "dist", "sitemap.xml"),
+      import_path7.default.join(appDir, "public", "sitemap.xml")
     ];
     for (const p of staticCandidates) {
-      if (import_fs6.default.existsSync(p)) {
+      if (import_fs7.default.existsSync(p)) {
         try {
-          const staticXml = import_fs6.default.readFileSync(p, "utf8");
+          const staticXml = import_fs7.default.readFileSync(p, "utf8");
           return res.status(200).send(staticXml);
         } catch {
         }
@@ -11396,15 +11792,15 @@ var handleAppAdsTxtRequest = (_req, res) => {
   res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400, must-revalidate");
   res.setHeader("X-Content-Type-Options", "nosniff");
   const candidatePaths = [
-    import_path6.default.join(process.cwd(), "public", "app-ads.txt"),
-    import_path6.default.join(process.cwd(), "dist", "app-ads.txt"),
-    import_path6.default.join(currentDir, "public", "app-ads.txt"),
-    import_path6.default.join(currentDir, "dist", "app-ads.txt")
+    import_path7.default.join(process.cwd(), "public", "app-ads.txt"),
+    import_path7.default.join(process.cwd(), "dist", "app-ads.txt"),
+    import_path7.default.join(currentDir, "public", "app-ads.txt"),
+    import_path7.default.join(currentDir, "dist", "app-ads.txt")
   ];
   for (const p of candidatePaths) {
-    if (import_fs6.default.existsSync(p)) {
+    if (import_fs7.default.existsSync(p)) {
       try {
-        const fileContent = import_fs6.default.readFileSync(p, "utf8");
+        const fileContent = import_fs7.default.readFileSync(p, "utf8");
         return res.status(200).send(fileContent);
       } catch {
       }
@@ -11418,13 +11814,13 @@ app.get(["/app-ads.txt", "/app-ads.txt/"], handleAppAdsTxtRequest);
 function findDistDirectory() {
   const appDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
   const candidatePaths = [
-    import_path6.default.join(process.cwd(), "dist"),
-    import_path6.default.join(appDir, "dist"),
+    import_path7.default.join(process.cwd(), "dist"),
+    import_path7.default.join(appDir, "dist"),
     appDir.endsWith("dist") ? appDir : null,
-    import_path6.default.resolve(appDir, "..", "dist")
+    import_path7.default.resolve(appDir, "..", "dist")
   ].filter(Boolean);
   for (const candidate of candidatePaths) {
-    if (import_fs6.default.existsSync(import_path6.default.join(candidate, "index.html")) && (import_fs6.default.existsSync(import_path6.default.join(candidate, "assets")) || import_fs6.default.existsSync(import_path6.default.join(candidate, "server.cjs")))) {
+    if (import_fs7.default.existsSync(import_path7.default.join(candidate, "index.html")) && (import_fs7.default.existsSync(import_path7.default.join(candidate, "assets")) || import_fs7.default.existsSync(import_path7.default.join(candidate, "server.cjs")))) {
       return candidate;
     }
   }
@@ -11487,7 +11883,7 @@ async function startServer() {
     console.log(`\u{1F4C1} Static files found at: ${distPath}. Serving in PRODUCTION mode.`);
     app.use(import_express.default.static(distPath, { maxAge: "1d", index: false }));
     app.get("/", (_req, res) => {
-      res.sendFile(import_path6.default.join(distPath, "index.html"));
+      res.sendFile(import_path7.default.join(distPath, "index.html"));
     });
     app.get("*", (req, res) => {
       const url = (req.path || "").toLowerCase();
@@ -11506,7 +11902,7 @@ async function startServer() {
       if (/\.(xml|txt|json|js|css|map|png|jpg|jpeg|svg|webp|ico|woff|woff2|ttf|eot)$/i.test(url)) {
         return res.status(404).type("text/plain").send("Resource not found");
       }
-      res.sendFile(import_path6.default.join(distPath, "index.html"));
+      res.sendFile(import_path7.default.join(distPath, "index.html"));
     });
   } else {
     console.error('\u274C Production mode active but dist/index.html was not found! Please run "npm run build".');

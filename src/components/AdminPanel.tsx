@@ -128,9 +128,6 @@ import {
   getApiBaseUrl,
   getCustomApiBaseUrl,
   setCustomApiBaseUrl,
-  previewDriveOrExternalImage,
-  importDriveOrExternalImageToR2,
-  importDriveOrExternalImageToStorage,
   fetchStorageStatus,
   triggerR2SyncPending,
   triggerStorageSyncPending,
@@ -2960,7 +2957,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               value={editingMaterial.image || ''}
                               category="products"
                               deviceUploadButtonText="Upload Wood Sample Photo"
-                              onChange={(url) => setEditingMaterial({ ...editingMaterial, image: url })}
+                              onChange={(url) => setEditingMaterial(prev => prev ? { ...prev, image: url } : prev)}
                               onToast={showToast}
                               compact
                             />
@@ -3387,7 +3384,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               value={editingFinish.image || ''}
                               category="products"
                               deviceUploadButtonText="Upload Finish Swatch"
-                              onChange={(url) => setEditingFinish({ ...editingFinish, image: url })}
+                              onChange={(url) => setEditingFinish(prev => prev ? { ...prev, image: url } : prev)}
                               onToast={showToast}
                               compact
                             />
@@ -3681,7 +3678,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               value={editingHardware.image || ''}
                               category="products"
                               deviceUploadButtonText="Upload Image File"
-                              onChange={(url) => setEditingHardware({ ...editingHardware, image: url })}
+                              onChange={(url) => setEditingHardware(prev => prev ? { ...prev, image: url } : prev)}
                               onToast={showToast}
                               compact
                             />
@@ -3961,7 +3958,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 category="banners"
                                 aspectRatioHint={bannerDimensions ? `${bannerDimensions.width}×${bannerDimensions.height} px (${bannerDimensions.ratio})` : 'Recommended 1500×500 px'}
                                 deviceUploadButtonText={editingBanner.image ? 'Replace Main Banner from Device' : 'Upload Image from Device'}
-                                onChange={(url) => setEditingBanner({ ...editingBanner, image: url, bannerType: 'main' })}
+                                onChange={(url) => setEditingBanner(prev => prev ? { ...prev, image: url, bannerType: 'main' } : prev)}
                                 onToast={showToast}
                               />
                             </div>
@@ -4444,7 +4441,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 category="banners"
                                 aspectRatioHint={bannerDimensions ? `${bannerDimensions.width}×${bannerDimensions.height} px (${bannerDimensions.ratio})` : 'Recommended ~3:1'}
                                 deviceUploadButtonText={editingBanner.image ? 'Replace Image from Device' : 'Upload Image from Device'}
-                                onChange={(url) => setEditingBanner({ ...editingBanner, image: url, bannerType: 'promotion' })}
+                                onChange={(url) => setEditingBanner(prev => prev ? { ...prev, image: url, bannerType: 'promotion' } : prev)}
                                 onToast={showToast}
                               />
                             </div>
@@ -5579,7 +5576,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             category="products"
                             deviceUploadButtonText="Upload Company Logo"
                             onChange={(url) => {
-                              setSettings({ ...settings, logoUrl: url });
+                              setSettings(prev => ({ ...prev, logoUrl: url }));
                               showToast('Brand logo updated!');
                             }}
                             onToast={showToast}

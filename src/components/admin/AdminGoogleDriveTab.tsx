@@ -29,9 +29,7 @@ import {
   previewDriveOrExternalMedia,
   importDriveOrExternalMediaToStorage,
   resolveImageUrl,
-  extractClientGoogleDriveFileId,
-  getClientGoogleDriveDirectUrl,
-  getClientGoogleDriveThumbnailUrl,
+  validateDriveOrMediaUrlInput,
 } from '../../lib/api.ts';
 
 type DriveCategory = 'products' | 'catalog' | 'banners' | 'delivery' | 'videos';
@@ -91,15 +89,12 @@ export const AdminGoogleDriveTab: React.FC = () => {
   const [uploadSourceMode, setUploadSourceMode] = useState<'device' | 'link'>('device');
   const [linkInput, setLinkInput] = useState('');
   const linkInputRef = React.useRef<HTMLInputElement | null>(null);
+  const linkPreviewLockRef = React.useRef(false);
+  const linkImportLockRef = React.useRef(false);
   const [previewingLink, setPreviewingLink] = useState(false);
   const [linkPreviewResult, setLinkPreviewResult] = useState<any>(null);
-  const [linkFallback, setLinkFallback] = useState<{
-    directUrl: string;
-    thumbnailUrl?: string;
-    fileId: string | null;
-    isVideo: boolean;
-  } | null>(null);
   const [importingLink, setImportingLink] = useState(false);
+  const linkValidation = validateDriveOrMediaUrlInput(linkInput);
 
   // Active Preview State
   const [previewItem, setPreviewItem] = useState<DriveFileItem | null>(null);
@@ -707,29 +702,56 @@ export const AdminGoogleDriveTab: React.FC = () => {
                 <div className="relative flex-1">
                   <input
                     ref={linkInputRef}
-                    type="url"
+                    type="text"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={linkInput}
                     onChange={e => {
                       setLinkInput(e.target.value);
                       setUploadError(null);
+                      setLinkPreviewResult(null);
+                    }}
+                    onPaste={e => {
+                      const pasted = e.clipboardData?.getData('text');
+                      if (pasted && pasted.trim()) {
+                        e.preventDefault();
+                        setLinkInput(pasted.trim());
+                        setUploadError(null);
+                        setLinkPreviewResult(null);
+                      }
                     }}
                     placeholder="Paste Google Drive sharing link (e.g. https://drive.google.com/file/d/FILE_ID/view?usp=sharing)"
                     className="w-full px-3 py-2 pr-24 rounded-lg bg-white border border-stone-300 text-xs text-stone-900 focus:ring-2 focus:ring-[#C89211]"
                   />
                   <button
                     type="button"
-                    onClick={async () => {
+                    onClick={async e => {
+                      e.preventDefault();
+                      e.stopPropagation();
                       try {
                         if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
                           const text = await navigator.clipboard.readText();
                           if (text && text.trim()) {
                             setLinkInput(text.trim());
                             setUploadError(null);
+                            setLinkPreviewResult(null);
                             return;
                           }
                         }
                       } catch {}
-                      linkInputRef.current?.focus();
+                      if (linkInputRef.current) {
+                        linkInputRef.current.focus();
+                        try {
+                          if (document.execCommand?.('paste') && linkInputRef.current.value.trim()) {
+                            setLinkInput(linkInputRef.current.value.trim());
+                            setUploadError(null);
+                            setLinkPreviewResult(null);
+                            return;
+                          }
+                        } catch {}
+                      }
                       setUploadError('Clipboard permission unavailable — please paste the Google Drive link directly into the URL box above.');
                     }}
                     className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 rounded bg-stone-100 hover:bg-stone-200 text-stone-800 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
@@ -742,92 +764,101 @@ export const AdminGoogleDriveTab: React.FC = () => {
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    disabled={previewingLink || !linkInput.trim()}
-                    onClick={async () => {
+                    disabled={previewingLink || importingLink || !linkValidation.isValid}
+                    onClick={async e => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (linkPreviewLockRef.current || linkImportLockRef.current || !linkValidation.isValid) return;
+                      linkPreviewLockRef.current = true;
                       setPreviewingLink(true);
                       setUploadError(null);
-                      setLinkFallback(null);
+                      setLinkPreviewResult(null);
                       try {
                         const prev = await previewDriveOrExternalMedia(
-                          linkInput.trim(),
+                          linkValidation.normalizedUrl,
                           activeCategory === 'videos' ? 'video' : 'any'
                         );
                         setLinkPreviewResult(prev);
                       } catch (err: any) {
-                        const msg = err?.message || 'Preview failed';
-                        setUploadError(msg);
-                        const fid = extractClientGoogleDriveFileId(linkInput.trim());
-                        if (fid && !msg.includes('DRIVE_PERMISSION_DENIED') && !msg.includes('DRIVE_NOT_FOUND')) {
-                          const isVid = activeCategory === 'videos';
-                          setLinkFallback({
-                            fileId: fid,
-                            directUrl: getClientGoogleDriveDirectUrl(fid, isVid ? 'video' : 'image'),
-                            thumbnailUrl: isVid ? undefined : getClientGoogleDriveThumbnailUrl(fid, 1600),
-                            isVideo: isVid,
-                          });
-                        }
+                        setUploadError(err?.message || 'Preview failed');
                       } finally {
+                        linkPreviewLockRef.current = false;
                         setPreviewingLink(false);
                       }
                     }}
-                    className="px-3.5 py-2 rounded-lg bg-white hover:bg-stone-100 text-stone-900 border border-stone-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="px-3.5 py-2 rounded-lg bg-white hover:bg-stone-100 text-stone-900 border border-stone-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {previewingLink ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C89211]" />
                     ) : (
                       <Eye className="w-3.5 h-3.5 text-[#C89211]" />
                     )}
-                    <span>Preview</span>
+                    <span>{previewingLink ? 'Checking...' : 'Preview'}</span>
                   </button>
 
                   <button
                     type="button"
-                    disabled={importingLink || !linkInput.trim()}
-                    onClick={async () => {
+                    disabled={importingLink || previewingLink || !linkValidation.isValid}
+                    onClick={async e => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (linkImportLockRef.current || linkPreviewLockRef.current || !linkValidation.isValid) return;
+                      linkImportLockRef.current = true;
                       setImportingLink(true);
                       setUploadError(null);
-                      setLinkFallback(null);
+                      setUploadSuccess(null);
                       try {
                         const imp = await importDriveOrExternalMediaToStorage(
-                          linkInput.trim(),
+                          linkValidation.normalizedUrl,
                           activeCategory,
                           activeCategory === 'videos' ? 'video' : 'any'
                         );
                         setUploadSuccess({
                           name: imp.filename,
                           url: imp.url,
+                          storageType: imp.storageType,
                         });
                         setLinkInput('');
                         setLinkPreviewResult(null);
                         await fetchCategoryFiles(activeCategory);
                       } catch (err: any) {
-                        const msg = err?.message || 'Import failed';
-                        setUploadError(msg);
-                        const fid = extractClientGoogleDriveFileId(linkInput.trim());
-                        if (fid && !msg.includes('DRIVE_PERMISSION_DENIED') && !msg.includes('DRIVE_NOT_FOUND')) {
-                          const isVid = activeCategory === 'videos';
-                          setLinkFallback({
-                            fileId: fid,
-                            directUrl: getClientGoogleDriveDirectUrl(fid, isVid ? 'video' : 'image'),
-                            thumbnailUrl: isVid ? undefined : getClientGoogleDriveThumbnailUrl(fid, 1600),
-                            isVideo: isVid,
-                          });
-                        }
+                        setUploadError(err?.message || 'Import failed');
                       } finally {
+                        linkImportLockRef.current = false;
                         setImportingLink(false);
                       }
                     }}
-                    className="px-4 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                    className="px-4 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {importingLink ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <CheckCircle2 className="w-3.5 h-3.5" />
                     )}
-                    <span>Import to {activeCategory}</span>
+                    <span>{importingLink ? 'Importing...' : `Import & Save (${activeCategory})`}</span>
                   </button>
                 </div>
               </div>
+
+              {linkInput.trim().length > 0 && (
+                <div className="text-[11px]">
+                  {linkValidation.isValid ? (
+                    <span className="text-emerald-700 font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>
+                        {linkValidation.isGoogleDrive && linkValidation.fileId
+                          ? `Valid Google Drive link • File ID: ${linkValidation.fileId}`
+                          : 'Valid HTTPS link'}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-rose-700 font-semibold flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span>{linkValidation.error || 'Invalid URL'}</span>
+                    </span>
+                  )}
+                </div>
+              )}
 
               {linkPreviewResult && (
                 <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3 text-xs">
@@ -845,12 +876,23 @@ export const AdminGoogleDriveTab: React.FC = () => {
                       muted
                       playsInline
                       className="w-40 h-24 rounded-lg border border-amber-200 bg-black object-contain shrink-0"
+                      onError={() => {
+                        setLinkPreviewResult(null);
+                        setUploadError('Video metadata verified, but stream playback failed in WebView.');
+                      }}
                     />
-                  ) : linkPreviewResult.previewDataUrl ? (
+                  ) : linkPreviewResult.previewDataUrl || linkPreviewResult.previewUrl ? (
                     <img
-                      src={linkPreviewResult.previewDataUrl}
-                      alt="Preview"
+                      src={
+                        linkPreviewResult.previewDataUrl ||
+                        resolveImageUrl(linkPreviewResult.previewUrl, '')
+                      }
+                      alt={linkPreviewResult.originalName || 'Preview'}
                       className="w-16 h-16 object-cover rounded-lg border border-amber-200 shrink-0"
+                      onError={() => {
+                        setLinkPreviewResult(null);
+                        setUploadError('Image metadata verified, but preview bytes failed to render.');
+                      }}
                     />
                   ) : (
                     <div className="w-16 h-16 rounded-lg bg-stone-900 text-amber-400 flex items-center justify-center shrink-0">
@@ -858,6 +900,9 @@ export const AdminGoogleDriveTab: React.FC = () => {
                     </div>
                   )}
                   <div className="space-y-0.5 min-w-0">
+                    {linkPreviewResult.originalName && (
+                      <p className="font-bold text-stone-900 truncate">{linkPreviewResult.originalName}</p>
+                    )}
                     <p className="font-bold text-stone-900">
                       {linkPreviewResult.mimeType}
                       {linkPreviewResult.size > 0 ? ` • ${Math.round(linkPreviewResult.size / 1024)} KB` : ' • Streamable Drive Video'}
@@ -876,7 +921,10 @@ export const AdminGoogleDriveTab: React.FC = () => {
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>
-                  Saved to Google Drive! URL: <code className="bg-emerald-100/60 px-1 rounded">{uploadSuccess.url}</code>
+                  {uploadSuccess.storageType && uploadSuccess.storageType !== 'google_drive'
+                    ? `Saved to Cloud Storage (${uploadSuccess.storageType})!`
+                    : 'Saved to Google Drive!'}{' '}
+                  URL: <code className="bg-emerald-100/60 px-1 rounded">{uploadSuccess.url}</code>
                 </span>
               </div>
               <button
@@ -899,40 +947,19 @@ export const AdminGoogleDriveTab: React.FC = () => {
           {uploadError && (
             <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-800 space-y-2">
               <div>{uploadError}</div>
-              {linkFallback && (
-                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-950 flex flex-col sm:flex-row items-center gap-3">
-                  {linkFallback.isVideo ? (
-                    <iframe
-                      src={linkFallback.directUrl}
-                      title="Direct Drive Video Fallback"
-                      className="w-36 h-20 rounded border border-amber-200 bg-black shrink-0"
-                    />
-                  ) : (
-                    <img
-                      src={linkFallback.directUrl}
-                      alt="Direct Drive Fallback"
-                      referrerPolicy="no-referrer"
-                      className="w-16 h-16 object-cover rounded border border-amber-200 bg-white shrink-0"
-                      onError={e => {
-                        const el = e.target as HTMLImageElement;
-                        if (linkFallback.thumbnailUrl && el.src !== linkFallback.thumbnailUrl) {
-                          el.src = linkFallback.thumbnailUrl;
-                        }
-                      }}
-                    />
-                  )}
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="font-bold text-[11px]">Direct Drive Fallback URL (Optional):</div>
-                    <div className="text-[10px] font-mono truncate">{linkFallback.directUrl}</div>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(linkFallback.directUrl, 'Direct Drive URL')}
-                      className="px-2.5 py-1 rounded bg-[#C89211] text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <Copy className="w-3 h-3" />
-                      <span>Copy Direct Drive URL</span>
-                    </button>
-                  </div>
+              {uploadSourceMode === 'link' && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadSourceMode('device');
+                      setUploadError(null);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 text-stone-900 border border-red-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Upload className="w-3 h-3 text-[#C89211]" />
+                    <span>Switch to Upload From Device</span>
+                  </button>
                 </div>
               )}
             </div>

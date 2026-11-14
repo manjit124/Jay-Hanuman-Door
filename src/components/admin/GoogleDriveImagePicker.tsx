@@ -26,8 +26,8 @@ import {
   resolveImageUrl,
   isGoogleDriveEmbedUrl,
   extractClientGoogleDriveFileId,
-  getClientGoogleDriveDirectUrl,
   getClientGoogleDriveThumbnailUrl,
+  validateDriveOrMediaUrlInput,
   type DriveMediaPreviewResult,
   type DriveMediaImportResult,
 } from '../../lib/api.ts';
@@ -109,6 +109,9 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       : 'image';
 
   const urlInputRef = useRef<HTMLInputElement | null>(null);
+  const previewLockRef = useRef(false);
+  const importLockRef = useRef(false);
+
   const [sourceMode, setSourceMode] = useState<'device' | 'drive'>('device');
   const [driveUrlInput, setDriveUrlInput] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -116,21 +119,21 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [previewResult, setPreviewResult] = useState<DriveMediaPreviewResult | null>(null);
-  const [clientFallback, setClientFallback] = useState<{
-    directUrl: string;
-    thumbnailUrl?: string;
-    fileId: string | null;
-    isVideo: boolean;
-    previewFailed?: boolean;
+  const [lastImportedMeta, setLastImportedMeta] = useState<{
+    url: string;
+    isVideo?: boolean;
+    is3DModel?: boolean;
+    mimeType?: string;
   } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const urlValidation = validateDriveOrMediaUrlInput(driveUrlInput);
 
   // Clear messages on tab change
   useEffect(() => {
     setErrorMessage(null);
     setSuccessMessage(null);
-    setClientFallback(null);
   }, [sourceMode]);
 
   // Determine accepted file types for Option A Device Upload
@@ -174,8 +177,8 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
         }
         if (uploadedUrls.length > 0) {
           onAddMultiple(uploadedUrls);
-          setSuccessMessage(`Uploaded ${uploadedUrls.length} photo(s) permanently to Google Drive (${category})!`);
-          if (onToast) onToast(`Uploaded ${uploadedUrls.length} photo(s) to Google Drive`);
+          setSuccessMessage(`Uploaded ${uploadedUrls.length} photo(s) permanently to Cloud Storage (${category})!`);
+          if (onToast) onToast(`Uploaded ${uploadedUrls.length} photo(s) successfully!`);
         } else {
           setErrorMessage('No supported image files found in your selection. Choose JPG, PNG, or WebP.');
         }
@@ -216,14 +219,20 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       try {
         const res = await uploadVideo(file, pct => setUploadProgress(pct), 'videos');
         if (res?.url) {
+          setLastImportedMeta({
+            url: res.url,
+            mimeType: res.mimeType || inferred.mimeType || 'video/mp4',
+            isVideo: true,
+          });
           onChange(res.url, {
             fileId: res.fileId,
             size: res.size || file.size,
             mimeType: res.mimeType || inferred.mimeType || 'video/mp4',
             isVideo: true,
           });
-          setSuccessMessage('Video uploaded and saved permanently to Google Drive (videos folder)!');
-          if (onToast) onToast('Video saved to Google Drive!');
+          const storageLabel = res.storageType === 'google_drive' ? 'Google Drive (videos folder)' : `Cloud Storage (${res.storageType || 'firestore'})`;
+          setSuccessMessage(`Video uploaded and saved permanently to ${storageLabel}!`);
+          if (onToast) onToast(`Video saved to ${res.storageType === 'google_drive' ? 'Google Drive' : 'Cloud Storage'}!`);
         } else {
           throw new Error('Upload server did not return a valid video URL.');
         }
@@ -246,6 +255,11 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       try {
         const res = await upload3DModel(file, pct => setUploadProgress(pct), category);
         if (res?.url) {
+          setLastImportedMeta({
+            url: res.url,
+            mimeType: inferred.mimeType || 'model/gltf-binary',
+            is3DModel: true,
+          });
           onChange(res.url, {
             fileId: res.fileId,
             size: res.size || file.size,
@@ -312,8 +326,9 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
           width: res.width,
           height: res.height,
         });
-        setSuccessMessage(`Photo uploaded and saved permanently to Google Drive (${category})!`);
-        if (onToast) onToast('Photo saved to Google Drive!');
+        const storageLabel = res.storageType === 'google_drive' ? `Google Drive (${category})` : `Cloud Storage (${res.storageType || 'firestore'})`;
+        setSuccessMessage(`Photo uploaded and saved permanently to ${storageLabel}!`);
+        if (onToast) onToast(`Photo saved to ${res.storageType === 'google_drive' ? 'Google Drive' : 'Cloud Storage'}!`);
       } else {
         throw new Error('Upload server did not return a valid image URL.');
       }
@@ -328,69 +343,79 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
     }
   };
 
-  // Paste Link from Clipboard (non-blocking mobile/WebView friendly fallback)
-  const handlePasteClipboard = async () => {
+  const applyDriveUrlChange = (nextRaw: string) => {
+    setDriveUrlInput(nextRaw);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setPreviewResult(null);
+  };
+
+  // Paste Link from Clipboard (Android WebView + Desktop clipboard compatible)
+  const handlePasteClipboard = async (e?: React.MouseEvent<HTMLButtonElement>) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.readText) {
         const clipText = await navigator.clipboard.readText();
         if (clipText && clipText.trim()) {
-          setDriveUrlInput(clipText.trim());
-          setErrorMessage(null);
-          setSuccessMessage('Pasted link from clipboard! Click "Preview" to verify.');
+          const cleaned = clipText.trim();
+          applyDriveUrlChange(cleaned);
+          const check = validateDriveOrMediaUrlInput(cleaned);
+          if (check.isValid) {
+            setSuccessMessage(
+              check.fileId
+                ? `Link pasted (Drive File ID: ${check.fileId}). Click "Preview" or "Import & Save".`
+                : 'Link pasted! Click "Preview" or "Import & Save".'
+            );
+          } else if (check.error) {
+            setErrorMessage(check.error);
+          }
           if (onToast) onToast('Pasted link from clipboard');
           return;
         }
       }
     } catch {
-      // Browser / WebView clipboard read permission blocked
+      // Browser / Android WebView clipboard read permission blocked
     }
 
-    urlInputRef.current?.focus();
+    if (urlInputRef.current) {
+      urlInputRef.current.focus();
+      try {
+        const pasted = document.execCommand?.('paste');
+        if (pasted && urlInputRef.current.value.trim()) {
+          applyDriveUrlChange(urlInputRef.current.value.trim());
+          return;
+        }
+      } catch {}
+    }
+
     setErrorMessage(null);
-    setSuccessMessage('Please tap inside the URL box above and paste your Google Drive link (Ctrl+V or long-press -> Paste).');
-  };
-
-  const buildClientFallbackOption = (rawUrl: string) => {
-    const fileId = extractClientGoogleDriveFileId(rawUrl);
-    const isVideoMode = effectiveMediaType === 'video';
-    if (fileId) {
-      return {
-        fileId,
-        directUrl: getClientGoogleDriveDirectUrl(fileId, isVideoMode ? 'video' : 'image'),
-        thumbnailUrl: isVideoMode ? undefined : getClientGoogleDriveThumbnailUrl(fileId, 1600),
-        isVideo: isVideoMode,
-        previewFailed: false,
-      };
-    }
-    try {
-      const parsed = new URL(rawUrl);
-      if (parsed.protocol === 'https:') {
-        const lower = rawUrl.toLowerCase().split('?')[0];
-        const looksVideo = isVideoMode || lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov');
-        return {
-          fileId: null,
-          directUrl: rawUrl,
-          isVideo: looksVideo,
-          previewFailed: false,
-        };
-      }
-    } catch {}
-    return null;
+    setSuccessMessage('Tap inside the URL box above and long-press -> Paste (or Ctrl+V) to paste your Google Drive link.');
   };
 
   // Handle Option B: Preview Google Drive Link
-  const handlePreviewDrive = async () => {
-    const raw = driveUrlInput.trim();
-    if (!raw || isPreviewing || isImporting || disabled) return;
+  const handlePreviewDrive = async (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
 
+    const raw = driveUrlInput.trim();
+    if (!raw || previewLockRef.current || importLockRef.current || isPreviewing || isImporting || disabled) return;
+
+    const validation = validateDriveOrMediaUrlInput(raw);
+    if (!validation.isValid) {
+      setErrorMessage(validation.error || 'Please enter a valid Google Drive sharing link or https:// URL.');
+      return;
+    }
+
+    previewLockRef.current = true;
     setIsPreviewing(true);
     setErrorMessage(null);
     setSuccessMessage(null);
     setPreviewResult(null);
-    setClientFallback(null);
 
     try {
-      const preview = await previewDriveOrExternalMedia(raw, effectiveMediaType);
+      const preview = await previewDriveOrExternalMedia(validation.normalizedUrl, effectiveMediaType);
       setPreviewResult(preview);
 
       const typeLabel = preview.isVideo ? 'Video' : preview.is3DModel ? '3D Model' : 'Image';
@@ -410,34 +435,47 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
           ? 'Network error connecting to backend. Please check your connection or upload directly from your device.'
           : rawMsg;
       setErrorMessage(cleanMsg);
-
-      const fallbackOpt = buildClientFallbackOption(raw);
-      if (fallbackOpt && !rawMsg.includes('DRIVE_PERMISSION_DENIED') && !rawMsg.includes('DRIVE_NOT_FOUND')) {
-        setClientFallback(fallbackOpt);
-      }
+      if (onToast) onToast(cleanMsg);
     } finally {
+      previewLockRef.current = false;
       setIsPreviewing(false);
     }
   };
 
   // Handle Option B: Import Google Drive Link into Permanent Storage
-  const handleImportDrive = async () => {
-    const raw = driveUrlInput.trim();
-    if (!raw || isImporting || isPreviewing || disabled) return;
+  const handleImportDrive = async (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
 
+    const raw = driveUrlInput.trim();
+    if (!raw || importLockRef.current || previewLockRef.current || isImporting || isPreviewing || disabled) return;
+
+    const validation = validateDriveOrMediaUrlInput(raw);
+    if (!validation.isValid) {
+      setErrorMessage(validation.error || 'Please enter a valid Google Drive sharing link or https:// URL.');
+      return;
+    }
+
+    importLockRef.current = true;
     setIsImporting(true);
     setErrorMessage(null);
     setSuccessMessage(null);
-    setClientFallback(null);
 
     try {
       const targetCat = effectiveMediaType === 'video' ? 'videos' : category;
       const imported: DriveMediaImportResult = await importDriveOrExternalMediaToStorage(
-        raw,
+        validation.normalizedUrl,
         targetCat,
         effectiveMediaType
       );
       const permanentUrl = imported.url;
+
+      setLastImportedMeta({
+        url: permanentUrl,
+        isVideo: imported.isVideo,
+        is3DModel: imported.is3DModel,
+        mimeType: imported.mimeType,
+      });
 
       onChange(permanentUrl, {
         fileId: imported.fileId || undefined,
@@ -453,55 +491,49 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       setPreviewResult(null);
 
       const typeLabel = imported.isVideo ? 'Video' : imported.is3DModel ? '3D Model' : 'Image';
+      const storageMsg =
+        imported.storageType === 'google_drive'
+          ? `Imported ${typeLabel} successfully and saved permanently to Google Drive (${targetCat})!`
+          : imported.storageType === 'google_drive_embed'
+          ? `Verified and linked playable Google Drive ${typeLabel}!`
+          : `Imported ${typeLabel} successfully and saved permanently to Cloud Storage (${imported.storageType})!`;
+
       setSuccessMessage(
         imported.deduplicated
-          ? `Linked existing Google Drive ${typeLabel} without creating duplicate storage files!`
-          : `Imported ${typeLabel} successfully and saved permanently to Google Drive storage!`
+          ? `Linked existing ${typeLabel} (${permanentUrl}) without creating duplicate storage files!`
+          : storageMsg
       );
-      if (onToast) onToast(`${typeLabel} imported and saved permanently to Google Drive!`);
+      if (onToast) onToast(`${typeLabel} imported & saved!`);
     } catch (err: any) {
       const rawMsg = String(err?.message || err || '').trim();
       const cleanMsg =
         !rawMsg || rawMsg === 'Failed to fetch' || rawMsg === 'Load failed' || rawMsg === 'NetworkError'
-          ? 'Network error connecting to storage service. Please check your network connection or upload directly from your device.'
+          ? 'Network error connecting to storage service. Please check your internet connection or upload directly from your device.'
           : rawMsg;
       setErrorMessage(cleanMsg);
-
-      const fallbackOpt = buildClientFallbackOption(raw);
-      if (
-        fallbackOpt &&
-        !rawMsg.includes('DRIVE_PERMISSION_DENIED') &&
-        !rawMsg.includes('DRIVE_NOT_FOUND') &&
-        !rawMsg.includes('DRIVE_FOLDER_NOT_SUPPORTED')
-      ) {
-        setClientFallback(fallbackOpt);
-      }
+      if (onToast) onToast(cleanMsg);
     } finally {
+      importLockRef.current = false;
       setIsImporting(false);
     }
   };
 
-  const handleApplyClientFallback = () => {
-    if (!clientFallback || disabled) return;
-    onChange(clientFallback.directUrl, {
-      fileId: clientFallback.fileId || undefined,
-      isVideo: clientFallback.isVideo,
-      is3DModel: effectiveMediaType === 'model3d',
-    });
-    setDriveUrlInput('');
-    setPreviewResult(null);
-    setClientFallback(null);
-    setErrorMessage(null);
-    setSuccessMessage(
-      'Linked directly via Google Drive public view URL (fallback mode — file was NOT copied to backend storage). Keep Drive sharing set to "Anyone with the link can view".'
-    );
-    if (onToast) onToast('Saved direct Google Drive fallback link');
-  };
-
   const resolvedValueUrl = value ? resolveImageUrl(value, '') : '';
   const isCurrentDriveEmbed = Boolean(value && isGoogleDriveEmbedUrl(value));
-  const isCurrentVideo = Boolean(value && (isVideoUrl(value) || isCurrentDriveEmbed));
-  const isCurrent3D = Boolean(value && is3DModelUrl(value));
+  const matchesImportedMeta = Boolean(lastImportedMeta && lastImportedMeta.url === value);
+  const isCurrentVideo = Boolean(
+    value &&
+      (isCurrentDriveEmbed ||
+        isVideoUrl(value) ||
+        effectiveMediaType === 'video' ||
+        (matchesImportedMeta && lastImportedMeta?.isVideo))
+  );
+  const isCurrent3D = Boolean(
+    value &&
+      (is3DModelUrl(value) ||
+        effectiveMediaType === 'model3d' ||
+        (matchesImportedMeta && lastImportedMeta?.is3DModel))
+  );
 
   const displaySublabel =
     sublabel ||
@@ -702,12 +734,26 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
             <div className="relative flex-1">
               <input
                 ref={urlInputRef}
-                type="url"
+                type="text"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={driveUrlInput}
-                onChange={e => {
-                  setDriveUrlInput(e.target.value);
-                  setErrorMessage(null);
-                  setSuccessMessage(null);
+                onChange={e => applyDriveUrlChange(e.target.value)}
+                onPaste={e => {
+                  const pasted = e.clipboardData?.getData('text');
+                  if (pasted && pasted.trim()) {
+                    e.preventDefault();
+                    applyDriveUrlChange(pasted.trim());
+                  }
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handlePreviewDrive(e);
+                  }
                 }}
                 placeholder="https://drive.google.com/file/d/FILE_ID/view?usp=sharing"
                 disabled={disabled || isPreviewing || isImporting}
@@ -728,9 +774,9 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                disabled={isPreviewing || isImporting || !driveUrlInput.trim() || disabled}
+                disabled={isPreviewing || isImporting || !urlValidation.isValid || disabled}
                 onClick={handlePreviewDrive}
-                className="px-3.5 py-2 rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-[#D5D5D0] font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer"
+                className="px-3.5 py-2 rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-[#D5D5D0] font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isPreviewing ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C89211]" />
@@ -742,9 +788,9 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
 
               <button
                 type="button"
-                disabled={isImporting || isPreviewing || !driveUrlInput.trim() || disabled}
+                disabled={isImporting || isPreviewing || !urlValidation.isValid || disabled}
                 onClick={handleImportDrive}
-                className="px-4 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer shadow-xs"
+                className="px-4 py-2 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
               >
                 {isImporting ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -755,6 +801,26 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
               </button>
             </div>
           </div>
+
+          {driveUrlInput.trim().length > 0 && (
+            <div className="flex items-center justify-between gap-2 text-[11px] flex-wrap">
+              {urlValidation.isValid ? (
+                <span className="text-emerald-700 font-semibold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    {urlValidation.isGoogleDrive && urlValidation.fileId
+                      ? `Valid Google Drive link • File ID: ${urlValidation.fileId}`
+                      : 'Valid HTTPS media link • Ready to Preview or Import & Save'}
+                  </span>
+                </span>
+              ) : (
+                <span className="text-rose-700 font-semibold flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span>{urlValidation.error || 'Invalid URL'}</span>
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -775,6 +841,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
             <span className="text-[10px] text-amber-800 font-mono bg-amber-100/70 px-2 py-0.5 rounded">
               {previewResult.width && previewResult.height ? `${previewResult.width} × ${previewResult.height} px • ` : ''}
               {previewResult.size > 0 ? `${Math.max(1, Math.round(previewResult.size / 1024))} KB` : 'Drive Video Stream'}
+              {previewResult.duration ? ` • ${previewResult.duration}s` : ''}
             </span>
           </div>
 
@@ -795,7 +862,12 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
                     poster={previewResult.previewPosterUrl}
                     controls
                     playsInline
+                    preload="metadata"
                     className="w-full h-full object-contain rounded-lg"
+                    onError={() => {
+                      setPreviewResult(null);
+                      setErrorMessage('Video stream verified on backend, but could not be decoded by this browser.');
+                    }}
                   />
                 ) : previewResult.previewPosterUrl ? (
                   <img
@@ -816,16 +888,28 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
                 <span className="text-[10px] font-mono">.GLB 3D</span>
               </div>
             ) : (
-              previewResult.previewDataUrl && (
+              (previewResult.previewDataUrl || previewResult.previewUrl || previewResult.previewPosterUrl) && (
                 <img
-                  src={previewResult.previewDataUrl}
-                  alt="Preview"
+                  src={
+                    previewResult.previewDataUrl ||
+                    (previewResult.previewUrl ? resolveImageUrl(previewResult.previewUrl, '') : previewResult.previewPosterUrl)
+                  }
+                  alt={previewResult.originalName || 'Preview'}
                   className="max-h-36 max-w-[200px] object-contain rounded-lg bg-white border border-amber-200 shadow-xs"
+                  onError={() => {
+                    setPreviewResult(null);
+                    setErrorMessage('Verified image metadata, but failed to render preview bytes in WebView.');
+                  }}
                 />
               )
             )}
 
             <div className="flex-1 space-y-1.5 text-xs">
+              {previewResult.originalName && (
+                <p className="text-[11px] text-[#1A1A1A] font-semibold truncate">
+                  {previewResult.originalName}
+                </p>
+              )}
               <p className="text-[11px] text-[#1A1A1A]">
                 <strong>Format:</strong> {previewResult.mimeType}{' '}
                 {previewResult.isGoogleDrive && '• Google Drive File'}
@@ -838,15 +922,15 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
               <button
                 type="button"
                 onClick={handleImportDrive}
-                disabled={isImporting}
-                className="mt-1 px-3.5 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                disabled={isImporting || isPreviewing}
+                className="mt-1 px-3.5 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
               >
                 {isImporting ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <CheckCircle2 className="w-3.5 h-3.5" />
                 )}
-                <span>Import and Save to Permanent Google Drive</span>
+                <span>{isImporting ? 'Importing & Saving...' : 'Import & Save'}</span>
               </button>
             </div>
           </div>
@@ -868,7 +952,6 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
                 onClick={() => {
                   setSourceMode('device');
                   setErrorMessage(null);
-                  setClientFallback(null);
                 }}
                 className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-rose-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
               >
@@ -881,82 +964,11 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
             type="button"
             onClick={() => {
               setErrorMessage(null);
-              setClientFallback(null);
             }}
             className="text-rose-400 hover:text-rose-800 p-1 text-xs cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
-        </div>
-      )}
-
-      {/* Client Direct Drive Fallback Preview (when backend route unavailable/blocked) */}
-      {clientFallback && (
-        <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-300 space-y-2.5 text-xs">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <span className="font-bold text-amber-950 flex items-center gap-1.5 text-[11px]">
-              <HardDrive className="w-3.5 h-3.5 text-[#C89211]" />
-              <span>Direct Google Drive Fallback Preview (Optional)</span>
-            </span>
-            {clientFallback.fileId && (
-              <span className="text-[10px] font-mono text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
-                File ID: {clientFallback.fileId}
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center gap-3">
-            {clientFallback.isVideo ? (
-              <div className="w-full sm:w-52 aspect-video rounded-lg overflow-hidden bg-black border border-amber-200 shrink-0">
-                <iframe
-                  src={clientFallback.directUrl}
-                  title="Direct Drive Video Preview"
-                  className="w-full h-full border-0"
-                  allow="autoplay; fullscreen"
-                />
-              </div>
-            ) : (
-              <div className="shrink-0">
-                {!clientFallback.previewFailed ? (
-                  <img
-                    src={clientFallback.directUrl}
-                    alt="Direct Drive Preview"
-                    referrerPolicy="no-referrer"
-                    className="max-h-28 max-w-[160px] object-contain rounded-lg bg-white border border-amber-200 shadow-xs"
-                    onError={e => {
-                      const imgEl = e.target as HTMLImageElement;
-                      if (clientFallback.thumbnailUrl && imgEl.src !== clientFallback.thumbnailUrl) {
-                        imgEl.src = clientFallback.thumbnailUrl;
-                      } else {
-                        setClientFallback(prev => (prev ? { ...prev, previewFailed: true } : null));
-                      }
-                    }}
-                  />
-                ) : (
-                  <div className="px-3 py-2 rounded-lg bg-white border border-amber-200 text-[11px] text-amber-900">
-                    Preview could not load directly (check that Google Drive sharing is set to "Anyone with the link can view").
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="flex-1 space-y-1.5 min-w-0">
-              <p className="text-[11px] text-amber-900 leading-relaxed">
-                You can link this public URL directly right now, or use <strong>Option A: Device Upload</strong> for local/Drive permanent storage.
-              </p>
-              <p className="text-[10px] font-mono text-amber-800 truncate" title={clientFallback.directUrl}>
-                {clientFallback.directUrl}
-              </p>
-              <button
-                type="button"
-                onClick={handleApplyClientFallback}
-                className="px-3 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-[11px] inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Use Direct Drive Link (Fallback)</span>
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -984,7 +996,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
                 {value.includes('/api/drive/media/') || value.includes('drive.google.com')
                   ? 'Saved in Google Drive'
                   : value.includes('/uploads/')
-                  ? 'Saved on Server'
+                  ? 'Saved in Cloud Storage'
                   : 'Media Linked'}
               </span>
               {value.includes('drive.google.com') || value.includes('/api/drive/media/') ? (

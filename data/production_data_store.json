@@ -1680,9 +1680,41 @@
       "responseTimeMs": 23694
     }
   ],
-  "version": 239,
-  "lastModified": "2026-11-13T07:07:20.805Z",
+  "version": 243,
+  "lastModified": "2026-11-13T16:52:36.211Z",
   "auditLogs": [
+    {
+      "id": "audit-1794588756211-mdsy4",
+      "entity": "door",
+      "action": "delete",
+      "targetId": "door-1794588755956",
+      "timestamp": "2026-11-13T16:52:36.211Z",
+      "success": true
+    },
+    {
+      "id": "audit-1794588755957-cbfs0",
+      "entity": "door",
+      "action": "create",
+      "targetId": "door-1794588755956",
+      "timestamp": "2026-11-13T16:52:35.957Z",
+      "success": true
+    },
+    {
+      "id": "audit-1794588497477-yjzwk",
+      "entity": "door",
+      "action": "delete",
+      "targetId": "door-1794588497256",
+      "timestamp": "2026-11-13T16:48:17.477Z",
+      "success": true
+    },
+    {
+      "id": "audit-1794588497256-waqka",
+      "entity": "door",
+      "action": "create",
+      "targetId": "door-1794588497256",
+      "timestamp": "2026-11-13T16:48:17.256Z",
+      "success": true
+    },
     {
       "id": "audit-1794553640805-wk093",
       "entity": "orders",

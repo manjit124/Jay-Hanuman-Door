@@ -1,4 +1,24 @@
-import { Door, Category, HomeBanner, Article } from '../types.ts';
+import { Door, Category, HomeBanner, Article, CompanyStorySettings } from '../types.ts';
+
+export const DEFAULT_STORY_SETTINGS: CompanyStorySettings = {
+  sectionTitle: 'Our Story & Heritage',
+  subtitle: 'A journey of craftsmanship, trust & quality',
+  storyHeading: 'From Craftsmanship to Trusted Door Manufacturing',
+  companyStory: `Jai Hanuman Door is a family-driven wooden door manufacturing business built on craftsmanship, quality and customer trust.
+
+We specialize in handcrafted Sagwan (Teak) wood doors, custom main doors, wooden frames and premium entrance solutions.
+
+Our journey has grown from traditional woodworking and hands-on craftsmanship into a modern door manufacturing and customer service experience — while keeping the quality of real wood at the heart of our work.`,
+  ownerName: 'Manjeet Prajapati',
+  ownerDesignation: 'Founder & Owner — Jai Hanuman Door',
+  ownerDescription: 'Building Jai Hanuman Door with a focus on genuine wood quality, custom craftsmanship and transparent service for every customer.',
+  ownerPhotoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80',
+  highlights: [
+    { title: '100% Genuine', subtitle: 'CP Teak & Hardwood' },
+    { title: 'Precision Fit', subtitle: 'Custom Millimetre Sizing' },
+    { title: 'Direct Factory', subtitle: 'Transparent Pricing' },
+  ],
+};
 
 export const DEFAULT_CATEGORIES: Category[] = [
   {
