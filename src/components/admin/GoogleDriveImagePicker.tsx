@@ -26,7 +26,10 @@ import {
   resolveImageUrl,
   isGoogleDriveEmbedUrl,
   extractClientGoogleDriveFileId,
+  getClientGoogleDriveDirectUrl,
   getClientGoogleDriveThumbnailUrl,
+  readTextFromClipboard,
+  sanitizeDriveUrlInput,
   validateDriveOrMediaUrlInput,
   type DriveMediaPreviewResult,
   type DriveMediaImportResult,
@@ -343,55 +346,74 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
     }
   };
 
-  const applyDriveUrlChange = (nextRaw: string) => {
-    setDriveUrlInput(nextRaw);
+  const applyDriveUrlChange = (nextRaw: string, autoSanitize = false) => {
+    const cleaned = autoSanitize ? sanitizeDriveUrlInput(nextRaw) || nextRaw.trim() : nextRaw;
+    setDriveUrlInput(cleaned);
     setErrorMessage(null);
     setSuccessMessage(null);
     setPreviewResult(null);
   };
 
-  // Paste Link from Clipboard (Android WebView + Desktop clipboard compatible)
+  // Paste Link from Clipboard (Web Clipboard API + Capacitor Native Clipboard fallback)
   const handlePasteClipboard = async (e?: React.MouseEvent<HTMLButtonElement>) => {
     e?.preventDefault();
     e?.stopPropagation();
 
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.readText) {
-        const clipText = await navigator.clipboard.readText();
-        if (clipText && clipText.trim()) {
-          const cleaned = clipText.trim();
-          applyDriveUrlChange(cleaned);
-          const check = validateDriveOrMediaUrlInput(cleaned);
-          if (check.isValid) {
-            setSuccessMessage(
-              check.fileId
-                ? `Link pasted (Drive File ID: ${check.fileId}). Click "Preview" or "Import & Save".`
-                : 'Link pasted! Click "Preview" or "Import & Save".'
-            );
-          } else if (check.error) {
-            setErrorMessage(check.error);
-          }
-          if (onToast) onToast('Pasted link from clipboard');
-          return;
-        }
+    const clip = await readTextFromClipboard(urlInputRef.current);
+    if (clip.text) {
+      const cleaned = sanitizeDriveUrlInput(clip.text) || clip.text.trim();
+      applyDriveUrlChange(cleaned, true);
+      const check = validateDriveOrMediaUrlInput(cleaned);
+      if (check.isValid) {
+        setSuccessMessage(
+          check.fileId
+            ? `Link pasted • Valid Google Drive File ID: ${check.fileId}`
+            : 'Link pasted! Click "Preview" or "Import & Save".'
+        );
+      } else if (check.error) {
+        setErrorMessage(check.error);
       }
-    } catch {
-      // Browser / Android WebView clipboard read permission blocked
+      if (onToast) onToast('Pasted link from clipboard');
+      return;
     }
 
-    if (urlInputRef.current) {
-      urlInputRef.current.focus();
-      try {
-        const pasted = document.execCommand?.('paste');
-        if (pasted && urlInputRef.current.value.trim()) {
-          applyDriveUrlChange(urlInputRef.current.value.trim());
-          return;
-        }
-      } catch {}
-    }
+    urlInputRef.current?.focus();
+    setErrorMessage(null);
+    setSuccessMessage('Tap inside the URL box above and long-press -> Paste to paste your Google Drive link.');
+  };
+
+  // Fallback: Convert Google Drive sharing link to direct uc?export=view / preview URL and save into form
+  const handleUseDirectDriveFallback = (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+
+    const check = validateDriveOrMediaUrlInput(driveUrlInput);
+    if (!check.fileId) return;
+
+    const directUrl =
+      effectiveMediaType === 'video'
+        ? getClientGoogleDriveDirectUrl(check.fileId, 'video')
+        : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(check.fileId)}`;
+
+    setLastImportedMeta({
+      url: directUrl,
+      isVideo: effectiveMediaType === 'video',
+      is3DModel: effectiveMediaType === 'model3d',
+      mimeType: effectiveMediaType === 'video' ? 'video/mp4' : effectiveMediaType === 'model3d' ? 'model/gltf-binary' : 'image/jpeg',
+    });
+
+    onChange(directUrl, {
+      fileId: check.fileId,
+      isVideo: effectiveMediaType === 'video',
+      is3DModel: effectiveMediaType === 'model3d',
+      mimeType: effectiveMediaType === 'video' ? 'video/mp4' : effectiveMediaType === 'model3d' ? 'model/gltf-binary' : 'image/jpeg',
+    });
 
     setErrorMessage(null);
-    setSuccessMessage('Tap inside the URL box above and long-press -> Paste (or Ctrl+V) to paste your Google Drive link.');
+    setPreviewResult(null);
+    setDriveUrlInput('');
+    setSuccessMessage(`Saved! Linked direct Google Drive URL (${directUrl}).`);
+    if (onToast) onToast('Saved! Direct Google Drive link attached.');
   };
 
   // Handle Option B: Preview Google Drive Link
@@ -500,10 +522,10 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
 
       setSuccessMessage(
         imported.deduplicated
-          ? `Linked existing ${typeLabel} (${permanentUrl}) without creating duplicate storage files!`
-          : storageMsg
+          ? `Saved! Linked existing ${typeLabel} (${permanentUrl}) without creating duplicates.`
+          : `Saved! ${storageMsg}`
       );
-      if (onToast) onToast(`${typeLabel} imported & saved!`);
+      if (onToast) onToast(`Saved! ${typeLabel} imported from Google Drive.`);
     } catch (err: any) {
       const rawMsg = String(err?.message || err || '').trim();
       const cleanMsg =
@@ -730,48 +752,72 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
             <span>Supports /file/d/FILE_ID/view, open?id=FILE_ID &amp; uc?id=FILE_ID</span>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
-              <input
-                ref={urlInputRef}
-                type="text"
-                inputMode="url"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                value={driveUrlInput}
-                onChange={e => applyDriveUrlChange(e.target.value)}
-                onPaste={e => {
-                  const pasted = e.clipboardData?.getData('text');
-                  if (pasted && pasted.trim()) {
-                    e.preventDefault();
-                    applyDriveUrlChange(pasted.trim());
-                  }
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handlePreviewDrive(e);
-                  }
-                }}
-                placeholder="https://drive.google.com/file/d/FILE_ID/view?usp=sharing"
-                disabled={disabled || isPreviewing || isImporting}
-                className="w-full px-3 py-2 pr-24 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:ring-2 focus:ring-[#C89211] focus:outline-none"
-              />
+          <div className="space-y-2">
+            {/* Unobstructed URL Input + Side-by-Side Paste Button (zero overlay on touch input) */}
+            <div className="flex flex-col sm:flex-row items-stretch gap-2">
+              <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                <input
+                  ref={urlInputRef}
+                  type="url"
+                  inputMode="url"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={driveUrlInput}
+                  onChange={e => applyDriveUrlChange(e.target.value)}
+                  onInput={e => applyDriveUrlChange((e.target as HTMLInputElement).value)}
+                  onPaste={e => {
+                    const pasted =
+                      e.clipboardData?.getData('text/plain') || e.clipboardData?.getData('text');
+                    if (pasted && pasted.trim()) {
+                      e.preventDefault();
+                      applyDriveUrlChange(pasted, true);
+                    } else {
+                      const targetEl = e.currentTarget;
+                      requestAnimationFrame(() => {
+                        if (targetEl?.value) applyDriveUrlChange(targetEl.value, true);
+                      });
+                    }
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handlePreviewDrive(e);
+                    }
+                  }}
+                  placeholder="https://drive.google.com/file/d/FILE_ID/view?usp=sharing"
+                  disabled={disabled || isPreviewing || isImporting}
+                  className="w-full min-h-[42px] px-3 py-2.5 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-sm sm:text-xs select-text pointer-events-auto relative z-10 focus:ring-2 focus:ring-[#C89211] focus:outline-none"
+                />
+                {driveUrlInput.length > 0 && !isPreviewing && !isImporting && (
+                  <button
+                    type="button"
+                    onClick={() => applyDriveUrlChange('')}
+                    className="p-2 rounded-lg bg-white hover:bg-stone-100 border border-[#E5E5E5] text-stone-500 hover:text-stone-900 shrink-0 cursor-pointer"
+                    title="Clear URL"
+                    aria-label="Clear Google Drive URL"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={handlePasteClipboard}
                 disabled={disabled || isPreviewing || isImporting}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 rounded bg-[#F0F0EE] hover:bg-stone-200 text-[#1A1A1A] text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
+                className="px-3.5 py-2.5 min-h-[42px] rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-[#D5D5D0] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition shrink-0 shadow-xs active:scale-95"
                 title="Paste link from clipboard"
               >
-                <ClipboardPaste className="w-3 h-3 text-[#C89211]" />
+                <ClipboardPaste className="w-4 h-4 text-[#C89211]" />
                 <span>Paste Link</span>
               </button>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            {/* Action Buttons Row */}
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={isPreviewing || isImporting || !urlValidation.isValid || disabled}
@@ -797,7 +843,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
                 ) : (
                   <CheckCircle2 className="w-3.5 h-3.5" />
                 )}
-                <span>{isImporting ? 'Importing...' : 'Import & Save'}</span>
+                <span>{isImporting ? 'Importing & Saving...' : 'Import & Save'}</span>
               </button>
             </div>
           </div>
@@ -947,13 +993,27 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
               <p className="text-[11px] leading-relaxed text-rose-800 break-words">{errorMessage}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {urlValidation.isGoogleDrive && urlValidation.fileId && (
+                <button
+                  type="button"
+                  onClick={handleUseDirectDriveFallback}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-xs"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>
+                    {effectiveMediaType === 'video'
+                      ? 'Save Direct Drive Link (Preview)'
+                      : 'Save Direct Drive URL (uc?export=view)'}
+                  </span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
                   setSourceMode('device');
                   setErrorMessage(null);
                 }}
-                className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-rose-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-rose-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
               >
                 <Upload className="w-3 h-3 text-[#C89211]" />
                 <span>Switch to Upload From Device</span>

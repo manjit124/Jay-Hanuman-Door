@@ -1,3 +1,4 @@
+import { Clipboard } from '@capacitor/clipboard';
 import {
   Door,
   Category,
@@ -1827,8 +1828,81 @@ export function isGoogleDriveEmbedUrl(url?: string | null): boolean {
   return trimmed.includes('drive.google.com/file/d/') && trimmed.includes('/preview');
 }
 
+export function sanitizeDriveUrlInput(rawUrl?: string | null): string {
+  const cleaned = String(rawUrl || '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim()
+    .replace(/^["'<(\s]+|["'>)\s]+$/g, '');
+  if (!cleaned) return '';
+
+  // Extract first URL if pasted alongside WhatsApp/Android share text
+  const urlMatch = cleaned.match(/https?:\/\/[^\s<>"']+/i);
+  if (urlMatch && urlMatch[0]) {
+    return urlMatch[0].replace(/[.,;]+$/, '');
+  }
+
+  // Handle schemeless Google Drive URLs (e.g. drive.google.com/file/d/ID/view?usp=sharing)
+  const bareDriveMatch = cleaned.match(/(?:drive|docs)\.google\.com\/[^\s<>"']+/i);
+  if (bareDriveMatch && bareDriveMatch[0]) {
+    return `https://${bareDriveMatch[0].replace(/[.,;]+$/, '')}`;
+  }
+
+  return cleaned;
+}
+
+export async function readTextFromClipboard(inputEl?: HTMLInputElement | null): Promise<{
+  text: string;
+  source: 'web' | 'capacitor' | 'execCommand' | 'none';
+  error?: string;
+}> {
+  let lastErr = '';
+
+  // 1. Standard browser / WebView navigator.clipboard.readText()
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+    try {
+      const clipText = await navigator.clipboard.readText();
+      const cleaned = sanitizeDriveUrlInput(clipText) || String(clipText || '').trim();
+      if (cleaned) {
+        return { text: cleaned, source: 'web' };
+      }
+    } catch (err: any) {
+      lastErr = String(err?.message || 'Web clipboard read blocked');
+    }
+  }
+
+  // 2. Capacitor native Android / iOS Clipboard.read() fallback
+  try {
+    const nativeRead = await Clipboard.read();
+    const rawNative = String(nativeRead?.value || '').trim();
+    const cleanedNative = sanitizeDriveUrlInput(rawNative) || rawNative;
+    if (cleanedNative) {
+      return { text: cleanedNative, source: 'capacitor' };
+    }
+  } catch (capErr: any) {
+    lastErr = String(capErr?.message || lastErr || 'Native clipboard read unavailable');
+  }
+
+  // 3. Fallback: focus input and trigger execCommand('paste')
+  if (inputEl) {
+    try {
+      inputEl.focus();
+      const ok = document.execCommand?.('paste');
+      const val = sanitizeDriveUrlInput(inputEl.value) || String(inputEl.value || '').trim();
+      if (ok && val) {
+        return { text: val, source: 'execCommand' };
+      }
+    } catch {}
+  }
+
+  return {
+    text: '',
+    source: 'none',
+    error: lastErr || 'Clipboard is empty or permission was denied.',
+  };
+}
+
 export function isClientGoogleDriveFolderUrl(url?: string | null): boolean {
-  const trimmed = String(url || '').trim();
+  const trimmed = sanitizeDriveUrlInput(url);
   if (!trimmed) return false;
   try {
     const parsed = new URL(trimmed);
@@ -1842,7 +1916,7 @@ export function isClientGoogleDriveFolderUrl(url?: string | null): boolean {
 }
 
 export function extractClientGoogleDriveFileId(url?: string | null): string | null {
-  const trimmed = String(url || '').trim();
+  const trimmed = sanitizeDriveUrlInput(url);
   if (!trimmed || isClientGoogleDriveFolderUrl(trimmed)) return null;
   try {
     const parsed = new URL(trimmed);
@@ -1879,7 +1953,7 @@ export interface DriveUrlInputValidation {
 }
 
 export function validateDriveOrMediaUrlInput(rawUrl?: string | null): DriveUrlInputValidation {
-  const trimmed = String(rawUrl || '').trim();
+  const trimmed = sanitizeDriveUrlInput(rawUrl);
   if (!trimmed) {
     return {
       isValid: false,
@@ -2018,6 +2092,8 @@ async function callDriveMediaEndpoint<T extends { success: boolean; error?: stri
       ? [endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-model/'), endpointPath]
       : mediaType === 'video'
       ? [endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-video/'), endpointPath]
+      : mediaType === 'image'
+      ? [endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-image/'), endpointPath]
       : [endpointPath, endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-image/')]
     : [endpointPath];
 
