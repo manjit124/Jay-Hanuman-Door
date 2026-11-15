@@ -108,7 +108,7 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
     if (!file) return;
     setUploadingImageKey(key);
     try {
-      const res = await uploadImage(file);
+      const res = await uploadImage(file, { category: 'chaukhat' });
       onComplete(res.url);
       showToast('Chaukhat image uploaded successfully');
     } catch (err: any) {
@@ -749,9 +749,9 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                 {/* Slot 1: Plain Chaukhat Photo */}
                 <GoogleDriveImagePicker
                   label="1. Plain / Simple Chaukhat Photo"
-                  sublabel="Upload plain chaukhat sample from device or paste Google Drive link"
+                  sublabel="Upload plain chaukhat sample directly to Bunny Storage (chaukhat folder)"
                   value={editingProduct.plainImage || ''}
-                  category="catalog"
+                  category="chaukhat"
                   deviceUploadButtonText="Upload Plain Photo"
                   onChange={(url) => setEditingProduct(prev => prev ? { ...prev, plainImage: url } : prev)}
                   onToast={showToast}
@@ -761,9 +761,9 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                 {/* Slot 2: Diamond Designer Photo */}
                 <GoogleDriveImagePicker
                   label="2. Diamond Designer Chaukhat Photo"
-                  sublabel="Upload diamond designer chaukhat sample from device or paste Google Drive link"
+                  sublabel="Upload diamond designer chaukhat sample directly to Bunny Storage (chaukhat folder)"
                   value={editingProduct.diamondImage || ''}
-                  category="catalog"
+                  category="chaukhat"
                   deviceUploadButtonText="Upload Diamond Photo"
                   onChange={(url) => setEditingProduct(prev => prev ? { ...prev, diamondImage: url } : prev)}
                   onToast={showToast}
@@ -773,9 +773,9 @@ export const AdminChaukhatTab: React.FC<AdminChaukhatTabProps> = ({
                 {/* Slot 3: Hand-Carved Designer Photo */}
                 <GoogleDriveImagePicker
                   label="3. Hand-Carved Designer Chaukhat Photo"
-                  sublabel="Upload hand-carved designer chaukhat sample from device or paste Google Drive link"
+                  sublabel="Upload hand-carved designer chaukhat sample directly to Bunny Storage (chaukhat folder)"
                   value={editingProduct.handCarvedImage || ''}
-                  category="catalog"
+                  category="chaukhat"
                   deviceUploadButtonText="Upload Hand-Carved Photo"
                   onChange={(url) => setEditingProduct(prev => prev ? { ...prev, handCarvedImage: url } : prev)}
                   onToast={showToast}

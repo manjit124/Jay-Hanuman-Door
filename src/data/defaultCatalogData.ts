@@ -1,4 +1,4 @@
-import { Door, Category, HomeBanner, Article, CompanyStorySettings } from '../types.ts';
+import type { Door, Category, HomeBanner, Article, CompanyStorySettings } from '../types.ts';
 
 export const DEFAULT_STORY_SETTINGS: CompanyStorySettings = {
   sectionTitle: 'Our Story & Heritage',

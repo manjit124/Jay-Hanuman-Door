@@ -1,4 +1,4 @@
-import { IndiaDeliveryState, DeliveryStory } from '../types.ts';
+import type { IndiaDeliveryState, DeliveryStory } from '../types.ts';
 
 /**
  * Complete collection of all 28 Indian States and 8 Union Territories

@@ -9,3 +9,10 @@ coverage/
 *.keystore
 *.jks
 release.keystore
+android/app/src/main/assets/public/
+data/backups/
+data/uploads/
+data/uploads_backup/
+server/data/backups/
+server/data/uploads/
+

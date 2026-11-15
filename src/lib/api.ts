@@ -631,8 +631,27 @@ export function resolveImageUrl(path: string | undefined | null, fallback?: stri
     }
   }
 
-  // Handle Cloudflare R2 direct URLs (private bucket access is disabled, so route via backend proxy)
-  if (trimmed.includes('r2.cloudflarestorage.com') || trimmed.includes('jai-hanuman-door-media')) {
+  // Handle /api/bunny/media/... URLs (strip stale origins on web, resolve to production API on Android APK)
+  const bunnyMediaIdx = trimmed.lastIndexOf('/api/bunny/media/');
+  if (bunnyMediaIdx !== -1) {
+    const bunnyPathPart = trimmed.slice(bunnyMediaIdx + '/api/bunny/media/'.length).split('?')[0].split('#')[0];
+    if (bunnyPathPart) {
+      const cleanBunnyPath = '/api/bunny/media/' + bunnyPathPart;
+      if (typeof window !== 'undefined' && !isCapacitorOrNative()) {
+        return cleanBunnyPath;
+      }
+      const base = getApiBaseUrl();
+      return base ? base + cleanBunnyPath : cleanBunnyPath;
+    }
+  }
+
+  // Handle Bunny Pull Zone CDN URLs directly (public HTTPS CDN)
+  if (trimmed.includes('.b-cdn.net/')) {
+    return trimmed;
+  }
+
+  // Handle legacy Cloudflare R2 direct URLs (private bucket access is disabled, so route via backend proxy)
+  if (trimmed.includes('r2.cloudflarestorage.com')) {
     const filename = trimmed.split('/').pop()?.split('?')[0].split('#')[0];
     if (filename) {
       if (typeof window !== 'undefined' && !isCapacitorOrNative()) {
@@ -1722,14 +1741,17 @@ export async function uploadImage(
 
   options.onProgress?.(18, 'uploading');
 
-  // 2. Upload photo securely through backend Express API -> Owner Google Drive
+  // 2. Upload photo securely through backend Express API -> Bunny.net Storage
   const filename = resolveSafeUploadFilename(optimization.file, `door_${targetCategory}`);
+  const hasAdminCategory = Boolean(options.category && options.category.trim());
+  const uploadEndpoint = getAdminToken() || hasAdminCategory ? '/api/admin/bunny/upload' : '/api/upload';
   const uploadResult = await uploadFileWithProgress(
-    '/api/admin/drive/upload',
+    uploadEndpoint,
     optimization.file,
     pct => options.onProgress?.(pct, 'uploading'),
     90000,
     {
+      folder: targetCategory,
       category: targetCategory,
       mediaType: 'image',
       description: options.description || `Admin ${targetCategory} photo upload: ${filename}`,
@@ -1738,7 +1760,7 @@ export async function uploadImage(
 
   if (!uploadResult.ok || !uploadResult.data?.url) {
     const codePrefix = uploadResult.errorCode ? `[${uploadResult.errorCode}] ` : '';
-    throw new Error(`${codePrefix}${uploadResult.error || `Google Drive upload failed (HTTP ${uploadResult.status})`}`);
+    throw new Error(`${codePrefix}${uploadResult.error || `Bunny Storage upload failed (HTTP ${uploadResult.status})`}`);
   }
 
   const totalDurationMs = Math.round(
@@ -1748,10 +1770,10 @@ export async function uploadImage(
 
   const finalRes: UploadedImageResponse = {
     url: uploadResult.data.url,
-    fileId: uploadResult.data.fileId,
+    fileId: uploadResult.data.fileId || uploadResult.data.storagePath,
     filename: uploadResult.data.name || uploadResult.data.filename || filename,
     mimeType: uploadResult.data.mimeType,
-    storageType: uploadResult.data.storageType || 'google_drive',
+    storageType: uploadResult.data.storageType || 'bunny_storage',
     originalSize: optimization.originalSize,
     optimizedSize: optimization.optimizedSize,
     width: optimization.width,
@@ -1760,7 +1782,7 @@ export async function uploadImage(
   };
 
   console.info(
-    `[AdminUpload] Photo uploaded via backend to Google Drive (${totalDurationMs}ms): fileId=${finalRes.fileId || 'n/a'} url=${finalRes.url}`
+    `[AdminUpload] Photo uploaded via backend to ${finalRes.storageType} (${totalDurationMs}ms): url=${finalRes.url}`
   );
 
   try {
@@ -2255,14 +2277,19 @@ export async function uploadVideo(
     throw new Error('No video file provided for upload.');
   }
 
+  if (file.size > 100 * 1024 * 1024) {
+    throw new Error('Video file size exceeds 100 MB maximum limit.');
+  }
+
   onProgress?.(8);
   const filename = resolveSafeUploadFilename(file, 'product_video');
   const uploadResult = await uploadFileWithProgress(
-    '/api/admin/drive/upload',
+    '/api/admin/bunny/upload',
     file,
     onProgress,
-    180000,
+    240000,
     {
+      folder: category || 'videos',
       category: category || 'videos',
       mediaType: 'video',
       description: `Admin video upload: ${filename}`,
@@ -2271,26 +2298,26 @@ export async function uploadVideo(
 
   if (!uploadResult.ok || !uploadResult.data?.url) {
     const codePrefix = uploadResult.errorCode ? `[${uploadResult.errorCode}] ` : '';
-    throw new Error(`${codePrefix}${uploadResult.error || `Google Drive video upload failed (HTTP ${uploadResult.status})`}`);
+    throw new Error(`${codePrefix}${uploadResult.error || `Bunny Storage video upload failed (HTTP ${uploadResult.status})`}`);
   }
 
   onProgress?.(100);
-  console.info(`[AdminUpload] Video uploaded via backend to Google Drive: fileId=${uploadResult.data.fileId || 'n/a'} url=${uploadResult.data.url}`);
+  console.info(`[AdminUpload] Video uploaded via backend to ${uploadResult.data.storageType || 'bunny_storage'}: url=${uploadResult.data.url}`);
 
   return {
     url: uploadResult.data.url,
-    fileId: uploadResult.data.fileId,
+    fileId: uploadResult.data.fileId || uploadResult.data.storagePath,
     filename: uploadResult.data.name || uploadResult.data.filename || filename,
     mimeType: uploadResult.data.mimeType,
     size: uploadResult.data.size || file.size,
-    storageType: uploadResult.data.storageType || 'google_drive',
+    storageType: uploadResult.data.storageType || 'bunny_storage',
   };
 }
 
 export async function upload3DModel(
   file: File,
   onProgress?: (percent: number) => void,
-  category = 'products'
+  category = 'models3d'
 ): Promise<{
   url: string;
   fileId?: string;
@@ -2298,18 +2325,21 @@ export async function upload3DModel(
   originalName: string;
   size: number;
   is3DModel: boolean;
+  storageType?: string;
 }> {
   if (!file) {
     throw new Error('No 3D model file provided for upload.');
   }
 
   onProgress?.(10);
+  const isModelExt = /\.(glb|gltf)$/i.test(file.name || '');
+  const targetFolder = isModelExt ? 'models3d' : category || 'models3d';
   const uploadResult = await uploadFileWithProgress(
-    '/api/admin/upload-model',
+    '/api/admin/bunny/upload',
     file,
     onProgress,
-    150000,
-    { category, mediaType: 'model3d' }
+    180000,
+    { folder: targetFolder, category: targetFolder, mediaType: isModelExt ? 'model3d' : 'image' }
   );
 
   if (!uploadResult.ok || !uploadResult.data?.url) {
@@ -2320,11 +2350,12 @@ export async function upload3DModel(
   onProgress?.(100);
   return {
     url: uploadResult.data.url,
-    fileId: uploadResult.data.fileId,
+    fileId: uploadResult.data.fileId || uploadResult.data.storagePath,
     filename: uploadResult.data.filename || file.name,
     originalName: uploadResult.data.originalName || file.name,
     size: uploadResult.data.size || file.size,
-    is3DModel: Boolean(uploadResult.data.is3DModel),
+    is3DModel: Boolean(uploadResult.data.is3DModel ?? isModelExt),
+    storageType: uploadResult.data.storageType || 'bunny_storage',
   };
 }
 
@@ -4722,9 +4753,39 @@ export async function reorderAdminChaukhatProducts(ids: string[]): Promise<void>
   }
 }
 
+export interface BunnyStatusInfo {
+  configured: boolean;
+  connected: boolean;
+  readable: boolean;
+  writable: boolean;
+  zone: string;
+  region: string;
+  endpointConfigured: boolean;
+  endpointHost: string;
+  cdnUrlConfigured: boolean;
+  cdnUrl: string;
+  missingVars: string[];
+  statusMessage: string;
+}
+
+export interface BunnyFileItem {
+  fileId: string;
+  objectPath: string;
+  folder: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  url: string;
+  proxyUrl: string;
+  cdnUrl?: string;
+  createdAt: string;
+  isVideo: boolean;
+  is3DModel: boolean;
+}
+
 export interface StorageStatusResponse {
   storage?: {
-    provider: 'firebase_storage';
+    provider: 'bunny_storage' | 'firebase_storage';
     configured: boolean;
     connected: boolean;
     readable: boolean;
@@ -4732,8 +4793,10 @@ export interface StorageStatusResponse {
     bucket: string;
     statusMessage: string;
     firebaseStorageReady: boolean;
+    bunnyStorageReady?: boolean;
     setupInstructionsRequired?: boolean;
   };
+  bunny?: BunnyStatusInfo;
   r2: {
     configured: boolean;
     connected: boolean;
@@ -4757,6 +4820,58 @@ export interface StorageStatusResponse {
   };
   activeMode: string;
   firestoreMediaPreserved: boolean;
+}
+
+export async function fetchBunnyStorageStatus(): Promise<{ success: boolean; status?: BunnyStatusInfo; error?: string }> {
+  try {
+    const res = await apiFetch('/api/admin/bunny/status', { headers: authHeaders() });
+    const parsed = await parseSafeJsonResponse<any>(res, 'Bunny Storage Status');
+    if (!parsed.success) return { success: false, error: parsed.error };
+    return { success: true, status: parsed.data?.status };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to check Bunny Storage status' };
+  }
+}
+
+export async function fetchBunnyStorageFiles(folder = 'products'): Promise<{ success: boolean; files: BunnyFileItem[]; error?: string }> {
+  try {
+    const res = await apiFetch(`/api/admin/bunny/files?folder=${encodeURIComponent(folder)}`, {
+      headers: authHeaders(),
+    });
+    const parsed = await parseSafeJsonResponse<any>(res, 'List Bunny Storage Files');
+    if (!parsed.success) return { success: false, files: [], error: parsed.error };
+    return { success: true, files: parsed.data?.files || [] };
+  } catch (err: any) {
+    return { success: false, files: [], error: err?.message || 'Failed to load Bunny Storage files' };
+  }
+}
+
+export async function deleteBunnyStorageFile(
+  objectPathOrUrl: string,
+  force = false
+): Promise<{ success: boolean; deleted?: boolean; inUse?: boolean; objectPath?: string; error?: string }> {
+  try {
+    const res = await apiFetch('/api/admin/bunny/delete', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ objectPath: objectPathOrUrl, url: objectPathOrUrl, force }),
+    });
+    const parsed = await parseSafeJsonResponse<any>(res, 'Delete Bunny Storage File');
+    if (!parsed.success) {
+      return {
+        success: false,
+        inUse: Boolean(parsed.data?.inUse || parsed.status === 409),
+        error: parsed.error || parsed.data?.error,
+      };
+    }
+    return {
+      success: Boolean(parsed.data?.success),
+      deleted: Boolean(parsed.data?.deleted),
+      objectPath: parsed.data?.objectPath,
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to delete file from Bunny Storage' };
+  }
 }
 
 export async function fetchStorageStatus(): Promise<StorageStatusResponse | null> {
@@ -4804,6 +4919,7 @@ export async function deleteMediaAsset(url: string, force = false): Promise<{ su
     return { success: false, error: err.message };
   }
 }
+
 
 
 

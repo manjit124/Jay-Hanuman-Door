@@ -661,9 +661,9 @@ export const AdminWoodDetectorTab: React.FC<AdminWoodDetectorTabProps> = ({
               <div>
                 <GoogleDriveImagePicker
                   label="Sample Wood Photo"
-                  sublabel="Upload timber reference sample from device or paste Google Drive sharing link"
+                  sublabel="Upload timber reference sample directly to Bunny Storage (materials folder)"
                   value={refImageUrl}
-                  category="products"
+                  category="materials"
                   deviceUploadButtonText="Upload Reference Photo"
                   onChange={(url) => setRefImageUrl(url)}
                   compact

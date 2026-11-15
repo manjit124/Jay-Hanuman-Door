@@ -16,36 +16,15 @@ const backupsDir = path.join(dataDir, 'backups');
 const dbFile = path.join(dataDir, 'database.json');
 const mirrorFile = path.join(dataDir, 'production_data_store.json');
 const uploadsDir = path.join(rootDir, 'public', 'uploads');
-const dataUploadsDir = path.join(dataDir, 'uploads');
-const distUploadsDir = path.join(rootDir, 'dist', 'uploads');
 
-// Ensure directories exist
-[dataDir, backupsDir, uploadsDir, dataUploadsDir].forEach(dir => {
+// Ensure primary directories exist
+[dataDir, backupsDir, uploadsDir].forEach(dir => {
   if (!fs.existsSync(dir)) {
     try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   }
 });
 
 const isPostBuild = process.argv.includes('--post-build');
-
-function syncDirMissing(srcDir, destDir) {
-  if (!fs.existsSync(srcDir)) return;
-  if (!fs.existsSync(destDir)) {
-    try { fs.mkdirSync(destDir, { recursive: true }); } catch {}
-  }
-  const entries = fs.readdirSync(srcDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const src = path.join(srcDir, entry.name);
-    const dest = path.join(destDir, entry.name);
-    if (entry.isDirectory()) {
-      syncDirMissing(src, dest);
-    } else if (entry.isFile()) {
-      if (!fs.existsSync(dest)) {
-        fs.copyFileSync(src, dest);
-      }
-    }
-  }
-}
 
 if (!isPostBuild) {
   console.log('🛡️ [Pre-Build] Checking production data protection...');
@@ -67,7 +46,7 @@ if (!isPostBuild) {
       fs.writeFileSync(mirrorFile, raw, 'utf8');
       console.log(`📦 [Pre-Build] Snapshot saved to: data/backups/pre-build-snapshot-${ts}.json`);
 
-      // Prune excess historical snapshots to keep build context fast and compact
+      // Retain at most 2 snapshots per backup dir to prevent build bloat
       [backupsDir, path.join(rootDir, 'server', 'data', 'backups')].forEach(bDir => {
         try {
           if (!fs.existsSync(bDir)) return;
@@ -80,8 +59,8 @@ if (!isPostBuild) {
               return { full, mtimeMs };
             })
             .sort((a, b) => a.mtimeMs - b.mtimeMs);
-          if (files.length > 6) {
-            files.slice(0, files.length - 6).forEach(item => {
+          if (files.length > 2) {
+            files.slice(0, files.length - 2).forEach(item => {
               try { fs.unlinkSync(item.full); } catch {}
             });
           }
@@ -94,30 +73,8 @@ if (!isPostBuild) {
     console.log('🛡️ [Pre-Build] database.json missing, restoring from production_data_store.json mirror...');
     fs.copyFileSync(mirrorFile, dbFile);
   }
-
-  // 2. Sync uploads between public/uploads and data/uploads
-  try {
-    syncDirMissing(dataUploadsDir, uploadsDir);
-    syncDirMissing(uploadsDir, dataUploadsDir);
-  } catch (err) {
-    console.warn('⚠️ [Pre-Build] Uploads sync warning:', err.message);
-  }
 } else {
-  console.log('🛡️ [Post-Build] Verifying and synchronizing build assets...');
-
-  // Ensure dist/uploads has all images
-  if (fs.existsSync(path.join(rootDir, 'dist'))) {
-    if (!fs.existsSync(distUploadsDir)) {
-      try { fs.mkdirSync(distUploadsDir, { recursive: true }); } catch {}
-    }
-
-    try {
-      syncDirMissing(uploadsDir, distUploadsDir);
-      syncDirMissing(dataUploadsDir, distUploadsDir);
-    } catch (err) {
-      console.warn('⚠️ [Post-Build] Dist uploads sync warning:', err.message);
-    }
-  }
+  console.log('🛡️ [Post-Build] Verifying build assets and database...');
 
   // Verify database is still intact
   if (fs.existsSync(dbFile)) {

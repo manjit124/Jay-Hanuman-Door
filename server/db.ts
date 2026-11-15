@@ -6,7 +6,7 @@ import {
   saveEntityToFirestore,
   deleteEntityFromFirestore,
 } from './firestoreDb.ts';
-import {
+import type {
   Door,
   Category,
   DoorMaterial,
@@ -139,7 +139,7 @@ export const UPLOAD_BACKUP_DIR = path.join(DATA_DIR, 'uploads');
 export const SERVER_UPLOAD_DIR = path.join(SERVER_DATA_DIR, 'uploads');
 export const DIST_UPLOAD_DIR = path.join(APP_ROOT, 'dist', 'uploads');
 
-// Ensure all persistent and backup directories exist safely across primary, server, and backup tiers
+// Ensure primary persistent directories exist safely (avoid eagerly duplicating static uploads into backup/dist dirs)
 [
   DATA_DIR,
   SERVER_DATA_DIR,
@@ -147,9 +147,6 @@ export const DIST_UPLOAD_DIR = path.join(APP_ROOT, 'dist', 'uploads');
   SERVER_BACKUPS_DIR,
   PERMANENT_BACKUPS_DIR,
   UPLOAD_DIR,
-  UPLOAD_BACKUP_DIR,
-  SERVER_UPLOAD_DIR,
-  DIST_UPLOAD_DIR,
 ].forEach(dir => {
   try {
     if (!fs.existsSync(dir)) {
@@ -160,38 +157,30 @@ export const DIST_UPLOAD_DIR = path.join(APP_ROOT, 'dist', 'uploads');
   }
 });
 
-// Synchronize uploaded images between live public/uploads, server uploads, and persistent data/uploads
+// Recover any orphaned uploads from legacy backup upload dirs into primary UPLOAD_DIR without 4x disk duplication
 export function syncUploadedImages(): void {
-  const dirs = [UPLOAD_DIR, UPLOAD_BACKUP_DIR, SERVER_UPLOAD_DIR, DIST_UPLOAD_DIR];
-  const allFiles = new Map<string, string>(); // filename -> source path
-
-  for (const dir of dirs) {
-    try {
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const files = fs.readdirSync(dir);
-      for (const f of files) {
-        if (!f.startsWith('.')) {
-          const fullPath = path.join(dir, f);
-          try {
-            if (fs.statSync(fullPath).isFile() && !allFiles.has(f)) {
-              allFiles.set(f, fullPath);
-            }
-          } catch {}
-        }
-      }
-    } catch {}
+  const sourceDirs = [UPLOAD_BACKUP_DIR, SERVER_UPLOAD_DIR, DIST_UPLOAD_DIR];
+  try {
+    if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  } catch {
+    return;
   }
 
-  // Cross-copy all images to every directory so they are always accessible
-  for (const [filename, sourcePath] of allFiles.entries()) {
-    for (const targetDir of dirs) {
-      const targetPath = path.join(targetDir, filename);
-      if (!fs.existsSync(targetPath)) {
+  for (const dir of sourceDirs) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      const files = fs.readdirSync(dir);
+      for (const f of files) {
+        if (f.startsWith('.')) continue;
+        const srcPath = path.join(dir, f);
+        const destPath = path.join(UPLOAD_DIR, f);
         try {
-          fs.copyFileSync(sourcePath, targetPath);
+          if (fs.statSync(srcPath).isFile() && !fs.existsSync(destPath)) {
+            fs.copyFileSync(srcPath, destPath);
+          }
         } catch {}
       }
-    }
+    } catch {}
   }
 }
 
@@ -1107,7 +1096,7 @@ export function pruneExcessBackups(maxFiles: number = 6): void {
 }
 
 // Prune accumulated historical snapshots once on module load
-pruneExcessBackups(6);
+pruneExcessBackups(2);
 
 /**
  * Scans multi-tier persistent storage across primary, server store, mirror, and rolling backups:
@@ -1565,8 +1554,8 @@ export function saveDb(data: DatabaseSchema, auditContext?: SaveAuditContext): v
     try { writeAtomicJson(backupFile, data); } catch {}
     try { writeAtomicJson(serverBackupFile, data); } catch {}
 
-    // Rotate backups: retain newest 6 snapshots in each directory
-    pruneExcessBackups(6);
+    // Rotate backups: retain newest 2 snapshots in each directory
+    pruneExcessBackups(2);
   }
 }
 

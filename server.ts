@@ -1,5 +1,7 @@
 import dotenv from 'dotenv';
-dotenv.config({ override: true });
+if (!process.env.K_SERVICE && !process.env.K_REVISION) {
+  dotenv.config();
+}
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -52,6 +54,20 @@ import {
   syncPendingLocalFilesToR2,
 } from './server/storageService.ts';
 import {
+  isBunnyStorageConfigured,
+  getBunnyConfigSummary,
+  checkBunnyAvailability,
+  uploadToBunnyStorage,
+  fetchFromBunnyStorage,
+  listBunnyStorageFiles,
+  deleteFromBunnyStorage,
+  extractBunnyObjectPath,
+  normalizeBunnyFolder,
+  validateBunnyUploadFile,
+  getMimeTypeForFilename,
+  MAX_VIDEO_UPLOAD_BYTES,
+} from './server/bunnyStorage.ts';
+import {
   fetchAndValidateExternalImage,
   fetchAndValidateExternalMedia,
   extractGoogleDriveFileId,
@@ -76,11 +92,11 @@ import {
   getExtensionForMimeType,
   type DriveSubfolderCategory,
 } from './server/googleDriveStorage.ts';
-import { analyzeDoorWood, ImageInputPart } from './server/aiWoodDetector.ts';
+import { analyzeDoorWood, type ImageInputPart } from './server/aiWoodDetector.ts';
 import { WOOD_SPECIES_PROFILES } from './server/woodAnatomyGuide.ts';
 import { runWoodBenchmarkEvaluation } from './server/woodBenchmark.ts';
 import { generateSitemapXml, generateRobotsTxt } from './server/sitemap.ts';
-import {
+import type {
   CalculationInput,
   CalculationResult,
   Quotation,
@@ -114,8 +130,15 @@ import {
 import { initTrackingRoutes } from './server/trackingService.ts';
 
 const app = express();
-const rawPort = process.env.PORT;
-const PORT = rawPort ? parseInt(rawPort, 10) : 3000;
+const rawPort = process.env.PORT !== undefined ? String(process.env.PORT).trim() : '';
+const parsedPort = rawPort ? Number(rawPort) : NaN;
+const PORT =
+  Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535
+    ? parsedPort
+    : 3000;
+if (rawPort && (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535)) {
+  console.warn(`⚠️ Invalid process.env.PORT="${rawPort}", falling back to port ${PORT}`);
+}
 
 // Production & Development CORS Configuration (including Capacitor Android Native)
 const ALLOWED_ORIGIN_PATTERNS = [
@@ -247,6 +270,20 @@ app.get(
         '/api/admin/drive-video/import',
         '/api/admin/drive/import',
       ],
+      bunnyStorageConfigured: isBunnyStorageConfigured(),
+      bunnyStorageRoutes: [
+        '/api/admin/bunny/status',
+        '/api/admin/bunny/upload',
+        '/api/admin/bunny/upload-multiple',
+        '/api/admin/bunny/files',
+        '/api/admin/bunny/delete',
+        '/api/admin/upload',
+        '/api/admin/upload-image',
+        '/api/admin/upload-product-image',
+        '/api/admin/upload-video',
+        '/api/admin/upload-product-video',
+        '/api/bunny/media/*',
+      ],
       registeredRoutesCount: registeredRoutes.length,
       registeredRoutes,
     });
@@ -322,7 +359,73 @@ app.use('/uploads', express.static(UPLOAD_BACKUP_DIR, {
   }
 }));
 
-// Fallback media recovery handler from Cloudflare R2 bucket / persistent Firestore
+// Public Bunny.net Storage Media Streaming & Proxy Route (supports Web & Android APK + HTTP 206 Byte-Range video scrubbing)
+app.get('/api/bunny/media/*', async (req, res) => {
+  const rawParam = String((req.params as any)?.[0] || '').trim();
+  const cleanObjectPath = extractBunnyObjectPath(rawParam);
+  if (!cleanObjectPath || cleanObjectPath.includes('..')) {
+    return res.status(400).json({ success: false, error: 'Invalid Bunny media path' });
+  }
+
+  const baseName = path.basename(cleanObjectPath).replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+  const localPath = path.join(UPLOAD_DIR, baseName);
+
+  // Fast path: serve from local cache if available and valid
+  if (fs.existsSync(localPath)) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Content-Type', getMimeTypeForFilename(cleanObjectPath));
+    return res.sendFile(localPath);
+  }
+
+  const bunnyRes = await fetchFromBunnyStorage(cleanObjectPath, rangeHeader);
+  if (bunnyRes.ok && bunnyRes.buffer) {
+    // Cache non-partial full responses to disk for fast subsequent loads
+    if (!rangeHeader && bunnyRes.status === 200 && bunnyRes.buffer.length > 0 && bunnyRes.buffer.length <= 25 * 1024 * 1024) {
+      try {
+        if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+        fs.writeFileSync(localPath, bunnyRes.buffer);
+      } catch {}
+    }
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Accept-Ranges', bunnyRes.acceptRanges || 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Content-Type', bunnyRes.contentType || getMimeTypeForFilename(cleanObjectPath));
+    if (bunnyRes.contentRange) {
+      res.setHeader('Content-Range', bunnyRes.contentRange);
+    }
+    res.setHeader('Content-Length', String(bunnyRes.buffer.length));
+    return res.status(bunnyRes.status === 206 ? 206 : 200).send(bunnyRes.buffer);
+  }
+
+  // Fallback to storageService lookup by basename
+  try {
+    const media = await getMediaBuffer(baseName);
+    if (media && media.buffer) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.setHeader('Content-Type', media.mimeType || getMimeTypeForFilename(cleanObjectPath));
+      res.setHeader('Content-Length', String(media.buffer.length));
+      return res.send(media.buffer);
+    }
+  } catch {}
+
+  return res.status(404).json({
+    success: false,
+    error: `Bunny media asset "${cleanObjectPath}" not found.`,
+    objectPath: cleanObjectPath,
+    missing: true,
+  });
+});
+
+// Fallback media recovery handler from Bunny.net Storage / Firebase / persistent Firestore / legacy R2
 // Ensures images and videos NEVER disappear when Cloud Run restarts or redeploys
 app.get(['/uploads/*', '/api/uploads/*', '/api/media/*'], async (req, res, next) => {
   const rawParam = req.params[0] || req.params.filename || req.path;
@@ -465,7 +568,17 @@ app.get(['/uploads/*', '/api/uploads/*', '/api/media/*'], async (req, res, next)
 // Configure Multer for direct file uploads
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    cb(null, UPLOAD_DIR);
+    try {
+      if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+      fs.accessSync(UPLOAD_DIR, fs.constants.W_OK);
+      return cb(null, UPLOAD_DIR);
+    } catch {
+      const tmpUploadDir = '/tmp/jai-hanuman-door/uploads';
+      try {
+        if (!fs.existsSync(tmpUploadDir)) fs.mkdirSync(tmpUploadDir, { recursive: true });
+      } catch {}
+      return cb(null, tmpUploadDir);
+    }
   },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname) || '.jpg';
@@ -519,32 +632,17 @@ const modelUpload = multer({
   },
 });
 
-// Multer configuration for Product Videos (MP4, WebM, QuickTime MOV) up to 50 MB
-const videoUpload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
-  fileFilter: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const allowedExts = ['.mp4', '.webm', '.mov', '.m4v', '.mkv'];
-    const isVideoMime =
-      file.mimetype.startsWith('video/') ||
-      file.mimetype === 'video/mp4' ||
-      file.mimetype === 'video/webm' ||
-      file.mimetype === 'video/quicktime' ||
-      file.mimetype === 'application/octet-stream';
-    if (allowedExts.includes(ext) || isVideoMime) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only MP4, WebM, and MOV video files are permitted (Max 50 MB)'));
-    }
-  },
+// Direct in-memory Multer for Bunny.net Storage API routes (up to 100 MB)
+const bunnyMemoryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_VIDEO_UPLOAD_BYTES },
 });
 
-// Unified Multer configuration for Admin Google Drive Media Uploads (Photos, Videos, 3D Models, PDFs up to 60 MB)
+// Unified Multer configuration for Admin Media Uploads (Photos, Videos, 3D Models up to 100 MB)
 // Accepts application/octet-stream and extensionless Android WebView blobs; magic-byte detection validates content in handler.
 const driveMediaUpload = multer({
   storage,
-  limits: { fileSize: 60 * 1024 * 1024 }, // 60 MB
+  limits: { fileSize: MAX_VIDEO_UPLOAD_BYTES }, // 100 MB
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase();
     const mime = (file.mimetype || '').toLowerCase().trim();
@@ -626,15 +724,125 @@ initTrackingRoutes(app, verifyAdminToken);
 
 // ---------------- API ROUTES ----------------
 
-// Upload endpoint for images
+// Unified server-side Bunny.net Storage single-file upload handler (JPG, PNG, WebP, MP4, WebM, MOV, GLB, GLTF)
+const handleBunnySingleUpload = (
+  req: express.Request,
+  res: express.Response,
+  enforcedKind?: 'image' | 'video' | 'model3d',
+  defaultFolder?: string
+) => {
+  bunnyMemoryUpload.single('file')(req, res, async (multerErr: any) => {
+    if (multerErr) {
+      const isLimit = multerErr?.code === 'LIMIT_FILE_SIZE';
+      return res.status(isLimit ? 413 : 400).json({
+        success: false,
+        errorCode: isLimit ? 'FILE_TOO_LARGE' : 'UPLOAD_VALIDATION_ERROR',
+        error: isLimit
+          ? 'Uploaded file exceeds the 100 MB maximum limit.'
+          : multerErr?.message || 'Invalid multipart upload request.',
+      });
+    }
+
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'NO_FILE',
+        error: 'No media file attached. Please choose a JPG, PNG, WebP, MP4, WebM, or .glb file.',
+      });
+    }
+
+    if (!isBunnyStorageConfigured()) {
+      const summary = getBunnyConfigSummary();
+      return res.status(503).json({
+        success: false,
+        errorCode: 'BUNNY_NOT_CONFIGURED',
+        missingVars: summary.missingVars,
+        error: `Bunny.net Storage environment variable(s) not configured on server: ${summary.missingVars.join(', ')}.`,
+      });
+    }
+
+    const validation = validateBunnyUploadFile(
+      req.file.mimetype,
+      req.file.originalname,
+      req.file.buffer.length,
+      req.file.buffer
+    );
+    if (!validation.valid) {
+      return res.status(validation.statusCode || 400).json({
+        success: false,
+        errorCode: validation.errorCode || 'VALIDATION_ERROR',
+        error: validation.error,
+      });
+    }
+
+    if (enforcedKind && validation.kind !== enforcedKind) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'UNSUPPORTED_MEDIA_TYPE',
+        error:
+          enforcedKind === 'video'
+            ? 'Only MP4, WebM, and MOV video files are permitted (Max 100 MB).'
+            : enforcedKind === 'image'
+            ? 'Only JPG, PNG, and WebP image files are permitted (Max 20 MB).'
+            : 'Only .glb and .gltf 3D model files are permitted (Max 60 MB).',
+      });
+    }
+
+    const fallbackFolder =
+      defaultFolder ||
+      (validation.kind === 'video' ? 'videos' : validation.kind === 'model3d' ? 'models3d' : 'products');
+    const requestedFolder = String(req.body?.folder || req.body?.category || fallbackFolder).trim();
+    const folder = normalizeBunnyFolder(requestedFolder);
+    const productId = typeof req.body?.productId === 'string' ? req.body.productId.trim() : undefined;
+
+    const result = await saveMedia(
+      req.file.originalname || `upload${validation.extension}`,
+      validation.mimeType,
+      req.file.buffer,
+      folder,
+      productId
+    );
+
+    if (!result.success) {
+      return res.status(result.statusCode || 502).json({
+        success: false,
+        errorCode: result.errorCode || 'BUNNY_UPLOAD_FAILED',
+        error: result.error || 'Failed to upload file to Bunny.net Storage.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      url: result.url,
+      downloadUrl: result.downloadUrl || result.url,
+      proxyUrl: result.proxyUrl,
+      ...(result.cdnUrl ? { cdnUrl: result.cdnUrl } : {}),
+      fileId: result.storagePath,
+      storagePath: result.storagePath,
+      storageZone: result.storageZone,
+      folder,
+      name: result.metadata?.filename || req.file.originalname,
+      filename: result.metadata?.filename || req.file.originalname,
+      mimeType: validation.mimeType,
+      size: req.file.buffer.length,
+      isVideo: validation.kind === 'video',
+      is3DModel: validation.kind === 'model3d',
+      storageType: 'bunny_storage',
+      metadata: result.metadata,
+    });
+  });
+};
+
+// Public visualizer image upload endpoint (used by Entrance Photo Fitting cutout)
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, errorCode: 'NO_FILE', error: 'No image file uploaded' });
   }
 
+  const tempPath = req.file.path;
   try {
-    const fileBuf = fs.readFileSync(req.file.path);
-    const category = typeof req.body?.category === 'string' && req.body.category.trim() ? req.body.category.trim() : 'doors';
+    const fileBuf = fs.readFileSync(tempPath);
+    const category = typeof req.body?.category === 'string' && req.body.category.trim() ? req.body.category.trim() : 'products';
     const result = await saveMedia(req.file.filename, req.file.mimetype, fileBuf, category);
 
     if (!result.success) {
@@ -642,7 +850,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       return res.status(statusCode).json({
         success: false,
         errorCode: result.errorCode || 'STORAGE_UPLOAD_FAILED',
-        error: result.error || 'Failed to durably persist uploaded image to Firebase Storage.',
+        error: result.error || 'Failed to durably persist uploaded image to Bunny.net Storage.',
         storageType: result.storageType,
       });
     }
@@ -651,19 +859,23 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       success: true,
       url: result.url,
       downloadUrl: result.downloadUrl || result.url,
-      filename: req.file.filename,
+      proxyUrl: result.proxyUrl,
+      ...(result.cdnUrl ? { cdnUrl: result.cdnUrl } : {}),
+      filename: result.metadata?.filename || req.file.filename,
       size: req.file.size,
       storageType: result.storageType,
+      storageZone: result.storageZone,
       firebaseBucket: result.firebaseBucket,
       storagePath: result.storagePath,
-      // Backward compatibility aliases
-      r2Bucket: result.firebaseBucket,
-      r2Key: result.storagePath,
       metadata: result.metadata,
     });
   } catch (err: any) {
     console.error('⚠️ Upload failed:', err);
     return res.status(500).json({ success: false, errorCode: 'UPLOAD_EXCEPTION', error: err.message || 'Image upload failed' });
+  } finally {
+    try {
+      if (tempPath && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    } catch {}
   }
 });
 
@@ -676,20 +888,28 @@ app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => 
   const multerFiles = req.files as Express.Multer.File[];
   const urls: string[] = [];
   const errors: string[] = [];
-  const category = typeof req.body?.category === 'string' && req.body.category.trim() ? req.body.category.trim() : 'doors';
+  const category = typeof req.body?.category === 'string' && req.body.category.trim() ? req.body.category.trim() : 'products';
 
-  for (const f of multerFiles) {
-    try {
-      const fileBuf = fs.readFileSync(f.path);
-      const resVal = await saveMedia(f.filename, f.mimetype, fileBuf, category);
-      if (resVal.success) {
-        urls.push(resVal.url);
-      } else {
-        errors.push(`${f.originalname}: ${resVal.error || 'Storage upload failed'}`);
+  try {
+    for (const f of multerFiles) {
+      try {
+        const fileBuf = fs.readFileSync(f.path);
+        const resVal = await saveMedia(f.filename, f.mimetype, fileBuf, category);
+        if (resVal.success) {
+          urls.push(resVal.url);
+        } else {
+          errors.push(`${f.originalname}: ${resVal.error || 'Storage upload failed'}`);
+        }
+      } catch (err: any) {
+        console.warn(`Failed uploading ${f.filename}:`, err);
+        errors.push(`${f.originalname}: ${err.message || 'Upload exception'}`);
       }
-    } catch (err: any) {
-      console.warn(`Failed uploading ${f.filename}:`, err);
-      errors.push(`${f.originalname}: ${err.message || 'Upload exception'}`);
+    }
+  } finally {
+    for (const f of multerFiles) {
+      try {
+        if (f.path && fs.existsSync(f.path)) fs.unlinkSync(f.path);
+      } catch {}
     }
   }
 
@@ -697,7 +917,7 @@ app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => 
     return res.status(502).json({
       success: false,
       errorCode: 'STORAGE_BATCH_UPLOAD_FAILED',
-      error: `Failed to durably store images to Firebase Storage: ${errors.join('; ')}`,
+      error: `Failed to durably store images: ${errors.join('; ')}`,
       errors,
     });
   }
@@ -705,44 +925,21 @@ app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => 
   res.json({ success: true, urls, ...(errors.length > 0 ? { warnings: errors } : {}) });
 });
 
-// Upload Product Video endpoint (MP4, WebM, MOV, max 50 MB)
-app.post(['/api/upload-video', '/api/admin/upload-video'], (req, res) => {
-  videoUpload.single('file')(req, res, async (err) => {
-    if (err) {
-      return res.status(400).json({ error: err.message || 'Video upload failed' });
-    }
-    if (!req.file) {
-      return res.status(400).json({ error: 'No video file uploaded' });
-    }
+// Admin: Authenticated Product Video upload routes (MP4, WebM, MOV up to 100 MB -> Bunny.net Storage)
+app.post(
+  ['/api/upload-video', '/api/admin/upload-video', '/api/admin/upload-product-video'],
+  verifyAdminToken,
+  (req, res) => handleBunnySingleUpload(req, res, 'video', 'videos')
+);
 
-    try {
-      const fileBuf = fs.readFileSync(req.file.path);
-      const result = await saveMedia(req.file.filename, req.file.mimetype || 'video/mp4', fileBuf);
+// Admin: Authenticated Product Image & Media upload aliases -> Bunny.net Storage
+app.post(
+  ['/api/admin/upload', '/api/admin/upload-product-image'],
+  verifyAdminToken,
+  (req, res) => handleBunnySingleUpload(req, res, undefined, 'products')
+);
 
-      if (!result.success) {
-        return res.status(502).json({
-          success: false,
-          error: result.error || 'Failed to durably persist video file to Cloudflare R2 or Firestore cloud store.',
-          storageType: result.storageType,
-        });
-      }
-
-      res.json({
-        success: true,
-        url: result.url,
-        filename: req.file.filename,
-        size: req.file.size,
-        storageType: result.storageType,
-        metadata: result.metadata,
-      });
-    } catch (saveErr: any) {
-      console.error('⚠️ Video save error:', saveErr);
-      res.status(500).json({ error: saveErr.message || 'Failed to save video file' });
-    }
-  });
-});
-
-// Admin: Upload 3D Models (.glb, .gltf) and textures
+// Admin: Upload 3D Models (.glb, .gltf) and textures -> Bunny.net Storage primary
 app.post('/api/admin/upload-model', verifyAdminToken, (req, res) => {
   modelUpload.single('file')(req, res, async (err) => {
     if (err) {
@@ -755,48 +952,49 @@ app.post('/api/admin/upload-model', verifyAdminToken, (req, res) => {
     const ext = path.extname(req.file.originalname || '').toLowerCase();
     const is3DModel = ['.glb', '.gltf'].includes(ext);
     const mime = is3DModel ? (ext === '.gltf' ? 'model/gltf+json' : 'model/gltf-binary') : (req.file.mimetype || 'application/octet-stream');
+    const folder = is3DModel ? 'models3d' : normalizeBunnyFolder(String(req.body?.category || 'products'));
 
     try {
       const fileBuf = fs.readFileSync(req.file.path);
-      let driveResult: any = null;
 
-      if (hasServerDriveOAuthCredentials()) {
-        try {
-          driveResult = await uploadMediaToOwnerDrive(
-            fileBuf,
-            req.file.originalname || req.file.filename,
-            mime,
-            'products',
-            `Admin 3D/model upload: ${req.file.originalname || req.file.filename}`
-          );
-        } catch (driveErr: any) {
-          console.warn('⚠️ [3D Model Upload] Google Drive mirror notice:', driveErr?.message);
+      if (isBunnyStorageConfigured()) {
+        const result = await saveMedia(req.file.originalname || req.file.filename, mime, fileBuf, folder);
+        if (!result.success) {
+          return res.status(result.statusCode || 502).json({
+            success: false,
+            errorCode: result.errorCode || 'BUNNY_UPLOAD_FAILED',
+            error: result.error || 'Failed to persist 3D model/texture to Bunny.net Storage.',
+            storageType: result.storageType,
+          });
         }
-      }
-
-      if (driveResult?.url) {
         return res.json({
           success: true,
-          url: driveResult.url,
-          fileId: driveResult.fileId,
-          filename: driveResult.name,
+          url: result.url,
+          downloadUrl: result.downloadUrl || result.url,
+          proxyUrl: result.proxyUrl,
+          ...(result.cdnUrl ? { cdnUrl: result.cdnUrl } : {}),
+          fileId: result.storagePath,
+          storagePath: result.storagePath,
+          storageZone: result.storageZone,
+          filename: result.metadata?.filename || req.file.filename,
           originalName: req.file.originalname,
           size: req.file.size,
           is3DModel,
-          storageType: 'google_drive',
+          storageType: result.storageType,
         });
       }
 
       const result = await saveMedia(
         req.file.filename,
         mime,
-        fileBuf
+        fileBuf,
+        folder
       );
 
       if (!result.success) {
         return res.status(502).json({
           success: false,
-          error: result.error || 'Failed to durably persist 3D model/texture to Cloudflare R2 or Firestore cloud store.',
+          error: result.error || 'Failed to persist 3D model/texture to cloud storage.',
           storageType: result.storageType,
         });
       }
@@ -821,6 +1019,205 @@ app.post('/api/admin/upload-model', verifyAdminToken, (req, res) => {
     }
   });
 });
+
+// =========================================================================
+// BUNNY.NET STORAGE SECURE ADMIN MANAGEMENT & UPLOAD APIs
+// =========================================================================
+
+// Admin: Get Bunny.net Storage configuration & live connection status (no credentials returned)
+app.get('/api/admin/bunny/status', verifyAdminToken, async (_req, res) => {
+  try {
+    const status = await checkBunnyAvailability();
+    return res.json({ success: true, status });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to check Bunny.net Storage status.',
+    });
+  }
+});
+
+// Admin: Direct upload (JPG, PNG, WebP, MP4, WebM, GLB, GLTF) directly from server to Bunny Storage
+app.post('/api/admin/bunny/upload', verifyAdminToken, (req, res) =>
+  handleBunnySingleUpload(req, res)
+);
+
+// Admin: Batch upload up to 10 files to Bunny Storage
+app.post('/api/admin/bunny/upload-multiple', verifyAdminToken, (req, res) => {
+  bunnyMemoryUpload.array('files', 10)(req, res, async (multerErr: any) => {
+    if (multerErr) {
+      const isLimit = multerErr?.code === 'LIMIT_FILE_SIZE';
+      return res.status(isLimit ? 413 : 400).json({
+        success: false,
+        errorCode: isLimit ? 'FILE_TOO_LARGE' : 'UPLOAD_VALIDATION_ERROR',
+        error: multerErr?.message || 'Batch upload validation error.',
+      });
+    }
+
+    const files = (req.files as Express.Multer.File[]) || [];
+    if (files.length === 0) {
+      return res.status(400).json({ success: false, errorCode: 'NO_FILES', error: 'No files attached.' });
+    }
+
+    if (!isBunnyStorageConfigured()) {
+      const summary = getBunnyConfigSummary();
+      return res.status(503).json({
+        success: false,
+        errorCode: 'BUNNY_NOT_CONFIGURED',
+        missingVars: summary.missingVars,
+        error: `Bunny.net Storage environment variable(s) not configured: ${summary.missingVars.join(', ')}.`,
+      });
+    }
+
+    const folder = normalizeBunnyFolder(String(req.body?.folder || req.body?.category || 'products'));
+    const uploaded: any[] = [];
+    const errors: string[] = [];
+
+    for (const file of files) {
+      const resSave = await saveMedia(file.originalname, file.mimetype, file.buffer, folder);
+      if (resSave.success) {
+        uploaded.push({
+          url: resSave.url,
+          proxyUrl: resSave.proxyUrl,
+          ...(resSave.cdnUrl ? { cdnUrl: resSave.cdnUrl } : {}),
+          storagePath: resSave.storagePath,
+          filename: resSave.metadata?.filename || file.originalname,
+          size: file.buffer.length,
+          mimeType: file.mimetype,
+        });
+      } else {
+        errors.push(`${file.originalname}: ${resSave.error || 'Upload failed'}`);
+      }
+    }
+
+    if (uploaded.length === 0) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'BATCH_UPLOAD_FAILED',
+        error: errors.join('; ') || 'All files failed validation or upload.',
+        errors,
+      });
+    }
+
+    return res.json({
+      success: true,
+      folder,
+      urls: uploaded.map(u => u.url),
+      files: uploaded,
+      ...(errors.length > 0 ? { warnings: errors } : {}),
+    });
+  });
+});
+
+// Admin: List files stored in Bunny.net Storage folder (or all folders)
+app.get('/api/admin/bunny/files', verifyAdminToken, async (req, res) => {
+  try {
+    if (!isBunnyStorageConfigured()) {
+      const summary = getBunnyConfigSummary();
+      return res.status(503).json({
+        success: false,
+        errorCode: 'BUNNY_NOT_CONFIGURED',
+        missingVars: summary.missingVars,
+        error: `Bunny.net Storage environment variable(s) missing: ${summary.missingVars.join(', ')}.`,
+      });
+    }
+
+    const folderParam = String(req.query.folder || req.query.category || 'products').trim();
+    const files = await listBunnyStorageFiles(folderParam);
+    return res.json({
+      success: true,
+      folder: folderParam,
+      count: files.length,
+      files,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to list files from Bunny.net Storage.',
+    });
+  }
+});
+
+// Admin: Delete file from Bunny.net Storage (with DB reference check unless force: true)
+const handleBunnyDelete: express.RequestHandler = async (req, res) => {
+  try {
+    if (!isBunnyStorageConfigured()) {
+      const summary = getBunnyConfigSummary();
+      return res.status(503).json({
+        success: false,
+        errorCode: 'BUNNY_NOT_CONFIGURED',
+        missingVars: summary.missingVars,
+        error: `Bunny.net Storage environment variable(s) missing: ${summary.missingVars.join(', ')}.`,
+      });
+    }
+
+    const rawTarget = String(
+      (req.params as any)?.[0] ||
+        req.body?.objectPath ||
+        req.body?.url ||
+        req.body?.path ||
+        req.query?.objectPath ||
+        req.query?.url ||
+        ''
+    ).trim();
+
+    if (!rawTarget) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'MISSING_PATH',
+        error: 'objectPath or url is required to delete a Bunny Storage file.',
+      });
+    }
+
+    const force = Boolean(req.body?.force || String(req.query?.force || '') === 'true');
+    const cleanObjectPath = extractBunnyObjectPath(rawTarget);
+    const db = getDb();
+
+    if (!force && (isMediaUrlReferencedInDb(db, rawTarget) || isMediaUrlReferencedInDb(db, `/api/bunny/media/${cleanObjectPath}`))) {
+      return res.status(409).json({
+        success: false,
+        inUse: true,
+        errorCode: 'MEDIA_IN_USE',
+        error: 'This media file is currently used by an active Door, Banner, Material, Finish, or Delivery Story. Confirm Force Delete to remove it anyway.',
+      });
+    }
+
+    const delResult = await deleteMediaFile(cleanObjectPath || rawTarget);
+    const bunnyAlreadyDeleted = Boolean(
+      delResult.cleanedKeys?.some(k => k.startsWith('bunny:'))
+    );
+    const bunnyDel = bunnyAlreadyDeleted
+      ? { deleted: true, objectPath: cleanObjectPath || rawTarget, statusCode: 200 }
+      : await deleteFromBunnyStorage(cleanObjectPath || rawTarget);
+
+    if (!bunnyDel.deleted && bunnyDel.statusCode && bunnyDel.statusCode !== 404) {
+      return res.status(bunnyDel.statusCode || 502).json({
+        success: false,
+        errorCode: 'BUNNY_DELETE_FAILED',
+        error: bunnyDel.error || 'Failed to delete file from Bunny.net Storage.',
+      });
+    }
+
+    const wasDeleted = Boolean(bunnyAlreadyDeleted || bunnyDel.deleted || delResult.deleted);
+    return res.json({
+      success: wasDeleted,
+      deleted: Boolean(bunnyAlreadyDeleted || bunnyDel.deleted),
+      objectPath: bunnyDel.objectPath,
+      cleanedKeys: delResult.cleanedKeys || [],
+      ...(bunnyDel.statusCode === 404 && !bunnyAlreadyDeleted
+        ? { message: 'File was already absent from Bunny Storage; local cache cleaned.' }
+        : {}),
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Bunny Storage delete failed.',
+    });
+  }
+};
+
+app.post('/api/admin/bunny/delete', verifyAdminToken, handleBunnyDelete);
+app.delete(['/api/admin/bunny/files', '/api/admin/bunny/files/*'], verifyAdminToken, handleBunnyDelete);
 
 const inferRequestedMediaType = (
   reqPath: string,
@@ -1092,7 +1489,7 @@ const handleDriveMediaImport: express.RequestHandler = async (req, res) => {
       : 'url-door';
     const filename = `${safePrefix}-${Date.now()}-${Math.round(Math.random() * 1e5)}${finalExtension}`;
 
-    // Save validated binary to storageService
+    // Save validated binary to Bunny.net Storage / storageService
     const saveRes = await saveMedia(filename, finalMimeType, finalBuffer, targetCategory);
     if (!saveRes.success) {
       return res.status(502).json({
@@ -1100,25 +1497,27 @@ const handleDriveMediaImport: express.RequestHandler = async (req, res) => {
         errorCode: 'STORAGE_WRITE_FAILED',
         error:
           saveRes.error ||
-          'Failed to persist imported media into storage bucket. Please check storage credentials.',
+          'Failed to persist imported media into Bunny.net Storage. Please check storage credentials.',
         storageType: saveRes.storageType,
       });
     }
 
-    // Upload to connected owner Google Drive if authorized
+    // Upload to connected owner Google Drive only when Bunny Storage is not primary
     let driveUploadResult: any = null;
-    try {
-      if (hasServerDriveOAuthCredentials()) {
-        driveUploadResult = await uploadMediaToOwnerDrive(
-          finalBuffer,
-          filename,
-          finalMimeType,
-          targetCategory,
-          `Imported ${isVideo ? 'video' : is3DModel ? '3D model' : 'image'} from ${validated.fileId ? `Google Drive File ID: ${validated.fileId}` : validated.sourceUrl}`
-        );
+    if (saveRes.storageType !== 'bunny_storage') {
+      try {
+        if (hasServerDriveOAuthCredentials()) {
+          driveUploadResult = await uploadMediaToOwnerDrive(
+            finalBuffer,
+            filename,
+            finalMimeType,
+            targetCategory,
+            `Imported ${isVideo ? 'video' : is3DModel ? '3D model' : 'image'} from ${validated.fileId ? `Google Drive File ID: ${validated.fileId}` : validated.sourceUrl}`
+          );
+        }
+      } catch (driveErr: any) {
+        console.warn('⚠️ [Drive Media Import] Upload to owner Google Drive notice:', driveErr?.message);
       }
-    } catch (driveErr: any) {
-      console.warn('⚠️ [Drive Media Import] Upload to owner Google Drive notice:', driveErr?.message);
     }
 
     const finalUrl = driveUploadResult?.url || saveRes.url;
@@ -1134,7 +1533,7 @@ const handleDriveMediaImport: express.RequestHandler = async (req, res) => {
       height: finalHeight,
       duration: validated.duration,
       category: targetCategory,
-      storedFileId: driveUploadResult?.fileId || validated.fileId || filename,
+      storedFileId: driveUploadResult?.fileId || saveRes.storagePath || validated.fileId || filename,
       storedUrl: finalUrl,
       isDriveEmbed: false,
       importedAt: new Date().toISOString(),
@@ -1144,13 +1543,15 @@ const handleDriveMediaImport: express.RequestHandler = async (req, res) => {
       success: true,
       url: finalUrl,
       downloadUrl: driveUploadResult?.url || saveRes.downloadUrl || saveRes.url,
+      proxyUrl: saveRes.proxyUrl,
+      ...(saveRes.cdnUrl ? { cdnUrl: saveRes.cdnUrl } : {}),
       driveUrl: driveUploadResult?.url,
       driveFileId: driveUploadResult?.fileId || validated.fileId || null,
       sourceFileId: validated.fileId || null,
       originalUrl: rawUrl,
       originalName: validated.originalName,
-      filename,
-      fileId: driveUploadResult?.fileId || validated.fileId || null,
+      filename: saveRes.metadata?.filename || filename,
+      fileId: driveUploadResult?.fileId || saveRes.storagePath || validated.fileId || null,
       isGoogleDrive: Boolean(driveUploadResult?.fileId || validated.fileId),
       isVideo,
       is3DModel,
@@ -1162,10 +1563,9 @@ const handleDriveMediaImport: express.RequestHandler = async (req, res) => {
       height: finalHeight,
       duration: validated.duration,
       storageType: driveUploadResult ? 'google_drive' : saveRes.storageType,
+      storageZone: saveRes.storageZone,
       firebaseBucket: saveRes.firebaseBucket,
       storagePath: saveRes.storagePath,
-      r2Bucket: saveRes.firebaseBucket,
-      r2Key: saveRes.storagePath,
       metadata: saveRes.metadata,
     });
   } catch (err: any) {
@@ -1208,18 +1608,19 @@ app.get(
 app.get(['/api/admin/storage-status', '/api/admin/r2-status'], verifyAdminToken, async (_req, res) => {
   const status = await checkR2Availability(true);
   const stats = await getR2StorageStats();
+  const bunnySummary = isBunnyStorageConfigured() ? await checkBunnyAvailability() : getBunnyConfigSummary();
 
   let tokenGuidance = '';
   if (!status.writable) {
     tokenGuidance =
       status.setupInstructionsRequired
-        ? 'Firebase Storage bucket needs one-time activation: Open Firebase Console (https://console.firebase.google.com/project/zeta-gadget-wf6jr/storage) -> Click "Get Started" -> Choose Cloud region -> Complete setup.'
+        ? 'Configure BUNNY_STORAGE_ZONE, BUNNY_STORAGE_PASSWORD, and BUNNY_STORAGE_ENDPOINT in server environment variables.'
         : status.statusMessage;
   }
 
   res.json({
     storage: {
-      provider: 'firebase_storage',
+      provider: status.provider,
       configured: status.configured,
       connected: status.connected,
       readable: status.readable,
@@ -1227,8 +1628,10 @@ app.get(['/api/admin/storage-status', '/api/admin/r2-status'], verifyAdminToken,
       bucket: status.bucket,
       statusMessage: status.statusMessage,
       firebaseStorageReady: status.firebaseStorageReady,
+      bunnyStorageReady: Boolean(status.bunnyStorageReady),
       setupInstructionsRequired: status.setupInstructionsRequired,
     },
+    bunny: bunnySummary,
     // Backward compatibility for existing UI
     r2: {
       configured: status.configured,
@@ -1251,7 +1654,14 @@ app.get(['/api/admin/storage-status', '/api/admin/r2-status'], verifyAdminToken,
       localFormattedSize: stats.localFormattedSize,
       pendingSyncCount: stats.pendingSyncCount,
     },
-    activeMode: status.connected ? (status.writable ? 'firebase_storage_read_write' : 'firebase_storage_pending_activation') : 'local_and_firestore',
+    activeMode:
+      status.provider === 'bunny_storage' && status.writable
+        ? 'bunny_storage_read_write'
+        : status.connected
+        ? status.writable
+          ? 'firebase_storage_read_write'
+          : 'firebase_storage_pending_activation'
+        : 'local_and_firestore',
     firestoreMediaPreserved: true,
     cloudDatabase: 'ai-studio-doorpricecalcula-e297ef94-a95a-4675-8ce2-05ba8783a0ed',
   });
@@ -1445,7 +1855,7 @@ app.post(
           success: false,
           errorCode: isLimit ? 'FILE_TOO_LARGE' : 'UPLOAD_VALIDATION_ERROR',
           error: isLimit
-            ? 'Media file exceeds the 60 MB upload limit.'
+            ? 'Media file exceeds the 100 MB upload limit.'
             : multerErr?.message || 'Invalid media upload request.',
         });
       }
@@ -1505,8 +1915,8 @@ app.post(
           requestedMediaType === 'video' ||
           ['.mp4', '.webm', '.mov', '.m4v', '.3gp', '.mkv'].includes(extFromName);
         const is3D = extFromName === '.glb' || extFromName === '.gltf' || effectiveMime.includes('gltf');
-        const category = normalizeDriveCategory(
-          req.body?.category || (inferredIsVideo ? 'videos' : 'products')
+        const category = normalizeBunnyFolder(
+          String(req.body?.category || (inferredIsVideo ? 'videos' : is3D ? 'models3d' : 'products'))
         );
 
         const ext =
@@ -1519,13 +1929,47 @@ app.post(
         const description = String(req.body?.description || '').trim() || `Admin upload for ${category}`;
         const requireDriveOnly = String(req.body?.requireDriveOnly || '').toLowerCase() === 'true';
 
+        // Primary Cloud Storage: Bunny.net Edge Storage (unless explicit Drive-only upload was requested)
+        if (isBunnyStorageConfigured() && !requireDriveOnly) {
+          const saveRes = await saveMedia(preservedFilename, effectiveMime, fileBuf, category);
+          if (!saveRes.success) {
+            return res.status(saveRes.statusCode || 502).json({
+              success: false,
+              errorCode: saveRes.errorCode || 'BUNNY_UPLOAD_FAILED',
+              error: saveRes.error || 'Failed to save uploaded media to Bunny.net Storage.',
+              storageType: 'bunny_storage',
+            });
+          }
+
+          return res.json({
+            success: true,
+            url: saveRes.url,
+            downloadUrl: saveRes.downloadUrl || saveRes.url,
+            proxyUrl: saveRes.proxyUrl,
+            ...(saveRes.cdnUrl ? { cdnUrl: saveRes.cdnUrl } : {}),
+            fileId: saveRes.storagePath,
+            name: saveRes.metadata?.filename || preservedFilename,
+            filename: saveRes.metadata?.filename || preservedFilename,
+            mimeType: saveRes.metadata?.mimeType || effectiveMime,
+            size: fileBuf.length,
+            category,
+            isVideo: inferredIsVideo,
+            is3DModel: is3D,
+            storageType: 'bunny_storage',
+            storageZone: saveRes.storageZone,
+            storagePath: saveRes.storagePath,
+            metadata: saveRes.metadata,
+          });
+        }
+
         if (hasServerDriveOAuthCredentials()) {
           try {
+            const driveCategory = normalizeDriveCategory(category);
             const uploaded = await uploadMediaToOwnerDrive(
               fileBuf,
               preservedFilename,
               effectiveMime,
-              category,
+              driveCategory,
               description
             );
 
@@ -1554,14 +1998,14 @@ app.post(
                 error: msg,
               });
             }
-            console.warn('⚠️ [Drive Admin Upload] Falling back to primary cloud storage:', msg);
+            console.warn('⚠️ [Admin Upload] Falling back to cloud storage:', msg);
           }
         } else if (requireDriveOnly) {
           return res.status(412).json({
             success: false,
             errorCode: 'DRIVE_NOT_CONNECTED',
             error:
-              'Google Drive OAuth is not connected on the backend server (missing refresh token / client secret). Open Admin Panel -> Google Drive Storage to connect or configure GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET, and GOOGLE_DRIVE_REFRESH_TOKEN.',
+              'Google Drive OAuth is not connected on the backend server. Configure Bunny.net Storage or connect Google Drive OAuth.',
           });
         }
 

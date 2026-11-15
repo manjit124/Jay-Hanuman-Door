@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "node scripts/protect-data.cjs && node scripts/build-sitemap.cjs && vite build && node scripts/build-sitemap.cjs && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && node scripts/protect-data.cjs --post-build",
+    "build": "node scripts/protect-data.cjs && node scripts/build-sitemap.cjs && vite build && node scripts/build-sitemap.cjs && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/server.cjs && node scripts/protect-data.cjs --post-build",
+    "prestart": "node -e \"const fs=require('fs'),cp=require('child_process');if(!fs.existsSync('dist/server.cjs')||!fs.existsSync('dist/index.html')){console.log('Production build artifacts missing; running npm run build...');cp.execSync('npm run build',{stdio:'inherit'});}\"",
     "start": "node server.js",
     "preview": "vite preview",
     "clean": "rm -rf dist",
@@ -14,23 +15,21 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",
     "@capacitor-community/admob": "^8.2.1",
-    "@capacitor/android": "^8.5.2",
     "@capacitor/app": "^8.1.1",
     "@capacitor/clipboard": "^8.0.0",
     "@capacitor/core": "^8.5.2",
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.3",
-    "@google-cloud/storage": "^8.4.0",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
+    "esbuild": "^0.25.0",
     "express": "^4.21.2",
     "firebase": "^12.18.0",
     "firebase-admin": "^14.3.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
     "multer": "^2.3.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
@@ -38,16 +37,14 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.2",
     "@capacitor/cli": "^8.5.2",
     "@types/express": "^4.17.21",
     "@types/multer": "^2.2.0",
     "@types/node": "^22.14.0",
     "@types/three": "^0.186.0",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "yaml": "^2.9.1"
+    "typescript": "~5.8.2"
   }
 }

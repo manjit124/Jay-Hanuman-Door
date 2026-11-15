@@ -1,7 +1,7 @@
 import { initializeApp, getApps, cert, applicationDefault, App } from 'firebase-admin/app';
 import { getMessaging, MulticastMessage } from 'firebase-admin/messaging';
 import { getDb, saveDb } from './db.ts';
-import {
+import type {
   NotificationTokenRecord,
   NotificationCampaign,
   NotificationPreferences,

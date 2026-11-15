@@ -121,10 +121,10 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
 
     try {
       setIsUploadingImage(true);
-      const res = await uploadImage(file, { category: 'banners' });
+      const res = await uploadImage(file, { category: 'notifications' });
       if (res.url) {
         setImageUrl(res.url);
-        onShowToast('Image uploaded to Google Drive successfully');
+        onShowToast('Image uploaded to Bunny Storage successfully');
       }
     } catch (err: any) {
       console.error('Failed to upload image:', err);
@@ -552,9 +552,9 @@ export const AdminNotificationsTab: React.FC<AdminNotificationsTabProps> = ({
             <div className="pt-2 border-t border-[#E5E5E5] space-y-2">
               <GoogleDriveImagePicker
                 label="Optional Notification Banner Image"
-                sublabel="Upload banner from device or paste Google Drive sharing link. Stored permanently in Google Drive."
+                sublabel="Upload banner directly to Bunny Storage (notifications folder) or import link"
                 value={imageUrl}
-                category="banners"
+                category="notifications"
                 deviceUploadButtonText="Upload Banner Image"
                 onChange={(url) => setImageUrl(url)}
                 onToast={onShowToast}

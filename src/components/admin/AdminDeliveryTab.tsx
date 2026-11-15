@@ -184,7 +184,7 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
       } else {
         setFormData(prev => ({ ...prev, deliveryPhotoUrl: uploadedUrl }));
       }
-      showToast(`${field === 'door' ? 'Door' : 'Delivery proof'} photo uploaded to persistent Firebase Storage!`);
+      showToast(`${field === 'door' ? 'Door' : 'Delivery proof'} photo uploaded to Bunny Cloud Storage!`);
     } catch (err: any) {
       showToast(`Upload failed: ${err.message || 'Error uploading image'}`);
     } finally {
@@ -917,7 +917,7 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
                 {/* 1. Door / Product Photo */}
                 <GoogleDriveImagePicker
                   label="1. Door / Product Photo"
-                  sublabel="Upload photo of completed door from device or Google Drive link"
+                  sublabel="Upload photo of completed door to Bunny Storage or import link"
                   value={formData.doorPhotoUrl || ''}
                   category="delivery"
                   deviceUploadButtonText="Upload Door Photo"
@@ -928,7 +928,7 @@ export const AdminDeliveryTab: React.FC<AdminDeliveryTabProps> = ({
                 {/* 2. Delivery / Unboxing Proof Photo */}
                 <GoogleDriveImagePicker
                   label="2. Delivery / Unboxing Proof Photo"
-                  sublabel="Upload delivery/unboxing proof photo from device or Google Drive link"
+                  sublabel="Upload delivery/unboxing proof photo to Bunny Storage or import link"
                   value={formData.deliveryPhotoUrl || ''}
                   category="delivery"
                   deviceUploadButtonText="Upload Proof Photo"

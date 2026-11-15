@@ -1,5 +1,5 @@
-import { analyzeDoorWood, ImageInputPart } from './aiWoodDetector.ts';
-import { WoodAccuracyBenchmarkResult } from '../src/types.ts';
+import { analyzeDoorWood, type ImageInputPart } from './aiWoodDetector.ts';
+import type { WoodAccuracyBenchmarkResult } from '../src/types.ts';
 
 export interface BenchmarkTestCase {
   id: string;

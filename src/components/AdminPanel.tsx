@@ -585,8 +585,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const savedKb = Math.round(totalSavedBytes / 1024);
       showToast(
         files.length > 1
-          ? `${files.length} photos uploaded to Google Drive${savedKb > 20 ? ` (saved ${savedKb} KB)` : ''}`
-          : `Image uploaded to Google Drive${savedKb > 20 ? ` (optimized by ${savedKb} KB)` : ' successfully'}`
+          ? `${files.length} photos uploaded to Bunny Storage${savedKb > 20 ? ` (saved ${savedKb} KB)` : ''}`
+          : `Image uploaded to Bunny Storage${savedKb > 20 ? ` (optimized by ${savedKb} KB)` : ' successfully'}`
       );
     } catch (err: any) {
       const msg = err?.message || 'Image upload failed. Please retry.';
@@ -604,8 +604,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 55 * 1024 * 1024) {
-      const msg = 'Video file size exceeds 55 MB limit. Please select a compressed MP4/WebM video.';
+    if (file.size > 100 * 1024 * 1024) {
+      const msg = 'Video file size exceeds 100 MB limit. Please select a compressed MP4/WebM video.';
       setDoorUploadError(msg);
       showToast(msg);
       e.target.value = '';
@@ -620,7 +620,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (editingDoor) {
         setEditingDoor({ ...editingDoor, videoUrl: res.url });
       }
-      showToast('Product video uploaded successfully to Google Drive!');
+      showToast('Product video uploaded successfully to Bunny Storage!');
     } catch (err: any) {
       const msg = err?.message || 'Video upload failed';
       setDoorUploadError(msg);
@@ -1431,7 +1431,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }`}
                 >
                   <Cloud className="w-4 h-4 text-[#C89211]" />
-                  Google Drive Storage
+                  Bunny Cloud Storage
                 </button>
               </div>
 
@@ -1650,23 +1650,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </button>
                     </div>
 
-                    {/* Google Drive Central Media Storage Status Card */}
+                    {/* Bunny.net Central Media Storage Status Card */}
                     {r2StorageStatus && (
-                      <div className="p-3.5 rounded-xl border border-emerald-300 bg-emerald-50/70 text-emerald-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                      <div
+                        className={`p-3.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
+                          r2StorageStatus.bunny?.connected && r2StorageStatus.bunny?.writable
+                            ? 'border-emerald-300 bg-emerald-50/70 text-emerald-950'
+                            : 'border-amber-300 bg-amber-50/80 text-amber-950'
+                        }`}
+                      >
                         <div className="flex items-start sm:items-center gap-3">
-                          <HardDrive className="w-5 h-5 shrink-0 mt-0.5 sm:mt-0 text-emerald-600" />
+                          <HardDrive
+                            className={`w-5 h-5 shrink-0 mt-0.5 sm:mt-0 ${
+                              r2StorageStatus.bunny?.connected && r2StorageStatus.bunny?.writable
+                                ? 'text-emerald-600'
+                                : 'text-[#C89211]'
+                            }`}
+                          />
                           <div className="space-y-0.5">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-bold">Google Drive Storage: "Jai Hanuman Door Media"</span>
-                              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-emerald-200 text-emerald-900">
-                                Active Permanent Storage
+                              <span className="font-bold">
+                                Bunny.net Storage{r2StorageStatus.bunny?.zone ? `: "${r2StorageStatus.bunny.zone}"` : ''}
+                              </span>
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                  r2StorageStatus.bunny?.connected && r2StorageStatus.bunny?.writable
+                                    ? 'bg-emerald-200 text-emerald-900'
+                                    : 'bg-amber-200 text-amber-900'
+                                }`}
+                              >
+                                {r2StorageStatus.bunny?.connected && r2StorageStatus.bunny?.writable
+                                  ? 'Connected & Active'
+                                  : 'Check Server Config'}
                               </span>
                             </div>
                             <p className="text-[11px] text-stone-600">
-                              All product photos, videos, banners, and catalog graphics are saved permanently to Google Drive under "Jai Hanuman Door Media/products" &amp; "videos".
+                              {r2StorageStatus.bunny?.statusMessage ||
+                                'All product photos, videos, banners, and 3D models are stored directly in Bunny.net Cloud Storage organized by folder.'}
                             </p>
                           </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => handleTabSelect('googledrive')}
+                          className="px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 border border-stone-300 text-stone-800 font-bold text-[11px] shrink-0 cursor-pointer"
+                        >
+                          Manage Files →
+                        </button>
                       </div>
                     )}
 
@@ -2049,11 +2079,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             />
                           </div>
 
-                          {/* Product Image Section: Reusable GoogleDriveImagePicker (Device Upload & Google Drive Link) */}
+                          {/* Product Image Section: Reusable Upload & URL Importer */}
                           <div className="sm:col-span-2 space-y-2">
                             <GoogleDriveImagePicker
-                              label="Product Image (Upload Image or Google Drive Link)"
-                              sublabel="Auto-optimizes photos (1680px HD) and saves permanently to Google Drive account"
+                              label="Product Image (Upload to Bunny Storage or Import Link)"
+                              sublabel="Auto-optimizes photos (1680px HD JPG/PNG/WebP) and saves directly to Bunny Storage"
                               value={editingDoor.image || (editingDoor.images?.[0] || '')}
                               allowMultiple={true}
                               onAddMultiple={(newUrls) => {
@@ -2158,11 +2188,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             )}
                           </div>
 
-                          {/* Door Video (Product Video) Upload Feature: Device Upload & Google Drive Link */}
+                          {/* Door Video (Product Video) Upload Feature */}
                           <div className="sm:col-span-2">
                             <GoogleDriveImagePicker
-                              label="Door Product Video (Device Upload or Google Drive Link)"
-                              sublabel="Upload MP4/WebM product video from your device or paste Google Drive sharing link"
+                              label="Door Product Video (Upload MP4/WebM or Import Link)"
+                              sublabel="Upload MP4/WebM product video (up to 100 MB) directly to Bunny Storage"
                               value={editingDoor.videoUrl || ''}
                               mediaType="video"
                               allowVideo={true}
@@ -2223,14 +2253,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </label>
                           </div>
 
-                          {/* 3D & AR Model Attachment (.glb / .gltf): Device Upload & Google Drive Link */}
+                          {/* 3D & AR Model Attachment (.glb / .gltf) */}
                           <div className="sm:col-span-2 space-y-2">
                             <GoogleDriveImagePicker
-                              label="3D CAD Model (.glb / .gltf) - Device Upload or Google Drive Link"
-                              sublabel="Upload .glb model or paste Google Drive sharing link for 3D & AR entrance viewer"
+                              label="3D CAD Model (.glb / .gltf) - Bunny Storage"
+                              sublabel="Upload .glb/.gltf 3D model directly to Bunny Storage for 3D & AR entrance viewer"
                               value={editingDoor.model3d?.modelUrl || ''}
                               mediaType="model3d"
-                              category="products"
+                              category="models3d"
                               deviceUploadButtonText="Upload .glb 3D Model"
                               onChange={(url) => {
                                 setEditingDoor(prev => {
@@ -2307,7 +2337,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <div className="pt-2 space-y-2">
                               <GoogleDriveImagePicker
                                 label="Transparent Cutout PNG (.png / .webp)"
-                                sublabel="Auto-optimizes cutout and saves permanently to Google Drive for Fit in Entrance visualizer"
+                                sublabel="Saves cutout directly to Bunny Storage for Fit in Entrance visualizer"
                                 value={editingDoor.transparentPngUrl || ''}
                                 category="products"
                                 deviceUploadButtonText="Upload Transparent PNG"
@@ -2332,7 +2362,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       try {
                                         setIsGeneratingPng(true);
                                         const transparentDataUrl = await removeBackgroundFromImage(editingDoor.images[0]);
-                                        // Convert DataURL to File and upload to Google Drive
+                                        // Convert DataURL to File and upload to Bunny Storage
                                         const blob = await (await fetch(transparentDataUrl)).blob();
                                         const file = new File([blob], `door-${editingDoor.id || 'cutout'}-transparent.png`, { type: 'image/png' });
                                         const res = await uploadImage(file, { category: 'products' });
@@ -2340,7 +2370,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                           ...prev,
                                           transparentPngUrl: res.url,
                                         }));
-                                        showToast('Transparent PNG auto-generated and saved to Google Drive!');
+                                        showToast('Transparent PNG auto-generated and saved to Bunny Storage!');
                                       } catch (err: any) {
                                         const msg = err?.message || 'Auto background removal failed';
                                         setDoorUploadError(msg);
@@ -2953,9 +2983,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <div className="sm:col-span-2">
                             <GoogleDriveImagePicker
                               label="Wood Timber Grain / Texture Image"
-                              sublabel="Upload wood grain sample photo or paste Google Drive sharing link"
+                              sublabel="Upload wood grain sample photo directly to Bunny Storage (materials folder)"
                               value={editingMaterial.image || ''}
-                              category="products"
+                              category="materials"
                               deviceUploadButtonText="Upload Wood Sample Photo"
                               onChange={(url) => setEditingMaterial(prev => prev ? { ...prev, image: url } : prev)}
                               onToast={showToast}
@@ -3380,9 +3410,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <div className="sm:col-span-2">
                             <GoogleDriveImagePicker
                               label="Polish Finish Sample Photo"
-                              sublabel="Upload finish swatch photo or paste Google Drive sharing link"
+                              sublabel="Upload finish swatch photo directly to Bunny Storage (finishes folder)"
                               value={editingFinish.image || ''}
-                              category="products"
+                              category="finishes"
                               deviceUploadButtonText="Upload Finish Swatch"
                               onChange={(url) => setEditingFinish(prev => prev ? { ...prev, image: url } : prev)}
                               onToast={showToast}
@@ -3674,9 +3704,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <div className="sm:col-span-2">
                             <GoogleDriveImagePicker
                               label="Hardware Product Image (Thumbnail & Full Zoom Preview)"
-                              sublabel="Auto-optimizes and saves permanently to Google Drive"
+                              sublabel="Auto-optimizes and saves directly to Bunny Storage (hardware folder)"
                               value={editingHardware.image || ''}
-                              category="products"
+                              category="hardware"
                               deviceUploadButtonText="Upload Image File"
                               onChange={(url) => setEditingHardware(prev => prev ? { ...prev, image: url } : prev)}
                               onToast={showToast}
@@ -3952,8 +3982,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {/* Main Banner Image with Option A (Device) & Option B (Google Drive Link) */}
                             <div>
                               <GoogleDriveImagePicker
-                                label="1. Main Banner Image (Device Upload or Google Drive Sharing Link)"
-                                sublabel="Upload full artwork (Recommended 1500×500 px, 3:1). Stored permanently in Google Drive."
+                                label="1. Main Banner Image (Bunny Storage or Link Import)"
+                                sublabel="Upload full artwork (Recommended 1500×500 px, 3:1). Stored permanently in Bunny Storage."
                                 value={editingBanner.image || ''}
                                 category="banners"
                                 aspectRatioHint={bannerDimensions ? `${bannerDimensions.width}×${bannerDimensions.height} px (${bannerDimensions.ratio})` : 'Recommended 1500×500 px'}
@@ -4435,8 +4465,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {/* Upload Image with Device & Google Drive Link */}
                             <div>
                               <GoogleDriveImagePicker
-                                label="Promotional Banner Image (Device Upload or Google Drive Sharing Link)"
-                                sublabel="Upload complete promotional graphic (recommended ratio: ~3:1, e.g. 1500 × 500 px). Stored permanently in Google Drive."
+                                label="Promotional Banner Image (Bunny Storage or Link Import)"
+                                sublabel="Upload complete promotional graphic (recommended ratio: ~3:1, e.g. 1500 × 500 px). Stored permanently in Bunny Storage."
                                 value={editingBanner.image || ''}
                                 category="banners"
                                 aspectRatioHint={bannerDimensions ? `${bannerDimensions.width}×${bannerDimensions.height} px (${bannerDimensions.ratio})` : 'Recommended ~3:1'}
@@ -4722,8 +4752,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               {/* Direct Upload / Google Drive Import for Banner A */}
                               <div>
                                 <GoogleDriveImagePicker
-                                  label="1. Banner A Image (Device Upload or Google Drive Link)"
-                                  sublabel="Auto-optimizes and saves permanently to Google Drive"
+                                  label="1. Banner A Image (Bunny Storage or Link Import)"
+                                  sublabel="Auto-optimizes and saves directly to Bunny Storage (banners folder)"
                                   value={primaryBannerA.image || ''}
                                   category="banners"
                                   deviceUploadButtonText="Upload New Image"
@@ -5023,8 +5053,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               {/* Direct Upload / Google Drive Import for Banner B */}
                               <div>
                                 <GoogleDriveImagePicker
-                                  label="1. Banner B Image (Device Upload or Google Drive Link)"
-                                  sublabel="Auto-optimizes and saves permanently to Google Drive"
+                                  label="1. Banner B Image (Bunny Storage or Link Import)"
+                                  sublabel="Auto-optimizes and saves directly to Bunny Storage (banners folder)"
                                   value={primaryBannerB.image || ''}
                                   category="banners"
                                   deviceUploadButtonText="Upload New Image"
@@ -5571,9 +5601,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <div className="sm:col-span-2">
                           <GoogleDriveImagePicker
                             label="Brand Logo (Website, App & Quotations)"
-                            sublabel="Upload company logo photo or paste Google Drive sharing link. Stored permanently in Google Drive."
+                            sublabel="Upload company logo photo or import link. Stored permanently in Bunny Storage."
                             value={settings.logoUrl || '/assets/logo.png'}
-                            category="products"
+                            category="brand"
                             deviceUploadButtonText="Upload Company Logo"
                             onChange={(url) => {
                               setSettings(prev => ({ ...prev, logoUrl: url }));

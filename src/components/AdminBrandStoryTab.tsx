@@ -101,14 +101,14 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
       setUploadingPhoto(true);
       setUploadProgress(5);
       const res = await uploadImage(file, {
-        category: 'products',
+        category: 'brand',
         maxDimension: 1200,
         quality: 0.84,
         onProgress: pct => setUploadProgress(pct),
       });
       if (res?.url) {
         setFormData(prev => ({ ...prev, ownerPhotoUrl: res.url }));
-        showToast('Owner photo uploaded to Google Drive! Click "Save Changes" to apply.');
+        showToast('Owner photo uploaded to Bunny Storage! Click "Save Changes" to apply.');
       }
     } catch (err: any) {
       showToast(err?.message || 'Image upload failed. Please try again.');
@@ -448,9 +448,9 @@ export const AdminBrandStoryTab: React.FC<AdminBrandStoryTabProps> = ({
             <div>
               <GoogleDriveImagePicker
                 label="Owner Photo"
-                sublabel="Upload owner portrait from device or paste Google Drive sharing link"
+                sublabel="Upload owner portrait directly to Bunny Storage (brand folder) or import link"
                 value={formData.ownerPhotoUrl || ''}
-                category="products"
+                category="brand"
                 deviceUploadButtonText="Upload New Photo"
                 onChange={(url) => setFormData(prev => ({ ...prev, ownerPhotoUrl: url }))}
                 onToast={showToast}

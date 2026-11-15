@@ -283,9 +283,9 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
     if (!file) return;
     setUploadingImage(true);
     try {
-      const res = await uploadImage(file, { category: 'products' });
+      const res = await uploadImage(file, { category: 'articles' });
       setFormData(prev => ({ ...prev, image: res.url }));
-      showToast('Featured image uploaded successfully');
+      showToast('Featured image uploaded to Bunny Storage successfully');
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to upload image');
     } finally {
@@ -301,7 +301,7 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
     try {
       const newItems: { url: string; caption?: string }[] = [];
       for (let i = 0; i < files.length; i++) {
-        const res = await uploadImage(files[i], { category: 'products' });
+        const res = await uploadImage(files[i], { category: 'articles' });
         newItems.push({ url: res.url, caption: '' });
       }
       setFormData(prev => ({
@@ -1430,9 +1430,9 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                   <div>
                     <GoogleDriveImagePicker
                       label="Main Featured Cover Image"
-                      sublabel="Upload high-res article banner from device or paste Google Drive link. Stored permanently in Google Drive."
+                      sublabel="Upload high-res article banner directly to Bunny Storage (articles folder) or import link"
                       value={formData.image || ''}
-                      category="products"
+                      category="articles"
                       deviceUploadButtonText="Upload Cover Image File"
                       onChange={(url) => setFormData(prev => ({ ...prev, image: url }))}
                     />
@@ -1511,10 +1511,10 @@ export const AdminArticlesTab: React.FC<AdminArticlesTabProps> = ({
                   <div className="space-y-3">
                     <GoogleDriveImagePicker
                       label="Article Photo Gallery"
-                      sublabel="Upload photos showcasing grain textures, joints, or installations. Stored permanently in Google Drive."
+                      sublabel="Upload photos showcasing grain textures, joints, or installations to Bunny Storage"
                       value=""
                       allowMultiple
-                      category="products"
+                      category="articles"
                       deviceUploadButtonText="Add Gallery Photos"
                       onChange={(url) => {
                         if (!url) return;

@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { GoogleGenAI } from '@google/genai';
-import { AIWoodAnalysisResult, WoodReferenceSample } from '../src/types.ts';
+import type { AIWoodAnalysisResult, WoodReferenceSample } from '../src/types.ts';
 import { WOOD_SPECIES_PROFILES } from './woodAnatomyGuide.ts';
 import { getWoodReferences } from './db.ts';
 

@@ -3,18 +3,18 @@ import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
 import {
-  TrackingOrder,
-  OrderStageRecord,
-  TrackingMediaItem,
-  TrackingAuditItem,
-  TrackingDeliveryInfo,
-  PublicTrackingView,
+  type TrackingOrder,
+  type OrderStageRecord,
+  type TrackingMediaItem,
+  type TrackingAuditItem,
+  type TrackingDeliveryInfo,
+  type PublicTrackingView,
   ORDER_TRACKING_STAGES,
-  TrackingStageId,
-  StageStatus,
-  OrderStatus,
+  type TrackingStageId,
+  type StageStatus,
+  type OrderStatus,
 } from '../src/types.ts';
-import { getDb, saveDb, UPLOAD_DIR, UPLOAD_BACKUP_DIR } from './db.ts';
+import { getDb, saveDb, UPLOAD_DIR } from './db.ts';
 import { saveMedia } from './storageService.ts';
 import {
   hasServerDriveOAuthCredentials,
@@ -227,7 +227,7 @@ const storage = multer.diskStorage({
 
 const mediaUpload = multer({
   storage,
-  limits: { fileSize: 55 * 1024 * 1024 }, // 55MB for photo & progress video clip
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB for photo & progress video clip
   fileFilter: (_req, file, cb) => {
     const allowed = /jpeg|jpg|png|webp|gif|heic|heif|mp4|webm|quicktime|3gp|mkv/;
     const extname = allowed.test(path.extname(file.originalname || '').toLowerCase());
@@ -621,6 +621,7 @@ export function initTrackingRoutes(
       next();
     },
     async (req, res) => {
+      const tempFilePath = req.file?.path;
       try {
         const { id } = req.params;
         const { stageId, caption, isCustomerVisible, mediaUrl: directMediaUrl, mediaType } = req.body;
@@ -653,35 +654,20 @@ export function initTrackingRoutes(
 
           isVideo = effectiveMime.startsWith('video/') || /\.(mp4|webm|mov|3gp|mkv)$/i.test(req.file.originalname || req.file.filename);
 
-          let uploadedDriveUrl: string | null = null;
-          if (hasServerDriveOAuthCredentials()) {
-            try {
-              const ext = path.extname(req.file.originalname || '') || getExtensionForMimeType(effectiveMime);
-              const driveName = `track-${order.trackingId}-${Date.now()}${ext !== '.bin' ? ext : isVideo ? '.mp4' : '.jpg'}`;
-              const driveRes = await uploadMediaToOwnerDrive(
-                fileBuf,
-                driveName,
-                effectiveMime,
-                isVideo ? 'videos' : 'delivery',
-                `Order tracking ${order.trackingId} (${stageId || order.currentStageId})`
-              );
-              uploadedDriveUrl = driveRes.url;
-            } catch (driveErr: any) {
-              console.warn('⚠️ [Tracking Media] Google Drive upload fallback notice:', driveErr?.message);
-            }
-          }
+          const ext = path.extname(req.file.originalname || '') || getExtensionForMimeType(effectiveMime);
+          const targetFilename = `track-${order.trackingId}-${Date.now()}${ext !== '.bin' ? ext : isVideo ? '.mp4' : '.jpg'}`;
+          const targetFolder = isVideo ? 'videos' : 'tracking';
 
-          if (uploadedDriveUrl) {
-            mediaUrl = uploadedDriveUrl;
-          } else {
-            // Mirror to backup uploads dir & persist via storageService
-            try {
-              const backupPath = path.join(UPLOAD_BACKUP_DIR, req.file.filename);
-              fs.copyFileSync(req.file.path, backupPath);
-              await saveMedia(req.file.filename, effectiveMime, fileBuf, 'delivery');
-            } catch {}
-            mediaUrl = `/uploads/${req.file.filename}`;
+          // Persist via primary unified storageService (Bunny Storage primary, cloud fallback)
+          const savedResult = await saveMedia(targetFilename, effectiveMime, fileBuf, targetFolder);
+          if (!savedResult?.success || !savedResult?.url) {
+            return res.status(savedResult?.statusCode || 502).json({
+              success: false,
+              errorCode: savedResult?.errorCode || 'STORAGE_UPLOAD_FAILED',
+              error: savedResult?.error || 'Failed to save tracking media to Bunny.net Storage.',
+            });
           }
+          mediaUrl = savedResult.url;
         } else {
           isVideo =
             mediaType === 'video' ||
@@ -724,6 +710,12 @@ export function initTrackingRoutes(
       } catch (err: any) {
         console.error('Error uploading tracking media:', err);
         res.status(500).json({ error: err.message || 'Failed to upload media' });
+      } finally {
+        try {
+          if (tempFilePath && fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
+          }
+        } catch {}
       }
     }
   );

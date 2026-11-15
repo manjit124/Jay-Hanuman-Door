@@ -1,0 +1,14 @@
+.git/
+.gitignore
+.aistudio/
+node_modules/
+android/
+*.log
+*.keystore
+*.jks
+release.keystore
+data/backups/
+data/uploads/
+data/uploads_backup/
+server/data/backups/
+server/data/uploads/

@@ -109,7 +109,7 @@ export const AdminVisualizerTab: React.FC<AdminVisualizerTabProps> = ({
         ...prev,
         modelUrl: res.url,
       }));
-      showToast('3D Model uploaded and mirrored to persistent storage successfully!');
+      showToast('3D Model uploaded to Bunny Cloud Storage successfully!');
     } catch (err: any) {
       setUploadError(err.message || 'Failed to upload 3D model.');
     } finally {
@@ -370,14 +370,14 @@ export const AdminVisualizerTab: React.FC<AdminVisualizerTabProps> = ({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Left: Configuration Form */}
                 <div className="space-y-4">
-                  {/* Model File Upload (.glb / .gltf) with Device Upload & Google Drive Link */}
+                  {/* Model File Upload (.glb / .gltf) */}
                   <div className="space-y-1">
                     <GoogleDriveImagePicker
                       label="Custom 3D CAD Model (.glb / .gltf)"
-                      sublabel="Upload .glb/.gltf 3D model or paste Google Drive sharing link. Saved permanently in Google Drive."
+                      sublabel="Upload .glb/.gltf 3D model directly to Bunny Storage (models3d folder)"
                       value={editingConfig.modelUrl || ''}
                       mediaType="model3d"
-                      category="products"
+                      category="models3d"
                       deviceUploadButtonText="Upload .glb Model"
                       onChange={(url) => setEditingConfig(prev => ({ ...prev, modelUrl: url }))}
                       onToast={showToast}
@@ -385,13 +385,13 @@ export const AdminVisualizerTab: React.FC<AdminVisualizerTabProps> = ({
                     />
                   </div>
 
-                  {/* High-Resolution Texture Upload with Device & Google Drive Link */}
+                  {/* High-Resolution Texture Upload */}
                   <div className="space-y-1">
                     <GoogleDriveImagePicker
                       label="High-Resolution Door Texture"
-                      sublabel="Upload texture file or paste Google Drive sharing link. Stored permanently in Google Drive."
+                      sublabel="Upload texture file directly to Bunny Storage (materials folder)"
                       value={editingConfig.textureUrl || selectedDoor.image || selectedDoor.images?.[0] || ''}
-                      category="products"
+                      category="materials"
                       deviceUploadButtonText="Upload Texture File"
                       onChange={(url) => setEditingConfig(prev => ({ ...prev, textureUrl: url }))}
                       onToast={showToast}
@@ -403,7 +403,7 @@ export const AdminVisualizerTab: React.FC<AdminVisualizerTabProps> = ({
                   <div className="space-y-2">
                     <GoogleDriveImagePicker
                       label="Transparent PNG Cutout (.png / .webp) - For Fit in Entrance"
-                      sublabel="Auto-optimizes cutout and saves permanently to Google Drive"
+                      sublabel="Saves transparent cutout directly to Bunny Storage"
                       value={editingConfig.transparentPngUrl || ''}
                       category="products"
                       deviceUploadButtonText="Upload Transparent PNG"

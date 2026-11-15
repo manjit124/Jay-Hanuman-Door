@@ -331,10 +331,10 @@ export const AdminOrderTrackingTab: React.FC<AdminOrderTrackingTabProps> = ({
       setStageMediaUrl('');
       setStageMediaType('image');
       setMediaCaption('');
-      showToast('Progress photo/video uploaded successfully to Google Drive & tracking record');
+      showToast('Progress photo/video uploaded successfully to Bunny Storage & tracking record');
       loadOrders();
     } catch (err: any) {
-      alert(err.message || 'Failed to upload media');
+      showToast(err.message || 'Failed to upload media');
     } finally {
       setUploadingMedia(false);
     }
@@ -1246,8 +1246,8 @@ Pune, Maharashtra`;
                                     /\.(mp4|webm|mov)(\?|$)/i.test(url);
                                   setStageMediaType(isVid ? 'video' : 'image');
                                 }}
-                                category="delivery"
-                                helperText="Option A: Upload device file (photo/video), or Option B: paste Google Drive sharing link to preview and import permanently"
+                                category="tracking"
+                                helperText="Upload photo/video directly to Bunny Cloud Storage, or paste an external media link to import"
                                 allowVideo={true}
                               />
 

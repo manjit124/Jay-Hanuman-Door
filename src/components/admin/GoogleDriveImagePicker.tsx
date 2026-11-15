@@ -20,6 +20,7 @@ import {
   uploadImage,
   uploadVideo,
   upload3DModel,
+  deleteBunnyStorageFile,
   inferMediaKindAndMime,
   previewDriveOrExternalMedia,
   importDriveOrExternalMediaToStorage,
@@ -114,11 +115,15 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const previewLockRef = useRef(false);
   const importLockRef = useRef(false);
+  const lastFailedFileRef = useRef<File | null>(null);
 
   const [sourceMode, setSourceMode] = useState<'device' | 'drive'>('device');
   const [driveUrlInput, setDriveUrlInput] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [canRetryUpload, setCanRetryUpload] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const [isDeletingFromBunny, setIsDeletingFromBunny] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [previewResult, setPreviewResult] = useState<DriveMediaPreviewResult | null>(null);
@@ -149,6 +154,176 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       ? 'image/*,video/*,.glb,.gltf'
       : 'image/*';
 
+  // Core single-file upload worker (supports initial selection and 1-click Retry)
+  const executeSingleFileUpload = async (file: File) => {
+    if (!file || isUploading || disabled) return;
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setCanRetryUpload(false);
+
+    if (onFileSelect) {
+      onFileSelect(file);
+    }
+
+    const inferred = inferMediaKindAndMime(file);
+
+    // Video Upload (MP4, WebM, MOV up to 100 MB)
+    const isVideoFile =
+      inferred.kind === 'video' ||
+      (effectiveMediaType === 'video' && inferred.kind === 'unknown');
+    if (isVideoFile) {
+      if (file.size > 100 * 1024 * 1024) {
+        const err = 'Video file size exceeds 100 MB limit. Please select a smaller MP4/WebM video.';
+        setErrorMessage(err);
+        if (onToast) onToast(err);
+        return;
+      }
+
+      lastFailedFileRef.current = file;
+      setIsUploading(true);
+      setUploadProgress(10);
+      try {
+        const res = await uploadVideo(file, pct => setUploadProgress(pct), 'videos');
+        if (res?.url) {
+          lastFailedFileRef.current = null;
+          setCanRetryUpload(false);
+          setLastImportedMeta({
+            url: res.url,
+            mimeType: res.mimeType || inferred.mimeType || 'video/mp4',
+            isVideo: true,
+          });
+          onChange(res.url, {
+            fileId: res.fileId,
+            size: res.size || file.size,
+            mimeType: res.mimeType || inferred.mimeType || 'video/mp4',
+            isVideo: true,
+          });
+          const storageLabel =
+            res.storageType === 'bunny_storage'
+              ? 'Bunny Cloud Storage (videos folder)'
+              : `Cloud Storage (${res.storageType || 'bunny'})`;
+          setSuccessMessage(`Video uploaded and saved permanently to ${storageLabel}!`);
+          if (onToast) onToast('Video saved to Bunny Cloud Storage!');
+        } else {
+          throw new Error('Upload server did not return a valid video URL.');
+        }
+      } catch (err: any) {
+        const msg = err?.message || 'Device video upload failed. Please retry or check your connection.';
+        setCanRetryUpload(true);
+        setErrorMessage(msg);
+        if (onToast) onToast(msg);
+      } finally {
+        setIsUploading(false);
+        setUploadProgress(null);
+      }
+      return;
+    }
+
+    // 3D Model Upload (.glb, .gltf up to 60 MB)
+    if (inferred.kind === 'model3d' || effectiveMediaType === 'model3d') {
+      if (file.size > 60 * 1024 * 1024) {
+        const err = '3D model size exceeds 60 MB limit. Please optimize your .glb/.gltf file.';
+        setErrorMessage(err);
+        if (onToast) onToast(err);
+        return;
+      }
+      lastFailedFileRef.current = file;
+      setIsUploading(true);
+      setUploadProgress(15);
+      try {
+        const res = await upload3DModel(file, pct => setUploadProgress(pct), 'models3d');
+        if (res?.url) {
+          lastFailedFileRef.current = null;
+          setCanRetryUpload(false);
+          setLastImportedMeta({
+            url: res.url,
+            mimeType: inferred.mimeType || 'model/gltf-binary',
+            is3DModel: true,
+          });
+          onChange(res.url, {
+            fileId: res.fileId,
+            size: res.size || file.size,
+            mimeType: inferred.mimeType || 'model/gltf-binary',
+            is3DModel: true,
+          });
+          setSuccessMessage('3D model (.glb/.gltf) uploaded to Bunny Cloud Storage!');
+          if (onToast) onToast('3D model saved to Bunny Cloud Storage!');
+        } else {
+          throw new Error('Upload server did not return a valid model URL.');
+        }
+      } catch (err: any) {
+        const msg = err?.message || '3D model upload failed. Please retry.';
+        setCanRetryUpload(true);
+        setErrorMessage(msg);
+        if (onToast) onToast(msg);
+      } finally {
+        setIsUploading(false);
+        setUploadProgress(null);
+      }
+      return;
+    }
+
+    // Image Upload (JPG, PNG, WebP up to 20 MB; supports Android content:// URIs with empty/octet-stream MIME)
+    const isImageCandidate =
+      inferred.kind === 'image' ||
+      (inferred.kind === 'unknown' && (!file.type || file.type === 'application/octet-stream'));
+
+    if (!isImageCandidate) {
+      const err = 'Unsupported file format: Select a JPG, PNG, or WebP image (or MP4/WebM video).';
+      setErrorMessage(err);
+      if (onToast) onToast(err);
+      return;
+    }
+
+    if (file.size > 20 * 1024 * 1024) {
+      const err = 'Image file size exceeds 20 MB limit. Please select a smaller photo.';
+      setErrorMessage(err);
+      if (onToast) onToast(err);
+      return;
+    }
+
+    lastFailedFileRef.current = file;
+    setIsUploading(true);
+    setUploadProgress(10);
+    try {
+      const res = await uploadImage(file, {
+        category,
+        maxDimension: 1920,
+        quality: 0.84,
+        onProgress: pct => setUploadProgress(pct),
+      });
+
+      if (res?.url) {
+        lastFailedFileRef.current = null;
+        setCanRetryUpload(false);
+        onChange(res.url, {
+          fileId: res.fileId,
+          mimeType: res.mimeType || inferred.mimeType || 'image/jpeg',
+          size: res.optimizedSize || res.originalSize,
+          width: res.width,
+          height: res.height,
+        });
+        const storageLabel =
+          res.storageType === 'bunny_storage'
+            ? `Bunny Cloud Storage (${category})`
+            : `Cloud Storage (${res.storageType || 'bunny'})`;
+        setSuccessMessage(`Photo uploaded and saved permanently to ${storageLabel}!`);
+        if (onToast) onToast('Photo saved to Bunny Cloud Storage!');
+      } else {
+        throw new Error('Upload server did not return a valid image URL.');
+      }
+    } catch (err: any) {
+      const msg = err?.message || 'Device photo upload failed. Click Retry Upload to try again.';
+      setCanRetryUpload(true);
+      setErrorMessage(msg);
+      if (onToast) onToast(msg);
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(null);
+    }
+  };
+
   // Handle Option A: Upload from Device (Gallery, File Picker, or Camera Capture)
   const handleDeviceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -156,6 +331,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
 
     setErrorMessage(null);
     setSuccessMessage(null);
+    setCanRetryUpload(false);
 
     // Multi-upload for images
     if (allowMultiple && files.length > 1 && onAddMultiple) {
@@ -169,7 +345,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
           const isImageCandidate =
             inferred.kind === 'image' ||
             (inferred.kind === 'unknown' && (!file.type || file.type === 'application/octet-stream'));
-          if (!isImageCandidate) continue;
+          if (!isImageCandidate || file.size > 20 * 1024 * 1024) continue;
           setUploadProgress(Math.round(((i + 1) / files.length) * 90));
           const res = await uploadImage(file, {
             category,
@@ -180,10 +356,10 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
         }
         if (uploadedUrls.length > 0) {
           onAddMultiple(uploadedUrls);
-          setSuccessMessage(`Uploaded ${uploadedUrls.length} photo(s) permanently to Cloud Storage (${category})!`);
-          if (onToast) onToast(`Uploaded ${uploadedUrls.length} photo(s) successfully!`);
+          setSuccessMessage(`Uploaded ${uploadedUrls.length} photo(s) permanently to Bunny Cloud Storage (${category})!`);
+          if (onToast) onToast(`Uploaded ${uploadedUrls.length} photo(s) to Bunny Storage!`);
         } else {
-          setErrorMessage('No supported image files found in your selection. Choose JPG, PNG, or WebP.');
+          setErrorMessage('No supported image files found (JPG, PNG, WebP up to 20 MB).');
         }
       } catch (err: any) {
         const msg = err?.message || 'Device upload failed. Please try again.';
@@ -198,152 +374,8 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
     }
 
     const file = files[0];
-    if (onFileSelect) {
-      onFileSelect(file);
-    }
-
-    const inferred = inferMediaKindAndMime(file);
-
-    // Video Upload
-    const isVideoFile =
-      inferred.kind === 'video' ||
-      (effectiveMediaType === 'video' && inferred.kind === 'unknown');
-    if (isVideoFile) {
-      if (file.size > 55 * 1024 * 1024) {
-        const err = 'Video file size exceeds 55 MB limit. Please select a compressed video.';
-        setErrorMessage(err);
-        if (onToast) onToast(err);
-        e.target.value = '';
-        return;
-      }
-
-      setIsUploading(true);
-      setUploadProgress(10);
-      try {
-        const res = await uploadVideo(file, pct => setUploadProgress(pct), 'videos');
-        if (res?.url) {
-          setLastImportedMeta({
-            url: res.url,
-            mimeType: res.mimeType || inferred.mimeType || 'video/mp4',
-            isVideo: true,
-          });
-          onChange(res.url, {
-            fileId: res.fileId,
-            size: res.size || file.size,
-            mimeType: res.mimeType || inferred.mimeType || 'video/mp4',
-            isVideo: true,
-          });
-          const storageLabel = res.storageType === 'google_drive' ? 'Google Drive (videos folder)' : `Cloud Storage (${res.storageType || 'firestore'})`;
-          setSuccessMessage(`Video uploaded and saved permanently to ${storageLabel}!`);
-          if (onToast) onToast(`Video saved to ${res.storageType === 'google_drive' ? 'Google Drive' : 'Cloud Storage'}!`);
-        } else {
-          throw new Error('Upload server did not return a valid video URL.');
-        }
-      } catch (err: any) {
-        const msg = err?.message || 'Device video upload failed. Please try again or use Google Drive link.';
-        setErrorMessage(msg);
-        if (onToast) onToast(msg);
-      } finally {
-        setIsUploading(false);
-        setUploadProgress(null);
-        e.target.value = '';
-      }
-      return;
-    }
-
-    // 3D Model Upload
-    if (inferred.kind === 'model3d' || effectiveMediaType === 'model3d') {
-      setIsUploading(true);
-      setUploadProgress(15);
-      try {
-        const res = await upload3DModel(file, pct => setUploadProgress(pct), category);
-        if (res?.url) {
-          setLastImportedMeta({
-            url: res.url,
-            mimeType: inferred.mimeType || 'model/gltf-binary',
-            is3DModel: true,
-          });
-          onChange(res.url, {
-            fileId: res.fileId,
-            size: res.size || file.size,
-            mimeType: inferred.mimeType || 'model/gltf-binary',
-            is3DModel: true,
-          });
-          setSuccessMessage(
-            res.fileId
-              ? '3D model uploaded and saved permanently to Google Drive!'
-              : '3D model uploaded to server storage!'
-          );
-          if (onToast) onToast('3D model uploaded!');
-        } else {
-          throw new Error('Upload server did not return a valid model URL.');
-        }
-      } catch (err: any) {
-        const msg = err?.message || '3D model upload failed. Please try again.';
-        setErrorMessage(msg);
-        if (onToast) onToast(msg);
-      } finally {
-        setIsUploading(false);
-        setUploadProgress(null);
-        e.target.value = '';
-      }
-      return;
-    }
-
-    // Image Upload (supports Android content:// URIs with empty or octet-stream MIME)
-    const isImageCandidate =
-      inferred.kind === 'image' ||
-      (inferred.kind === 'unknown' && (!file.type || file.type === 'application/octet-stream'));
-
-    if (!isImageCandidate) {
-      const err = 'Invalid file type: Please select an image (JPG, PNG, WebP) or video (MP4, WebM, MOV).';
-      setErrorMessage(err);
-      if (onToast) onToast(err);
-      e.target.value = '';
-      return;
-    }
-
-    if (file.size > 25 * 1024 * 1024) {
-      const err = 'File size exceeds 25 MB limit. Please select a smaller photo.';
-      setErrorMessage(err);
-      if (onToast) onToast(err);
-      e.target.value = '';
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadProgress(10);
-    try {
-      const res = await uploadImage(file, {
-        category,
-        maxDimension: 1920,
-        quality: 0.84,
-        onProgress: pct => setUploadProgress(pct),
-      });
-
-      if (res?.url) {
-        onChange(res.url, {
-          fileId: res.fileId,
-          mimeType: res.mimeType || inferred.mimeType || 'image/jpeg',
-          size: res.optimizedSize || res.originalSize,
-          width: res.width,
-          height: res.height,
-        });
-        const storageLabel = res.storageType === 'google_drive' ? `Google Drive (${category})` : `Cloud Storage (${res.storageType || 'firestore'})`;
-        setSuccessMessage(`Photo uploaded and saved permanently to ${storageLabel}!`);
-        if (onToast) onToast(`Photo saved to ${res.storageType === 'google_drive' ? 'Google Drive' : 'Cloud Storage'}!`);
-      } else {
-        throw new Error('Upload server did not return a valid image URL.');
-      }
-    } catch (err: any) {
-      const msg = err?.message || 'Device photo upload failed. Please try again or use Google Drive link.';
-      setErrorMessage(msg);
-      if (onToast) onToast(msg);
-    } finally {
-      setIsUploading(false);
-      setUploadProgress(null);
-      e.target.value = '';
-    }
+    e.target.value = '';
+    await executeSingleFileUpload(file);
   };
 
   const applyDriveUrlChange = (nextRaw: string, autoSanitize = false) => {
@@ -514,18 +546,18 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
 
       const typeLabel = imported.isVideo ? 'Video' : imported.is3DModel ? '3D Model' : 'Image';
       const storageMsg =
-        imported.storageType === 'google_drive'
-          ? `Imported ${typeLabel} successfully and saved permanently to Google Drive (${targetCat})!`
+        imported.storageType === 'bunny_storage'
+          ? `Imported ${typeLabel} and saved permanently to Bunny Cloud Storage (${targetCat})!`
           : imported.storageType === 'google_drive_embed'
           ? `Verified and linked playable Google Drive ${typeLabel}!`
-          : `Imported ${typeLabel} successfully and saved permanently to Cloud Storage (${imported.storageType})!`;
+          : `Imported ${typeLabel} and saved permanently to Cloud Storage (${imported.storageType})!`;
 
       setSuccessMessage(
         imported.deduplicated
           ? `Saved! Linked existing ${typeLabel} (${permanentUrl}) without creating duplicates.`
           : `Saved! ${storageMsg}`
       );
-      if (onToast) onToast(`Saved! ${typeLabel} imported from Google Drive.`);
+      if (onToast) onToast(`Saved! ${typeLabel} imported to Bunny Cloud Storage.`);
     } catch (err: any) {
       const rawMsg = String(err?.message || err || '').trim();
       const cleanMsg =
@@ -561,12 +593,12 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
     sublabel ||
     helperText ||
     (effectiveMediaType === 'video'
-      ? 'Upload MP4/WebM video or paste Google Drive sharing link. Saved permanently to Google Drive.'
+      ? 'Upload MP4/WebM video (max 100 MB) or paste Drive sharing link. Saved to Bunny Cloud Storage.'
       : effectiveMediaType === 'model3d'
-      ? 'Upload .glb/.gltf 3D model or paste Google Drive link. Saved permanently to Google Drive.'
+      ? 'Upload .glb/.gltf 3D model (max 60 MB) or paste link. Saved to Bunny Cloud Storage.'
       : effectiveMediaType === 'any'
-      ? 'Upload photo or video from device, or paste Google Drive sharing link.'
-      : 'Auto-optimizes photos (1680px HD) and saves permanently to Google Drive account.');
+      ? 'Upload photo (JPG/PNG/WebP) or video (MP4/WebM) from device to Bunny Cloud Storage.'
+      : 'Auto-optimizes JPG/PNG/WebP photos (1680px HD) and saves permanently to Bunny Cloud Storage.');
 
   const defaultButtonText =
     deviceUploadButtonText ||
@@ -722,21 +754,26 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
 
             <span className="text-[11px] text-[#666666]">
               {effectiveMediaType === 'video'
-                ? 'MP4, WebM, MOV up to 55 MB • Saves to Drive videos'
+                ? 'MP4, WebM, MOV up to 100 MB • Bunny Cloud Storage (videos)'
                 : effectiveMediaType === 'model3d'
-                ? '.glb or .gltf 3D asset'
+                ? '.glb or .gltf up to 60 MB • Bunny Cloud Storage (models3d)'
                 : effectiveMediaType === 'any'
-                ? 'JPG, PNG, WebP (25 MB) or MP4/WebM Video (55 MB)'
-                : `JPG, PNG, WebP up to 25 MB • Saves to Drive ${category}`}
+                ? 'JPG, PNG, WebP (20 MB) or MP4/WebM Video (100 MB)'
+                : `JPG, PNG, WebP up to 20 MB • Bunny Cloud (${category})`}
             </span>
           </div>
 
           {isUploading && uploadProgress !== null && (
-            <div className="w-full h-1.5 rounded-full bg-stone-200 overflow-hidden">
-              <div
-                className="h-full bg-[#C89211] transition-all duration-200"
-                style={{ width: `${Math.max(8, Math.min(100, uploadProgress))}%` }}
-              />
+            <div className="space-y-1">
+              <div className="w-full h-1.5 rounded-full bg-stone-200 overflow-hidden">
+                <div
+                  className="h-full bg-[#C89211] transition-all duration-200"
+                  style={{ width: `${Math.max(8, Math.min(100, uploadProgress))}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-[#666666] font-medium">
+                Uploading to Bunny Cloud Storage... {uploadProgress}%
+              </p>
             </div>
           )}
         </div>
@@ -983,16 +1020,30 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
         </div>
       )}
 
-      {/* Error Alert with Clear Device Upload Action */}
+      {/* Error Alert with Retry & Device Upload Action */}
       {errorMessage && (
         <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs flex items-start gap-2.5 shadow-xs">
           <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
           <div className="space-y-2 flex-1">
             <div>
-              <strong className="font-bold text-rose-900 block">Backend Import Notice</strong>
+              <strong className="font-bold text-rose-900 block">Upload / Import Notice</strong>
               <p className="text-[11px] leading-relaxed text-rose-800 break-words">{errorMessage}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {canRetryUpload && lastFailedFileRef.current && (
+                <button
+                  type="button"
+                  disabled={isUploading}
+                  onClick={() => {
+                    const retryFile = lastFailedFileRef.current;
+                    if (retryFile) void executeSingleFileUpload(retryFile);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-xs"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Retry Upload</span>
+                </button>
+              )}
               {urlValidation.isGoogleDrive && urlValidation.fileId && (
                 <button
                   type="button"
@@ -1007,23 +1058,26 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
                   </span>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  setSourceMode('device');
-                  setErrorMessage(null);
-                }}
-                className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-rose-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
-              >
-                <Upload className="w-3 h-3 text-[#C89211]" />
-                <span>Switch to Upload From Device</span>
-              </button>
+              {sourceMode === 'drive' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSourceMode('device');
+                    setErrorMessage(null);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-stone-100 text-[#1A1A1A] border border-rose-300 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Upload className="w-3 h-3 text-[#C89211]" />
+                  <span>Switch to Upload From Device</span>
+                </button>
+              )}
             </div>
           </div>
           <button
             type="button"
             onClick={() => {
               setErrorMessage(null);
+              setCanRetryUpload(false);
             }}
             className="text-rose-400 hover:text-rose-800 p-1 text-xs cursor-pointer"
           >
@@ -1047,13 +1101,15 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
         </div>
       )}
 
-      {/* Current Active Media Preview Card with Replace and Remove options */}
+      {/* Current Active Media Preview Card with Replace and Confirmed Remove/Delete options */}
       {value && value.trim().length > 0 && (
         <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-2.5">
           <div className="flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                {value.includes('/api/drive/media/') || value.includes('drive.google.com')
+                {value.includes('/api/bunny/media/') || value.includes('.b-cdn.net/')
+                  ? 'Saved in Bunny Cloud'
+                  : value.includes('/api/drive/media/') || value.includes('drive.google.com')
                   ? 'Saved in Google Drive'
                   : value.includes('/uploads/')
                   ? 'Saved in Cloud Storage'
@@ -1070,7 +1126,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
               <button
                 type="button"
                 onClick={() => setSourceMode(sourceMode === 'device' ? 'drive' : 'device')}
-                disabled={disabled}
+                disabled={disabled || isDeletingFromBunny}
                 className="px-2 py-1 rounded bg-white hover:bg-stone-100 text-[#C89211] border border-[#D5D5D0] text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
                 title="Replace this media file"
               >
@@ -1080,20 +1136,71 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
 
               <button
                 type="button"
-                onClick={() => {
-                  onChange('');
-                  setSuccessMessage(null);
-                  setErrorMessage(null);
-                }}
-                disabled={disabled}
+                onClick={() => setConfirmRemoveOpen(prev => !prev)}
+                disabled={disabled || isDeletingFromBunny}
                 className="px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
-                title="Remove this media file"
+                title="Remove or delete this media file"
               >
                 <Trash2 className="w-3 h-3" />
                 <span>Remove</span>
               </button>
             </div>
           </div>
+
+          {confirmRemoveOpen && (
+            <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <span className="font-semibold text-rose-900">
+                Remove this media attachment?
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange('');
+                    setConfirmRemoveOpen(false);
+                    setSuccessMessage(null);
+                    setErrorMessage(null);
+                  }}
+                  className="px-2.5 py-1 rounded bg-white hover:bg-stone-100 text-stone-900 border border-stone-300 font-semibold cursor-pointer"
+                >
+                  Unlink Only
+                </button>
+                {(value.includes('/api/bunny/media/') || value.includes('.b-cdn.net/')) && (
+                  <button
+                    type="button"
+                    disabled={isDeletingFromBunny}
+                    onClick={async () => {
+                      setIsDeletingFromBunny(true);
+                      try {
+                        const delRes = await deleteBunnyStorageFile(value);
+                        if (!delRes.success) {
+                          setErrorMessage(delRes.error || 'Could not delete file from Bunny Storage.');
+                          if (onToast) onToast(delRes.error || 'Delete blocked (media may still be in use).');
+                        } else {
+                          onChange('');
+                          setSuccessMessage('Media deleted from Bunny Cloud Storage.');
+                          if (onToast) onToast('Deleted from Bunny Cloud Storage');
+                        }
+                      } finally {
+                        setIsDeletingFromBunny(false);
+                        setConfirmRemoveOpen(false);
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {isDeletingFromBunny ? 'Deleting...' : 'Delete from Bunny'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemoveOpen(false)}
+                  className="px-2 py-1 rounded text-stone-600 hover:text-stone-900 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-3">
             {isCurrentVideo ? (

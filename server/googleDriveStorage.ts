@@ -14,13 +14,27 @@ import path from 'path';
 
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
-const CREDENTIALS_FILE = path.join(process.cwd(), 'server', 'data', 'google_drive_credentials.json');
-const DRIVE_CACHE_DIR = path.join(process.cwd(), 'data', 'uploads', 'drive_cache');
-const DRIVE_IMPORT_INDEX_FILE = path.join(process.cwd(), 'data', 'drive_import_index.json');
-
-if (!fs.existsSync(DRIVE_CACHE_DIR)) {
-  fs.mkdirSync(DRIVE_CACHE_DIR, { recursive: true });
+function resolveWritableDriveCacheDir(primaryDir: string, tempFallbackDir: string): string {
+  for (const dir of [primaryDir, tempFallbackDir]) {
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.accessSync(dir, fs.constants.W_OK);
+      return dir;
+    } catch {
+      // Fall back to /tmp if app filesystem is read-only
+    }
+  }
+  return tempFallbackDir;
 }
+
+const CREDENTIALS_FILE = path.join(process.cwd(), 'server', 'data', 'google_drive_credentials.json');
+const DRIVE_CACHE_DIR = resolveWritableDriveCacheDir(
+  path.join(process.cwd(), 'data', 'uploads', 'drive_cache'),
+  '/tmp/jai-hanuman-door/drive_cache'
+);
+const DRIVE_IMPORT_INDEX_FILE = path.join(process.cwd(), 'data', 'drive_import_index.json');
 
 export type DriveSubfolderCategory = 'products' | 'catalog' | 'banners' | 'delivery' | 'videos';
 

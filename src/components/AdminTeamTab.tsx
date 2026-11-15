@@ -215,10 +215,10 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
     try {
       setUploadingPhoto(true);
       setErrorMessage(null);
-      const res = await uploadImage(file, { category: 'products' });
+      const res = await uploadImage(file, { category: 'team' });
       if (res && res.url) {
         setFormData(prev => ({ ...prev, photo: res.url }));
-        setSuccessMessage('Profile photo uploaded successfully to Google Drive!');
+        setSuccessMessage('Profile photo uploaded successfully to Bunny Storage!');
         setTimeout(() => setSuccessMessage(null), 3000);
       }
     } catch (err: any) {
@@ -654,9 +654,9 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
               <div className="space-y-1.5 bg-[#F8F8F6] p-4 rounded-2xl border border-[#E5E5E5]">
                 <GoogleDriveImagePicker
                   label="Profile Photo"
-                  sublabel="Upload photo from device or paste Google Drive sharing link. Stored permanently in Google Drive."
+                  sublabel="Upload photo directly to Bunny Storage (team folder) or import link"
                   value={formData.photo || ''}
-                  category="products"
+                  category="team"
                   deviceUploadButtonText="Upload Profile Photo"
                   onChange={(url) => setFormData(p => ({ ...p, photo: url }))}
                   compact
@@ -852,7 +852,7 @@ export const AdminTeamTab: React.FC<AdminTeamTabProps> = ({
                 <div className="pt-2 border-t border-[#E5E5E5]">
                   <GoogleDriveImagePicker
                     label="Intro / Workshop Video (Optional)"
-                    sublabel="Option A: Upload video from device, or Option B: Paste Google Drive sharing link to preview & import"
+                    sublabel="Upload MP4/WebM workshop video to Bunny Storage or import external video link"
                     value={formData.videoUrl || ''}
                     category="videos"
                     mediaType="video"
