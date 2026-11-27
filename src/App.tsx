@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ShieldCheck,
   TreePine,
@@ -20,6 +20,12 @@ import {
   Truck,
   Package,
   Box,
+  AlertTriangle,
+  X,
+  Camera,
+  Ruler,
+  Sliders,
+  Grid3X3,
 } from 'lucide-react';
 import {
   Door,
@@ -37,6 +43,13 @@ import {
   IndiaDeliveryState,
   DeliveryStory,
   ChaukhatCalculationResult,
+  CustomerAccount,
+  PaymentTransaction,
+  Quotation,
+  PremiumEntitlementSummary,
+  PremiumPlanDefinition,
+  WindowSystemCategoryId,
+  WindowSystemDefinition,
 } from './types.ts';
 import {
   fetchCatalog,
@@ -75,24 +88,83 @@ const AdminPanel = React.lazy(() => import('./components/AdminPanel.tsx').then(m
 const AIWoodDetector = React.lazy(() => import('./components/AIWoodDetector.tsx').then(m => ({ default: m.AIWoodDetector })));
 const CustomerOrderTracking = React.lazy(() => import('./components/CustomerOrderTracking.tsx').then(m => ({ default: m.CustomerOrderTracking })));
 const DoorVisualizerPage = React.lazy(() => import('./components/visualizer/DoorVisualizerPage.tsx').then(m => ({ default: m.DoorVisualizerPage })));
+const SlidingWindowCalculator = React.lazy(() => import('./components/sliding-window/SlidingWindowCalculator.tsx').then(m => ({ default: m.SlidingWindowCalculator })));
+import type { SlidingWindowWorkspaceTab } from './components/sliding-window/SlidingWindowCalculator.tsx';
+import { SlidingWindowIcon } from './components/sliding-window/SlidingWindowIcon.tsx';
+import { WindowCategoryHomeSection } from './components/window-systems/WindowCategoryHomeSection.tsx';
+import {
+  WindowSelectionScreen,
+  type WindowSelectionLaunchConfig,
+} from './components/window-systems/WindowSelectionScreen.tsx';
+import { WindowSystemCalculatorView } from './components/window-systems/WindowSystemCalculatorView.tsx';
+import { createDefaultIndianWindowSystems } from './data/indianWindowSystemsDefaults.ts';
+import { fetchPublicWindowSystems } from './lib/windowSystemApi.ts';
 import { HomepageBannerSlider } from './components/HomepageBannerSlider.tsx';
 import { ContentProtectionWarning } from './components/ContentProtectionWarning.tsx';
 import { useContentProtection } from './lib/contentProtection.ts';
-import {
-  getCleanWhatsAppDigits,
-  formatWhatsAppDisplay,
-  getWhatsAppUrl,
-  getGoogleMapsUrl,
-} from './lib/contactUtils.ts';
 import { initSpaAnalytics } from './lib/analytics.ts';
 import { adMobService } from './lib/admob/admobService.ts';
 import { AdMobBannerSlot } from './components/admob/AdMobBannerSlot.tsx';
+import { FEATURE_FLAGS, isCustomerViewDisabled } from './config/featureFlags.ts';
+import { CustomerOtpLoginModal } from './components/CustomerOtpLoginModal.tsx';
+import { LoginRequiredPopup } from './components/LoginRequiredPopup.tsx';
+import { PaymentReceiptModal } from './components/PaymentReceiptModal.tsx';
+import {
+  fetchCurrentCustomerSession,
+  logoutCustomerSession,
+  startRazorpayCheckoutFlow,
+  type CreateOrderRequestPayload,
+  type CustomerOrderSummary,
+  type CustomerSessionPayload,
+} from './lib/customerPaymentApi.ts';
+import { syncServerCredits, type CreditPack } from './lib/creditManager.ts';
+import { PremiumSubscriptionView } from './components/PremiumSubscriptionView.tsx';
+import {
+  FREE_ENTITLEMENT,
+  PREMIUM_PLANS,
+  fetchMonetizationConfig,
+} from './lib/billing/playBillingService.ts';
+import { saveLocalAdMobSettings } from './lib/admob/admobConfig.ts';
+import {
+  BRAND_LOGO_URL,
+  BRAND_NAME,
+  BRAND_TAGLINE,
+  resolveBrandLogoUrl,
+  resolveBrandName,
+  resolveBrandTagline,
+} from './config/brand.ts';
 
 export const App: React.FC = () => {
-  // Navigation View State: 'home' | 'gallery' | 'calculator' | 'visualizer' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer' | 'wood-detector' | 'tracking'
+  // Navigation View State
   const [activeView, setActiveView] = useState<
-    'home' | 'gallery' | 'calculator' | 'visualizer' | 'articles' | 'contact' | 'privacy' | 'about' | 'disclaimer' | 'wood-detector' | 'tracking'
+    | 'home'
+    | 'gallery'
+    | 'calculator'
+    | 'sliding-window'
+    | 'window-category'
+    | 'window-system-calculator'
+    | 'visualizer'
+    | 'articles'
+    | 'contact'
+    | 'privacy'
+    | 'about'
+    | 'disclaimer'
+    | 'wood-detector'
+    | 'tracking'
+    | 'premium'
   >('home');
+  const [windowSystems, setWindowSystems] = useState<WindowSystemDefinition[]>(() =>
+    createDefaultIndianWindowSystems()
+  );
+  const [selectedWindowCategoryId, setSelectedWindowCategoryId] =
+    useState<WindowSystemCategoryId>('sliding');
+  const [selectedWindowLaunch, setSelectedWindowLaunch] =
+    useState<WindowSelectionLaunchConfig | null>(null);
+  const [premiumEntitlement, setPremiumEntitlement] = useState<PremiumEntitlementSummary>(FREE_ENTITLEMENT);
+  const [premiumPlans, setPremiumPlans] = useState<PremiumPlanDefinition[]>(PREMIUM_PLANS);
+  const [otpLoginCustomReason, setOtpLoginCustomReason] = useState<string | null>(null);
+  const [slidingWindowTab, setSlidingWindowTab] = useState<SlidingWindowWorkspaceTab>('single');
+  const [scannerLaunchToken, setScannerLaunchToken] = useState<number>(0);
   const [visualizerDoor, setVisualizerDoor] = useState<Door | null>(null);
   const [trackingInitialId, setTrackingInitialId] = useState<string>('');
 
@@ -122,15 +194,16 @@ export const App: React.FC = () => {
   const [articles, setArticles] = useState<Article[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [settings, setSettings] = useState<BusinessSettings>({
-    businessName: 'Jai Hanuman Door',
-    tagline: 'Master Craftsmen in Handcrafted Sagwan & Teak Doors',
-    whatsappNumber: '7887412884',
-    googleMapsUrl: 'https://maps.app.goo.gl/n2xV9vhz5tpVumc6A?g_st=ac',
-    phone: '+91 98220 12345',
-    email: 'orders@jaihanumandoor.com',
-    address: 'Plot No. 42, Timber Market Industrial Area, Pune, Maharashtra 411042',
-    disclaimer: 'Price shown is an estimated price and may vary according to final design, material quality, hardware and customization.',
-    quotePrefix: 'JHD',
+    businessName: BRAND_NAME,
+    tagline: BRAND_TAGLINE,
+    logoUrl: BRAND_LOGO_URL,
+    whatsappNumber: '',
+    googleMapsUrl: '',
+    phone: '',
+    email: 'support@windowcutpro.com',
+    address: '',
+    disclaimer: 'Cutting lists and estimates generated by WindowCut Pro are based on your entered dimensions and active fabrication profile rules. Verify site openings before final cutting.',
+    quotePrefix: 'WCP',
     additionalChargePercentage: 0,
     additionalChargeName: 'Taxes & Levies',
   });
@@ -171,11 +244,34 @@ export const App: React.FC = () => {
   // Client-side content protection & Android FLAG_SECURE
   useContentProtection(settings?.contentProtection, activeView);
 
-  // Saved Doors & Estimates Modal State (Public Browser Storage)
+  // Saved Doors, Estimates & Authenticated Customer Account State
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [profileActiveTab, setProfileActiveTab] = useState<'favorites' | 'history' | 'notifications'>('favorites');
+  const [profileActiveTab, setProfileActiveTab] = useState<
+    'account' | 'payments' | 'orders' | 'favorites' | 'history' | 'notifications'
+  >('account');
   const [favoriteDoorIds, setFavoriteDoorIds] = useState<string[]>(getGuestFavorites);
   const [loadedCalcRecord, setLoadedCalcRecord] = useState<UserCalculationRecord | null>(null);
+
+  // Mobile OTP Customer Session & Razorpay Payment States
+  const [currentCustomer, setCurrentCustomer] = useState<CustomerAccount | null>(null);
+  const [customerPayments, setCustomerPayments] = useState<PaymentTransaction[]>([]);
+  const [customerQuotes, setCustomerQuotes] = useState<Quotation[]>([]);
+  const [customerOrders, setCustomerOrders] = useState<CustomerOrderSummary[]>([]);
+  const [showOtpLoginModal, setShowOtpLoginModal] = useState(false);
+  const [showLoginRequiredPopup, setShowLoginRequiredPopup] = useState(false);
+  const pendingCalculationActionRef = useRef<(() => void | Promise<void>) | null>(null);
+  const [pendingPaymentPayload, setPendingPaymentPayload] = useState<CreateOrderRequestPayload | null>(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [payingCreditPackId, setPayingCreditPackId] = useState<string | null>(null);
+  const [activePaymentReceipt, setActivePaymentReceipt] = useState<{
+    payment: PaymentTransaction;
+    statusMessage?: string;
+  } | null>(null);
+  const [paymentNotice, setPaymentNotice] = useState<{
+    type: 'config' | 'error';
+    message: string;
+    missingEnvVars?: string[];
+  } | null>(null);
 
   // Sync URL routing for SEO canonical routes and deep-links
   useEffect(() => {
@@ -191,21 +287,54 @@ export const App: React.FC = () => {
           setShowAdminPanel(true);
         }
       } else if (path.startsWith('/track') || path.startsWith('/order-track') || path.startsWith('/tracking')) {
-        const parts = path.split('/').filter(Boolean);
-        if (parts.length > 1 && parts[1] !== 'order' && parts[1] !== 'track') {
-          setTrackingInitialId(parts[1].toUpperCase());
+        if (FEATURE_FLAGS.orderTracking) {
+          const parts = path.split('/').filter(Boolean);
+          if (parts.length > 1 && parts[1] !== 'order' && parts[1] !== 'track') {
+            setTrackingInitialId(parts[1].toUpperCase());
+          }
+          setActiveView('tracking');
+        } else {
+          setActiveView('home');
+          window.history.replaceState({}, '', '/');
         }
-        setActiveView('tracking');
       } else if (path === '/privacy' || path === '/privacy-policy') {
         setActiveView('privacy');
       } else if (path === '/about' || path === '/about-us') {
         setActiveView('about');
+      } else if (path === '/delivery' || path === '/india-delivery') {
+        setActiveView('home');
+        window.history.replaceState({}, '', '/');
       } else if (path === '/contact' || path === '/contact-us') {
         setActiveView('contact');
       } else if (path === '/disclaimer') {
-        setActiveView('disclaimer');
+        if (FEATURE_FLAGS.copyrightFooter) {
+          setActiveView('disclaimer');
+        } else {
+          setActiveView('home');
+          window.history.replaceState({}, '', '/');
+        }
       } else if (path === '/catalog' || path === '/doors' || path === '/gallery') {
-        setActiveView('gallery');
+        if (FEATURE_FLAGS.doorCatalogue) {
+          setActiveView('gallery');
+        } else {
+          setActiveView('home');
+          window.history.replaceState({}, '', '/');
+        }
+      } else if (
+        path.startsWith('/sliding-window') ||
+        path === '/window-calculator' ||
+        path === '/fabrication-calculator'
+      ) {
+        if (path.includes('/bulk')) {
+          setSlidingWindowTab('bulk');
+        } else if (path.includes('/settings')) {
+          setSlidingWindowTab('settings');
+        } else if (path.includes('/projects')) {
+          setSlidingWindowTab('projects');
+        } else {
+          setSlidingWindowTab('single');
+        }
+        setActiveView('sliding-window');
       } else if (path === '/chaukhat' || path === '/chaukhat-calculator' || path === '/frame-calculator') {
         setActiveView('calculator');
         setCalculatorOption('chaukhat');
@@ -220,12 +349,34 @@ export const App: React.FC = () => {
         path === '/detect-wood'
       ) {
         setActiveView('wood-detector');
+      } else if (
+        path === '/premium' ||
+        path === '/ad-free' ||
+        path === '/subscription' ||
+        path === '/upgrade'
+      ) {
+        setActiveView('premium');
       } else if (path === '/articles' || path === '/guides' || path === '/blog') {
-        setActiveView('articles');
+        if (FEATURE_FLAGS.articlesBlog) {
+          setActiveView('articles');
+        } else {
+          setActiveView('home');
+          window.history.replaceState({}, '', '/');
+        }
       } else if (path.startsWith('/door/')) {
-        setActiveView('gallery');
+        if (FEATURE_FLAGS.doorCatalogue) {
+          setActiveView('gallery');
+        } else {
+          setActiveView('home');
+          window.history.replaceState({}, '', '/');
+        }
       } else if (path.startsWith('/article/')) {
-        setActiveView('articles');
+        if (FEATURE_FLAGS.articlesBlog) {
+          setActiveView('articles');
+        } else {
+          setActiveView('home');
+          window.history.replaceState({}, '', '/');
+        }
       } else if (path === '/') {
         setActiveView('home');
       } else if (
@@ -240,13 +391,18 @@ export const App: React.FC = () => {
         path === '/door-fitting' ||
         path === '/ai-visualizer'
       ) {
-        const parts = path.split('/').filter(Boolean);
-        if (parts.length > 1 && parts[1] !== 'door' && parts[1] !== 'fitting' && parts[1] !== '3d' && parts[1] !== 'ar') {
-          const doorIdOrName = decodeURIComponent(parts[1]);
-          const found = doors.find(d => d.id === doorIdOrName || d.name.toLowerCase() === doorIdOrName.toLowerCase());
-          if (found) setVisualizerDoor(found);
+        if (FEATURE_FLAGS.visualizer3dAr) {
+          const parts = path.split('/').filter(Boolean);
+          if (parts.length > 1 && parts[1] !== 'door' && parts[1] !== 'fitting' && parts[1] !== '3d' && parts[1] !== 'ar') {
+            const doorIdOrName = decodeURIComponent(parts[1]);
+            const found = doors.find(d => d.id === doorIdOrName || d.name.toLowerCase() === doorIdOrName.toLowerCase());
+            if (found) setVisualizerDoor(found);
+          }
+          setActiveView('visualizer');
+        } else {
+          setActiveView('home');
+          window.history.replaceState({}, '', '/');
         }
-        setActiveView('visualizer');
       }
       // Check query parameter ?track=... or ?door=...
       try {
@@ -257,7 +413,7 @@ export const App: React.FC = () => {
           setActiveView('tracking');
         }
         const doorParam = urlParams.get('door') || urlParams.get('doorId');
-        if (doorParam) {
+        if (doorParam && FEATURE_FLAGS.visualizer3dAr && FEATURE_FLAGS.doorCatalogue) {
           const found = doors.find(d => d.id === doorParam || d.name.toLowerCase() === doorParam.toLowerCase());
           if (found) {
             setVisualizerDoor(found);
@@ -281,20 +437,22 @@ export const App: React.FC = () => {
   // Update document.title on route & modal changes to enrich GA4 analytics reports
   useEffect(() => {
     if (selectedDoorForDetail) {
-      document.title = `${selectedDoorForDetail.name} | Jai Hanuman Door`;
+      document.title = `${selectedDoorForDetail.name} | ${BRAND_NAME}`;
       return;
     }
     const viewTitles: Record<string, string> = {
-      home: 'Jai Hanuman Door | Door Price Calculator & Handcrafted Door Catalog',
-      gallery: 'Wooden Door Catalog & Designs | Jai Hanuman Door',
-      calculator: 'Instant Door Price Calculator | Jai Hanuman Door',
-      articles: 'Woodcraft Guides & Buying Tips | Jai Hanuman Door',
-      contact: 'Contact Us | Jai Hanuman Door',
-      about: 'About Us | Jai Hanuman Door',
-      privacy: 'Privacy Policy | Jai Hanuman Door',
-      disclaimer: 'Disclaimer | Jai Hanuman Door',
-      'wood-detector': 'AI Wood Detector – Lakdi Ki Pehchan | Jai Hanuman Door',
-      tracking: 'Track Order & Live Manufacturing Progress | Jai Hanuman Door',
+      home: `${BRAND_NAME} | ${BRAND_TAGLINE}`,
+      gallery: `Designs Catalog | ${BRAND_NAME}`,
+      calculator: `Workshop Price Estimator | ${BRAND_NAME}`,
+      'sliding-window': `${BRAND_TAGLINE} | ${BRAND_NAME}`,
+      articles: `Fabrication Guides | ${BRAND_NAME}`,
+      contact: `Contact Us | ${BRAND_NAME}`,
+      about: `About ${BRAND_NAME} | ${BRAND_TAGLINE}`,
+      privacy: `Privacy Policy | ${BRAND_NAME}`,
+      disclaimer: `Disclaimer | ${BRAND_NAME}`,
+      'wood-detector': `AI Wood Detector | ${BRAND_NAME}`,
+      tracking: `Order Tracking | ${BRAND_NAME}`,
+      premium: `${BRAND_NAME} Premium – Ad-Free Fabrication Workspace`,
     };
     if (viewTitles[activeView]) {
       document.title = viewTitles[activeView];
@@ -305,14 +463,21 @@ export const App: React.FC = () => {
   const loadAppData = async () => {
     try {
       setLoading(true);
-      const [catalogData, calcData, delData] = await Promise.all([
+      const [catalogData, calcData, delData, windowSysData] = await Promise.all([
         fetchCatalog(),
         fetchCalculatorData(),
-        fetchPublicDeliveryData().catch(err => {
-          console.warn('Delivery data fallback in use:', err);
-          return null;
-        }),
+        FEATURE_FLAGS.allIndiaDelivery
+          ? fetchPublicDeliveryData().catch(err => {
+              console.warn('Delivery data fallback in use:', err);
+              return null;
+            })
+          : Promise.resolve(null),
+        fetchPublicWindowSystems().catch(() => null),
       ]);
+
+      if (windowSysData && Array.isArray(windowSysData.systems) && windowSysData.systems.length > 0) {
+        setWindowSystems(windowSysData.systems);
+      }
 
       setDoors(catalogData.doors || []);
       setCategories(catalogData.categories || []);
@@ -337,8 +502,8 @@ export const App: React.FC = () => {
         }
       }
 
-      // Check if deep-linked to a door directly
-      if (typeof window !== 'undefined') {
+      // Check if deep-linked to a door directly (only when catalogue is active)
+      if (FEATURE_FLAGS.doorCatalogue && typeof window !== 'undefined') {
         const currentPath = window.location.pathname;
         if (currentPath.toLowerCase().startsWith('/door/')) {
           const seg = currentPath.split('/').filter(Boolean)[1];
@@ -360,39 +525,149 @@ export const App: React.FC = () => {
     }
   };
 
+  const normalizeVerifiedEntitlement = (
+    entitlement?: PremiumEntitlementSummary | null
+  ): PremiumEntitlementSummary => {
+    if (!entitlement) return FREE_ENTITLEMENT;
+    const expiry =
+      typeof entitlement.expiryTimeMillis === 'number' &&
+      Number.isFinite(entitlement.expiryTimeMillis) &&
+      entitlement.expiryTimeMillis > 0
+        ? entitlement.expiryTimeMillis
+        : null;
+    const isVerifiedPremium = Boolean(
+      entitlement.subscriptionPlan === 'premium' &&
+      entitlement.isPremium === true &&
+      entitlement.adsRemoved === true &&
+      (entitlement.status === 'active' || entitlement.status === 'cancelled') &&
+      entitlement.source === 'google_play_billing' &&
+      expiry !== null &&
+      expiry > Date.now()
+    );
+    if (isVerifiedPremium) {
+      return {
+        ...entitlement,
+        subscriptionPlan: 'premium',
+        subscriptionStatus: entitlement.status,
+        subscriptionExpiryDate: entitlement.subscriptionExpiryDate || entitlement.expiryDate || null,
+        isPremium: true,
+        adsRemoved: true,
+      };
+    }
+    return {
+      ...FREE_ENTITLEMENT,
+      ...entitlement,
+      subscriptionPlan: 'free',
+      subscriptionStatus: entitlement.subscriptionStatus || entitlement.status || 'none',
+      subscriptionExpiryDate: entitlement.subscriptionExpiryDate || entitlement.expiryDate || null,
+      isPremium: false,
+      adsRemoved: false,
+      autoRenewing: false,
+    };
+  };
+
+  const applyPremiumEntitlement = (entitlement?: PremiumEntitlementSummary | null) => {
+    const next = normalizeVerifiedEntitlement(entitlement);
+    setPremiumEntitlement(next);
+    adMobService.setPremiumEntitlement(next);
+  };
+
+  const applyCustomerSession = (session: CustomerSessionPayload | null) => {
+    if (!session || !session.authenticated || !session.customer) {
+      setCurrentCustomer(null);
+      setCustomerPayments([]);
+      setCustomerQuotes([]);
+      setCustomerOrders([]);
+      // Logout or guest session ALWAYS resets immediately to Free Plan with ads enabled
+      applyPremiumEntitlement(FREE_ENTITLEMENT);
+      return;
+    }
+    setCurrentCustomer(session.customer);
+    setCustomerPayments(session.payments || []);
+    setCustomerQuotes(session.quotes || []);
+    setCustomerOrders(session.orders || []);
+    if (typeof session.customer.woodScanCredits === 'number') {
+      syncServerCredits(session.customer.woodScanCredits);
+    }
+    // Login NEVER activates Premium; apply only backend-verified entitlement (defaults to Free)
+    applyPremiumEntitlement(session.entitlement || FREE_ENTITLEMENT);
+  };
+
+  const refreshCustomerSession = async () => {
+    const session = await fetchCurrentCustomerSession();
+    applyCustomerSession(session);
+  };
+
+  const refreshMonetizationState = async () => {
+    const config = await fetchMonetizationConfig();
+    if (!config) {
+      // Fail closed: never preserve unverified/stale Premium state when server check fails
+      applyPremiumEntitlement(FREE_ENTITLEMENT);
+      return;
+    }
+    if (config.adSettings) {
+      saveLocalAdMobSettings(config.adSettings);
+      setSettings(prev => ({
+        ...prev,
+        adSettings: config.adSettings,
+      }));
+    }
+    if (Array.isArray(config.plans) && config.plans.length > 0) {
+      setPremiumPlans(config.plans);
+    }
+    applyPremiumEntitlement(config.entitlement || FREE_ENTITLEMENT);
+  };
+
   useEffect(() => {
     loadAppData();
     setFavoriteDoorIds(getGuestFavorites());
+    refreshCustomerSession();
+    refreshMonetizationState();
   }, []);
 
-  // Sync Admin Active State with AdMob Service to strictly suppress all ad preloading and display on Admin screens
+  // Re-verify server-authoritative Ad-Free entitlement whenever customer logs in or logs out
+  useEffect(() => {
+    refreshMonetizationState();
+  }, [currentCustomer?.id]);
+
+  // Listen for "Remove Ads" click from any AdMobBannerSlot across the app
+  useEffect(() => {
+    const handleOpenPremiumEvent = () => {
+      navigateToView('premium');
+    };
+    window.addEventListener('jhd:open-premium', handleOpenPremiumEvent);
+    return () => window.removeEventListener('jhd:open-premium', handleOpenPremiumEvent);
+  }, []);
+
+  // Sync Admin Panel open state with AdMob Service: suppress ads ONLY while Admin Panel is open
   useEffect(() => {
     const isPathAdmin = typeof window !== 'undefined' && window.location.pathname.toLowerCase().startsWith('/admin');
     const isAdminActive = showAdminPanel || isPathAdmin;
     adMobService.setAdminPanelActive(isAdminActive);
     adMobService.setAdminSessionActive(isAdminLoggedIn);
-    if (isAdminActive || isAdminLoggedIn) {
+    if (isAdminActive) {
       adMobService.hideAdaptiveBanner();
     }
   }, [showAdminPanel, isAdminLoggedIn]);
 
-  // Initialize Native Google AdMob SDK and preload ad units
+  // Initialize Native Google AdMob SDK and preload ad units (skipped automatically when Premium is active)
   useEffect(() => {
-    if (!adMobService.isAdminActive() && !showAdminPanel) {
+    if (!adMobService.isAdminActive() && !showAdminPanel && !premiumEntitlement.isPremium) {
       adMobService.initialize(settings?.adSettings);
     }
-  }, [settings?.adSettings, showAdminPanel]);
+  }, [settings?.adSettings, showAdminPanel, premiumEntitlement.isPremium]);
 
-  // Format 6: Google AdMob App Open Ad (Cold start & Foreground return)
+  // Format 6: Google AdMob App Open Ad (Cold start & Foreground return — strictly suppressed for Premium users)
   useEffect(() => {
     const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.());
     if (!isNative) return;
 
     let appStateHandle: { remove: () => Promise<void> } | null = null;
-    CapApp.addListener('appStateChange', (state) => {
+    CapApp.addListener('appStateChange', async (state) => {
       if (state.isActive) {
-        // App returned to foreground: show App Open Ad if eligible and not on admin screen
-        if (!adMobService.isAdminActive() && !showAdminPanel) {
+        // Re-verify subscription status on resume before showing any ad (handles expirations & renewals)
+        await refreshMonetizationState();
+        if (!adMobService.isAdminActive() && !showAdminPanel && !adMobService.isPremiumActive()) {
           adMobService.showAppOpenAd(settings?.adSettings);
         }
       }
@@ -402,7 +677,7 @@ export const App: React.FC = () => {
 
     // Cold start: Attempt App Open Ad after UI mounts (2.5s settle timer)
     const coldStartTimer = setTimeout(() => {
-      if (!adMobService.isAdminActive() && !showAdminPanel) {
+      if (!adMobService.isAdminActive() && !showAdminPanel && !adMobService.isPremiumActive()) {
         adMobService.showAppOpenAd(settings?.adSettings);
       }
     }, 2500);
@@ -505,12 +780,128 @@ export const App: React.FC = () => {
   };
 
   const handleOpenProfileModal = (tab?: unknown) => {
-    const cleanTab =
-      tab === 'history' || tab === 'notifications'
-        ? tab
-        : 'favorites';
+    const cleanTab: 'account' | 'payments' | 'orders' | 'favorites' | 'history' | 'notifications' =
+      tab === 'account'
+        ? 'account'
+        : tab === 'payments'
+        ? 'payments'
+        : tab === 'orders'
+        ? 'orders'
+        : tab === 'notifications' && FEATURE_FLAGS.appMessages
+        ? 'notifications'
+        : tab === 'favorites' && FEATURE_FLAGS.doorCatalogue
+        ? 'favorites'
+        : tab === 'history'
+        ? 'history'
+        : currentCustomer
+        ? 'account'
+        : 'history';
     setProfileActiveTab(cleanTab);
     setShowProfileModal(true);
+  };
+
+  const handleRequireCalculationLogin = (resumeAction: () => void | Promise<void>) => {
+    pendingCalculationActionRef.current = resumeAction;
+    setShowLoginRequiredPopup(true);
+  };
+
+  const handleCustomerLogout = async () => {
+    await logoutCustomerSession();
+    applyCustomerSession(null);
+    setActiveDoorCalculation(null);
+    setCombinedChaukhat(null);
+    setQuotationCalcResult(null);
+    pendingCalculationActionRef.current = null;
+  };
+
+  const executeOnlinePayment = async (
+    payload: CreateOrderRequestPayload,
+    packIdForUi?: string | null
+  ) => {
+    setPaymentNotice(null);
+    setIsProcessingPayment(true);
+    if (packIdForUi) setPayingCreditPackId(packIdForUi);
+    try {
+      const outcome = await startRazorpayCheckoutFlow(payload);
+      if (outcome.outcome === 'auth_required') {
+        setPendingPaymentPayload(payload);
+        setShowOtpLoginModal(true);
+        return;
+      }
+      if (outcome.outcome === 'config_required') {
+        setPaymentNotice({
+          type: 'config',
+          message: outcome.message,
+          missingEnvVars: outcome.missingEnvVars,
+        });
+        return;
+      }
+      if (outcome.outcome === 'error' && !outcome.payment) {
+        setPaymentNotice({
+          type: 'error',
+          message: outcome.message,
+        });
+        return;
+      }
+
+      if (typeof outcome.updatedCredits === 'number') {
+        syncServerCredits(outcome.updatedCredits);
+      }
+
+      if (outcome.payment) {
+        setActivePaymentReceipt({
+          payment: outcome.payment,
+          statusMessage: outcome.message,
+        });
+      }
+
+      await refreshCustomerSession();
+    } finally {
+      setIsProcessingPayment(false);
+      setPayingCreditPackId(null);
+    }
+  };
+
+  const handleStartOnlinePayment = async (
+    payload: CreateOrderRequestPayload,
+    packIdForUi?: string | null
+  ) => {
+    if (!currentCustomer) {
+      setPendingPaymentPayload(payload);
+      setShowOtpLoginModal(true);
+      return;
+    }
+    await executeOnlinePayment(payload, packIdForUi);
+  };
+
+  const handlePayOnlineCreditPack = async (pack: CreditPack) => {
+    await handleStartOnlinePayment(
+      { itemType: 'credit_pack', packId: pack.id },
+      pack.id
+    );
+  };
+
+  const handlePayOnlineQuote = async (quote: Quotation) => {
+    await handleStartOnlinePayment({
+      itemType: 'quotation',
+      quoteId: quote.id,
+    });
+  };
+
+  const handlePayOnlineChaukhat = async (chaukhatInput: {
+    woodTypeId: string;
+    sectionSizeId: string;
+    customWidthInch?: number;
+    customDepthInch?: number;
+    heightFt: number;
+    widthFt: number;
+    designId: 'plain' | 'diamond' | 'hand_carved';
+    productId?: string;
+  }) => {
+    await handleStartOnlinePayment({
+      itemType: 'chaukhat_calculation',
+      chaukhatInput,
+    });
   };
 
   const handleToggleFavorite = async (doorId: string) => {
@@ -521,7 +912,7 @@ export const App: React.FC = () => {
   const handleLoadCalculation = (record: UserCalculationRecord) => {
     setLoadedCalcRecord(record);
     setShowProfileModal(false);
-    if (record.doorId) {
+    if (FEATURE_FLAGS.doorCatalogue && record.doorId) {
       const foundDoor = doors.find(d => d.id === record.doorId);
       if (foundDoor) {
         setCalculatorDoor(foundDoor);
@@ -531,17 +922,19 @@ export const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Canonical route navigation
-  const navigateToView = (view: string) => {
+  // Canonical route navigation (safely redirects disabled views to Home)
+  const navigateToView = (rawView: string) => {
+    const view = isCustomerViewDisabled(rawView) ? 'home' : rawView;
     const fromView = activeView;
     if (fromView !== view && !adMobService.isAdminActive() && !showAdminPanel && view !== 'admin' && fromView !== 'admin') {
       adMobService.recordNavigationTransition(fromView, view, () => {}, settings?.adSettings);
     }
-    setActiveView(view);
+    setActiveView(view as any);
     const viewToPathMap: Record<string, string> = {
       home: '/',
       gallery: '/catalog',
       calculator: '/calculator',
+      'sliding-window': '/sliding-window',
       visualizer: '/visualizer',
       articles: '/articles',
       about: '/about',
@@ -550,11 +943,30 @@ export const App: React.FC = () => {
       disclaimer: '/disclaimer',
       'wood-detector': '/wood-detector',
       tracking: '/track',
+      premium: '/premium',
     };
     const targetPath = viewToPathMap[view] || '/';
     if (typeof window !== 'undefined' && window.history && window.history.pushState) {
       if (window.location.pathname !== targetPath) {
         window.history.pushState({}, '', targetPath);
+      }
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const openSlidingWindowSection = (
+    tab: SlidingWindowWorkspaceTab = 'single',
+    openScanner = false
+  ) => {
+    setSlidingWindowTab(tab);
+    if (openScanner) {
+      setScannerLaunchToken((prev) => prev + 1);
+    }
+    setActiveView('sliding-window');
+    const subPath = tab === 'single' ? '/sliding-window' : `/sliding-window/${tab}`;
+    if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+      if (window.location.pathname !== subPath) {
+        window.history.pushState({}, '', subPath);
       }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -573,6 +985,10 @@ export const App: React.FC = () => {
       window.open(action, '_blank', 'noopener,noreferrer');
       return;
     }
+    if (clean === 'sliding-window' || clean === 'sliding-window-calculator' || clean === 'window-calculator') {
+      openSlidingWindowSection('single');
+      return;
+    }
     if (clean === 'chaukhat' || clean === 'chaukhat-calculator') {
       setCalculatorOption('chaukhat');
       navigateToView('calculator');
@@ -589,11 +1005,7 @@ export const App: React.FC = () => {
       navigateToView('tracking');
     } else if (clean === 'articles' || clean === 'blog') {
       navigateToView('articles');
-    } else if (clean === 'whatsapp') {
-      const waNumber = settings?.whatsappNumber || '7887412884';
-      const bName = settings?.businessName || 'Jai Hanuman Door';
-      window.open(getWhatsAppUrl(waNumber, `Hello ${bName}, I would like to inquire about your special promotional door offers.`), '_blank');
-    } else if (clean === 'contact') {
+    } else if (clean === 'whatsapp' || clean === 'contact') {
       navigateToView('contact');
     } else {
       navigateToView((clean as any) || 'gallery');
@@ -629,21 +1041,19 @@ export const App: React.FC = () => {
   };
 
   const handleOpenQuotationModal = (calcResult: CalculationResult, door?: Door | null) => {
-    // Format 2: Google AdMob Interstitial (Natural break after door calculation)
-    adMobService.showQuotationInterstitial(() => {
-      setQuotationCalcResult(calcResult);
-      setQuotationDoor(door || null);
-    }, settings?.adSettings);
+    // Never interrupt customer quotation generation or PDF download with an interstitial ad
+    setQuotationCalcResult(calcResult);
+    setQuotationDoor(door || null);
   };
 
   // Featured doors list for Home Screen (Section 2)
   const featuredDoors = doors.filter(d => d.featured).slice(0, 4);
 
   return (
-    <div className="min-h-screen bg-white text-[#1A1A1A] font-sans flex flex-col selection:bg-[#FFF7E3] selection:text-[#C89211] pb-16 md:pb-0">
+    <div className="min-h-screen bg-white text-[#0F172A] font-sans flex flex-col selection:bg-[#EFF6FF] selection:text-[#0B5ED7] pb-16 md:pb-0">
       
-      {/* Official Jai Hanuman Door Splash Screen */}
-      <SplashScreen minDurationMs={1200} isDataReady={!loading} />
+      {/* Official WindowCut Pro Splash Screen */}
+      <SplashScreen minDurationMs={1100} isDataReady={!loading} />
 
       {/* Navigation Bar */}
       <Navbar
@@ -659,7 +1069,48 @@ export const App: React.FC = () => {
         onOpenFavorites={() => handleOpenProfileModal('favorites')}
         onOpenProfile={handleOpenProfileModal}
         favoritesCount={favoriteDoorIds.length}
+        currentCustomer={currentCustomer}
+        onOpenCustomerAuth={() => {
+          setOtpLoginCustomReason(null);
+          setShowOtpLoginModal(true);
+        }}
+        isPremium={premiumEntitlement.isPremium}
       />
+
+      {/* Payment Gateway Notice Banner (Config Required / Error) */}
+      {paymentNotice && (
+        <div
+          id="payment-notice-banner"
+          className="bg-amber-50 border-b border-amber-300 text-amber-950 px-4 py-3"
+        >
+          <div className="max-w-7xl mx-auto flex items-start justify-between gap-3 text-xs">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold">
+                  {paymentNotice.type === 'config'
+                    ? 'Razorpay Online Payment Setup Required'
+                    : 'Payment Could Not Start'}
+                </div>
+                <p>{paymentNotice.message}</p>
+                {paymentNotice.missingEnvVars && paymentNotice.missingEnvVars.length > 0 && (
+                  <p className="font-mono text-[11px] text-amber-900">
+                    Required server environment variables: {paymentNotice.missingEnvVars.join(', ')}
+                  </p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPaymentNotice(null)}
+              aria-label="Dismiss payment notice"
+              className="p-1 rounded-lg hover:bg-amber-200/60 text-amber-900 cursor-pointer shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1">
@@ -667,144 +1118,330 @@ export const App: React.FC = () => {
         {activeView === 'home' && (
           <div className="space-y-4 sm:space-y-8">
             
-            {/* Dynamic Homepage Banner Slider */}
-            <HomepageBannerSlider
-              banners={mainBanners}
-              settings={settings}
-              onNavigate={(view) => {
-                const target = view.replace(/^[\/#]+/, '').toLowerCase();
-                if (target === 'chaukhat' || target === 'chaukhat-calculator') {
-                  setCalculatorOption('chaukhat');
-                  setActiveView('calculator');
-                } else if (target === 'calculator' || target === 'door-calculator') {
-                  setCalculatorOption('door');
-                  setActiveView('calculator');
-                } else if (target === 'doors' || target === 'catalogue' || target === 'catalog') {
-                  setActiveView('gallery');
-                } else if (target === 'ar' || target === '3d') {
-                  setActiveView('visualizer');
-                } else if (['home', 'gallery', 'calculator', 'visualizer', 'articles', 'contact', 'privacy', 'about', 'disclaimer', 'wood-detector', 'tracking'].includes(target)) {
-                  setActiveView(target as any);
-                } else {
-                  setActiveView('gallery');
-                }
+            {/* Dynamic Homepage Banner Slider OR Lightweight Business Hero Header */}
+            {FEATURE_FLAGS.homeBanners ? (
+              <HomepageBannerSlider
+                banners={mainBanners}
+                settings={settings}
+                onNavigate={(view) => {
+                  const target = view.replace(/^[\/#]+/, '').toLowerCase();
+                  if (target === 'chaukhat' || target === 'chaukhat-calculator') {
+                    setCalculatorOption('chaukhat');
+                    navigateToView('calculator');
+                  } else if (target === 'calculator' || target === 'door-calculator') {
+                    setCalculatorOption('door');
+                    navigateToView('calculator');
+                  } else if (target === 'doors' || target === 'catalogue' || target === 'catalog') {
+                    navigateToView('gallery');
+                  } else if (target === 'ar' || target === '3d') {
+                    navigateToView('visualizer');
+                  } else if (['home', 'gallery', 'calculator', 'sliding-window', 'visualizer', 'articles', 'contact', 'privacy', 'about', 'disclaimer', 'wood-detector', 'tracking'].includes(target)) {
+                    navigateToView(target);
+                  } else {
+                    navigateToView('home');
+                  }
+                }}
+              />
+            ) : (
+              <section className="bg-gradient-to-b from-[#F8FAFC] via-white to-white border-b border-[#E2E8F0]">
+                <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-7 sm:py-12">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 items-center">
+                    {/* Left Column: WindowCut Pro Value Proposition & Primary Actions */}
+                    <div className="lg:col-span-7 space-y-4">
+                      <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#0B5ED7]">
+                        <SlidingWindowIcon className="w-4 h-4 text-[#F97316]" />
+                        <span>Aluminium &amp; Glass Precision · 2-Track &amp; 3-Track</span>
+                      </div>
+
+                      <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#0A2540] tracking-tight leading-[1.1]">
+                        WindowCut <span className="text-[#F97316]">Pro</span>
+                      </h1>
+
+                      <p className="text-base sm:text-lg font-semibold text-[#0B5ED7] -mt-2">
+                        {resolveBrandTagline(settings.tagline)}
+                      </p>
+
+                      <p className="text-sm sm:text-base text-[#475569] leading-relaxed max-w-2xl">
+                        Compute exact cutting measurements for Top Track, Bottom Track, Glass Panels, Bearing Positions, Handle, Interlock, and Mosquito Net in seconds. Scan handwritten site notebooks or run multi-window bulk sheets with custom profile deductions.
+                      </p>
+
+                      <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                        <button
+                          id="home-open-sliding-window-single-cta"
+                          type="button"
+                          onClick={() => openSlidingWindowSection('single')}
+                          className="h-11 sm:h-12 px-5 sm:px-6 rounded-xl bg-[#0B5ED7] hover:bg-[#084BB3] text-white font-bold text-xs sm:text-sm inline-flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
+                        >
+                          <SlidingWindowIcon className="w-4 h-4 text-white" />
+                          <span>Sliding Window Size Calculator</span>
+                        </button>
+
+                        <button
+                          id="home-open-photo-scanner-cta"
+                          type="button"
+                          onClick={() => openSlidingWindowSection('bulk', true)}
+                          className="h-11 sm:h-12 px-5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white font-bold text-xs sm:text-sm inline-flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
+                        >
+                          <Camera className="w-4 h-4 text-white" />
+                          <span>Photo Measurement Scanner</span>
+                        </button>
+
+                        <button
+                          id="home-open-sliding-window-bulk-cta"
+                          type="button"
+                          onClick={() => openSlidingWindowSection('bulk')}
+                          className="h-11 sm:h-12 px-4 sm:px-5 rounded-xl bg-white hover:bg-[#EFF6FF] text-[#0A2540] hover:text-[#0B5ED7] font-semibold text-xs sm:text-sm inline-flex items-center gap-2 border border-[#CBD5E1] transition-colors cursor-pointer"
+                        >
+                          <Layers className="w-4 h-4 text-[#0B5ED7]" />
+                          <span>Bulk Window Calculator</span>
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-4 pt-2 text-xs text-[#475569]">
+                        <button
+                          id="home-sw-settings-link"
+                          type="button"
+                          onClick={() => openSlidingWindowSection('settings')}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#0A2540] hover:text-[#0B5ED7] underline underline-offset-4 cursor-pointer"
+                        >
+                          <Sliders className="w-3.5 h-3.5 text-[#0B5ED7]" />
+                          <span>Fabrication Settings &amp; Rules</span>
+                        </button>
+                        <span className="text-[#CBD5E1]">|</span>
+                        <button
+                          id="home-sw-projects-link"
+                          type="button"
+                          onClick={() => openSlidingWindowSection('projects')}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#0A2540] hover:text-[#0B5ED7] underline underline-offset-4 cursor-pointer"
+                        >
+                          <Layers className="w-3.5 h-3.5 text-[#F97316]" />
+                          <span>Saved Projects</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Right Column: Official WindowCut Pro Brand Showcase */}
+                    <div className="lg:col-span-5 flex justify-center lg:justify-end">
+                      <div className="w-full max-w-sm bg-white border border-[#E2E8F0] rounded-2xl p-5 sm:p-6 shadow-[0_12px_36px_rgba(11,94,215,0.08)] flex flex-col items-center text-center">
+                        <img
+                          src={resolveBrandLogoUrl(settings.logoUrl)}
+                          alt={resolveBrandName(settings.businessName)}
+                          className="w-48 h-48 sm:w-56 sm:h-56 object-contain rounded-xl"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = BRAND_LOGO_URL;
+                          }}
+                        />
+                        <div className="w-full mt-4 pt-4 border-t border-[#E2E8F0] grid grid-cols-3 gap-2 text-center">
+                          <div>
+                            <div className="font-mono text-sm font-extrabold text-[#0B5ED7]">2 &amp; 3</div>
+                            <div className="text-[11px] font-medium text-[#64748B]">Track Systems</div>
+                          </div>
+                          <div className="border-x border-[#E2E8F0]">
+                            <div className="font-mono text-sm font-extrabold text-[#F97316]">1/16&Prime;</div>
+                            <div className="text-[11px] font-medium text-[#64748B]">Exact Decimals</div>
+                          </div>
+                          <div>
+                            <div className="font-mono text-sm font-extrabold text-[#0A2540]">PDF/XLS</div>
+                            <div className="text-[11px] font-medium text-[#64748B]">Cutting Sheets</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Core WindowCut Pro Fabrication Tools Suite */}
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+              <div className="flex flex-col items-center text-center pt-3 sm:pt-4 mb-6 sm:mb-8 gap-2">
+                <span className="text-[#0B5ED7] font-bold text-xs tracking-wider uppercase">
+                  Fabrication Calculator Suite
+                </span>
+                <h2 className="w-full max-w-2xl mx-auto text-center text-[clamp(1rem,4.6vw,1.35rem)] sm:text-2xl lg:text-3xl font-extrabold text-[#0A2540] tracking-tight leading-snug">
+                  <span className="block">Every Sliding Window Cutting</span>{' '}
+                  <span className="block">Calculation in One Place</span>
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => openSlidingWindowSection('single')}
+                  className="text-[#0B5ED7] hover:text-[#084BB3] font-semibold text-xs sm:text-sm inline-flex items-center gap-1 mt-1 cursor-pointer"
+                >
+                  <span>Launch Calculator</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 items-stretch">
+                {[
+                  {
+                    id: 'tool-sliding-window-size',
+                    title: 'Sliding Window Size Calculator',
+                    desc: '2-Track & 3-Track shutter, track, interlock & handle sizes from opening dimensions.',
+                    accent: 'blue',
+                    icon: SlidingWindowIcon,
+                    onClick: () => openSlidingWindowSection('single'),
+                  },
+                  {
+                    id: 'tool-glass-cutting-size',
+                    title: 'Glass Cutting Size Calculator',
+                    desc: 'Exact glass panel width & height with custom deduction rules in inch decimals & mm.',
+                    accent: 'blue',
+                    icon: Grid3X3,
+                    onClick: () => openSlidingWindowSection('single'),
+                  },
+                  {
+                    id: 'tool-track-size',
+                    title: 'Track Size Calculator',
+                    desc: 'Accurate Top Track, Bottom Track & Side Frame cutting lengths for your profile.',
+                    accent: 'blue',
+                    icon: Ruler,
+                    onClick: () => openSlidingWindowSection('single'),
+                  },
+                  {
+                    id: 'tool-bearing-position',
+                    title: 'Bearing Position Calculator',
+                    desc: 'Exact bottom rail bearing placement, handle section & interlock cutting sizes.',
+                    accent: 'orange',
+                    icon: Wrench,
+                    onClick: () => openSlidingWindowSection('single'),
+                  },
+                  {
+                    id: 'tool-mosquito-net-size',
+                    title: 'Mosquito Net Size Calculator',
+                    desc: '3-Track mosquito net sash and mesh cutting dimensions calculated automatically.',
+                    accent: 'blue',
+                    icon: ShieldCheck,
+                    onClick: () => openSlidingWindowSection('single'),
+                  },
+                  {
+                    id: 'tool-bulk-window',
+                    title: 'Bulk Window Calculator',
+                    desc: 'Calculate entire project lists at once and export consolidated PDF or Excel sheets.',
+                    accent: 'orange',
+                    icon: Layers,
+                    onClick: () => openSlidingWindowSection('bulk'),
+                  },
+                  {
+                    id: 'tool-photo-scanner',
+                    title: 'Photo Measurement Scanner',
+                    desc: 'Scan handwritten measurement notes and import sizes directly into Bulk Calculator.',
+                    accent: 'orange',
+                    icon: Camera,
+                    onClick: () => openSlidingWindowSection('bulk', true),
+                  },
+                  {
+                    id: 'tool-fabrication-profiles',
+                    title: 'Custom Profile Deductions',
+                    desc: 'Save unlimited 2-Track & 3-Track workshop rules (Jindal, Domal) for repeat jobs.',
+                    accent: 'blue',
+                    icon: Sliders,
+                    onClick: () => openSlidingWindowSection('settings'),
+                  },
+                ].map((tool) => {
+                  const Icon = tool.icon;
+                  const isOrange = tool.accent === 'orange';
+                  return (
+                    <button
+                      key={tool.id}
+                      id={tool.id}
+                      type="button"
+                      onClick={tool.onClick}
+                      className="group h-full w-full min-w-0 text-left bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] hover:border-[#0B5ED7] rounded-xl p-3 sm:p-4 lg:p-5 transition-all shadow-[0_1px_3px_rgba(15,23,42,0.04)] hover:shadow-md flex flex-col justify-between gap-2.5 sm:gap-3 cursor-pointer"
+                    >
+                      <div className="space-y-2 sm:space-y-2.5">
+                        <div
+                          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border shrink-0 ${
+                            isOrange
+                              ? 'bg-[#FFF7ED] text-[#F97316] border-[#FED7AA]'
+                              : 'bg-[#EFF6FF] text-[#0B5ED7] border-[#BFDBFE]'
+                          }`}
+                        >
+                          <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </div>
+                        <h3 className="text-[13px] sm:text-sm lg:text-base font-bold text-[#0A2540] group-hover:text-[#0B5ED7] transition-colors leading-snug">
+                          {tool.title}
+                        </h3>
+                        <p className="text-[11px] sm:text-xs text-[#475569] leading-relaxed line-clamp-3">
+                          {tool.desc}
+                        </p>
+                      </div>
+                      <div className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-semibold text-[#0B5ED7] pt-1 mt-auto">
+                        <span>Open Tool</span>
+                        <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Indian Aluminium Window Systems & Categories (A: Sliding, B: Indian Aluminium, C: Special) */}
+            <WindowCategoryHomeSection
+              systems={windowSystems}
+              onSelectCategory={(catId) => {
+                setSelectedWindowCategoryId(catId);
+                setActiveView('window-category');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onSelectSystem={(sys) => {
+                setSelectedWindowLaunch({
+                  system: sys,
+                  profileSeriesId: sys.profileSeries[0]?.id,
+                  trackCount: sys.defaultTrackCount,
+                  shutterCount: sys.defaultShutterCount,
+                  includeMosquitoNet: sys.defaultMosquitoNet,
+                });
+                setActiveView('window-system-calculator');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
             />
 
-            {/* Quick Action Strip (Price Calculator & Catalog) */}
+            {/* Additional Workshop Utilities (Existing Calculators Preserved Cleanly) */}
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-              <div className="bg-[#F8F8F6] text-[#1A1A1A] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 border border-[#E5E5E5] shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
-                <div className="space-y-1.5 text-center md:text-left">
-                  <span className="px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase tracking-wide">
-                    Live Cost Calculator
+              <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl p-4 sm:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#F97316]">
+                    Additional Workshop Utilities
                   </span>
-                  <h3 className="font-serif text-lg sm:text-2xl lg:text-3xl font-extrabold text-[#1A1A1A]">
-                    Calculate Approximate Door Price in 30 Seconds
+                  <h3 className="text-base sm:text-lg font-extrabold text-[#0A2540]">
+                    Frame Estimator &amp; AI Wood Identification
                   </h3>
-                  <p className="text-[#666666] text-xs sm:text-sm max-w-xl leading-relaxed">
-                    Select your custom door size in inches, choose 100% seasoned Sagwan or Sal wood, select Chaukhat frame and premium PU polish for an instant itemized factory quote.
+                  <p className="text-xs sm:text-sm text-[#475569] max-w-xl">
+                    Need to calculate frame/chaukhat measurements or scan timber photos? Access all saved workshop tools from your WindowCut Pro account.
                   </p>
                 </div>
-
-                <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 w-full md:w-auto flex-shrink-0">
+                <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                   <button
                     id="home-open-calc-cta"
+                    type="button"
                     onClick={() => {
-                      setActiveView('calculator');
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                      setCalculatorOption('door');
+                      navigateToView('calculator');
                     }}
-                    className="h-11 sm:h-12 px-5 sm:px-6 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+                    className="h-10 px-4 rounded-xl bg-white hover:bg-[#EFF6FF] text-[#0A2540] hover:text-[#0B5ED7] border border-[#CBD5E1] font-semibold text-xs sm:text-sm inline-flex items-center gap-2 transition-colors cursor-pointer"
                   >
-                    <Calculator className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                    Open Price Calculator
+                    <Calculator className="w-4 h-4 text-[#0B5ED7]" />
+                    <span>Frame &amp; Shutter Estimator</span>
                   </button>
-
-                  <button
-                    id="home-open-catalog-cta"
-                    onClick={() => {
-                      setActiveView('gallery');
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
-                    className="h-11 sm:h-12 px-4 sm:px-5 rounded-xl bg-white hover:bg-[#F8F8F6] text-[#1A1A1A] font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-[#E5E5E5] transition-all cursor-pointer shadow-sm"
-                  >
-                    <Layers className="w-4 h-4 text-[#C89211]" />
-                    Explore Catalog
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* 3D & AR Door Fitting Studio Showcase Banner on Home Screen */}
-            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-              <div className="bg-gradient-to-r from-[#FFF7E3] via-white to-[#FFF7E3] border border-[#C89211]/40 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 shadow-sm flex flex-col lg:flex-row items-center justify-between gap-4 sm:gap-6 relative overflow-hidden group">
-                <div className="space-y-2 text-center lg:text-left z-10 max-w-2xl">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/40 uppercase tracking-wide">
-                    <Box className="w-3 h-3 text-[#C89211]" />
-                    <span>3D &amp; AR Innovation • Virtual Door Fitting Studio</span>
-                  </div>
-                  <h3 className="font-serif text-lg sm:text-2xl lg:text-3xl font-extrabold text-[#1A1A1A] leading-tight">
-                    See Doors in 3D &amp; Fit Directly into Your Home Entrance
-                  </h3>
-                  <p className="text-[#666666] text-xs sm:text-sm leading-relaxed">
-                    Rotate 360°, inspect genuine Sagwan wood grains, test PU polish finishes, swing doors open on hinges, and use your phone's AR camera or entrance photo to check proportions on your home wall before placing an order.
-                  </p>
-                  <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-0.5 text-[11px] sm:text-xs text-[#C89211] font-semibold">
-                    <span className="flex items-center gap-1">✓ 360° Interactive 3D</span>
-                    <span className="flex items-center gap-1">✓ Live AR &amp; Photo Fitting</span>
-                    <span className="flex items-center gap-1">✓ Instant Factory Quotes</span>
-                  </div>
-                </div>
-
-                <div className="z-10 flex flex-col sm:flex-row items-center gap-2.5 w-full lg:w-auto flex-shrink-0">
-                  <button
-                    id="home-open-3d-visualizer-cta"
-                    onClick={() => {
-                      navigateToView('visualizer');
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
-                    className="w-full sm:w-auto h-11 sm:h-12 px-5 sm:px-6 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
-                  >
-                    <Box className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                    <span>Launch 3D &amp; AR Studio</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* AI Wood Detector Feature Banner on Home Screen */}
-            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-              <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6 relative overflow-hidden">
-                <div className="space-y-1.5 text-center md:text-left z-10">
-                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase tracking-wide">
-                    <Sparkles className="w-3 h-3 text-[#C89211]" />
-                    <span>New AI Feature • AI Wood Detector</span>
-                  </div>
-                  <h3 className="font-serif text-lg sm:text-2xl lg:text-3xl font-extrabold text-[#1A1A1A]">
-                    Aapke Darwaze Ki Lakdi Kaun Si Hai?
-                  </h3>
-                  <p className="text-[#666666] text-xs sm:text-sm max-w-xl leading-relaxed">
-                    Darwaze ki photo upload karein aur AI se lakdi ke baare mein jaanein. Grains, texture aur color tone ka instant AI visual estimate paayein.
-                  </p>
-                </div>
-
-                <div className="z-10 flex-shrink-0 w-full md:w-auto">
                   <button
                     id="home-open-wood-detector-cta"
+                    type="button"
                     onClick={() => {
                       navigateToView('wood-detector');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
-                    className="w-full md:w-auto h-11 sm:h-12 px-5 sm:px-6 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+                    className="h-10 px-4 rounded-xl bg-white hover:bg-[#FFF7ED] text-[#0A2540] hover:text-[#EA580C] border border-[#CBD5E1] font-semibold text-xs sm:text-sm inline-flex items-center gap-2 transition-colors cursor-pointer"
                   >
-                    <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                    <span>AI Wood Detector Kholein</span>
+                    <Sparkles className="w-4 h-4 text-[#F97316]" />
+                    <span>AI Wood Detector</span>
                   </button>
                 </div>
               </div>
             </div>
 
             {/* Live Order Tracking Banner on Home Screen */}
+            {FEATURE_FLAGS.orderTracking && (
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
               <div className="bg-[#F8F8F6] border border-[#E5E5E5] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 shadow-sm flex flex-col lg:flex-row items-center justify-between gap-4 sm:gap-6 relative overflow-hidden">
                 <div className="space-y-1.5 text-center lg:text-left z-10 max-w-xl">
@@ -854,8 +1491,10 @@ export const App: React.FC = () => {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Door Categories Grid (Section 2 & 3) */}
+            {FEATURE_FLAGS.doorCatalogue && (
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
               <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 sm:mb-8 gap-2 sm:gap-4">
                 <div>
@@ -868,8 +1507,7 @@ export const App: React.FC = () => {
                 </div>
                 <button
                   onClick={() => {
-                    setActiveView('gallery');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    navigateToView('gallery');
                   }}
                   className="text-[#C89211] hover:text-[#A0700B] font-semibold text-xs sm:text-sm flex items-center gap-1 group self-start sm:self-auto"
                 >
@@ -893,8 +1531,7 @@ export const App: React.FC = () => {
                     key={cat.name}
                     id={`home-cat-card-${i}`}
                     onClick={() => {
-                      setActiveView('gallery');
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                      navigateToView('gallery');
                     }}
                     className="group cursor-pointer bg-white rounded-xl border border-stone-200/90 hover:border-amber-400 p-3 sm:p-4 shadow-sm hover:shadow-lg transition-all flex items-center gap-3"
                   >
@@ -911,15 +1548,19 @@ export const App: React.FC = () => {
                 ))}
               </div>
             </div>
+            )}
 
             {/* PROMOTIONAL BANNER CAROUSEL (Slot 1: Direct From Manufacturer & Main Door Collections) */}
-            <PromotionalBannerCarousel
-              banners={promotionBanners}
-              slotId="slot_1"
-              onBannerAction={handleBannerAction}
-            />
+            {FEATURE_FLAGS.homeBanners && (
+              <PromotionalBannerCarousel
+                banners={promotionBanners}
+                slotId="slot_1"
+                onBannerAction={handleBannerAction}
+              />
+            )}
 
             {/* Featured Doors Section (Section 2) */}
+            {FEATURE_FLAGS.doorCatalogue && (
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
                 <div>
@@ -1034,65 +1675,66 @@ export const App: React.FC = () => {
                 ))}
               </div>
             </div>
+            )}
 
-            {/* Why Choose Us / Trust Badges (Section 2) */}
-            <div className="bg-[#F8F8F6] border-y border-[#E5E5E5] py-6 sm:py-14">
+            {/* Why Fabricators Choose WindowCut Pro */}
+            <div className="bg-[#F8FAFC] border-y border-[#E2E8F0] py-8 sm:py-14">
               <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-                <div className="text-center max-w-2xl mx-auto mb-4 sm:mb-8">
-                  <span className="text-[#C89211] font-semibold text-xs tracking-wider uppercase">
-                    Uncompromising Wood Standards
+                <div className="text-center max-w-2xl mx-auto mb-6 sm:mb-9">
+                  <span className="text-[#0B5ED7] font-bold text-xs tracking-wider uppercase">
+                    Workshop-Grade Precision
                   </span>
-                  <h2 className="font-serif text-xl sm:text-3xl font-extrabold text-[#1A1A1A] tracking-tight mt-0.5">
-                    Why Indian Homeowners Trust Our Doors
+                  <h2 className="text-xl sm:text-3xl font-extrabold text-[#0A2540] tracking-tight mt-1">
+                    Built for Faster, Error-Free Sliding Window Fabrication
                   </h2>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
-                  <div className="bg-white p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#E5E5E5] shadow-sm space-y-2">
-                    <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
-                      <TreePine className="w-5 h-5 sm:w-6 sm:h-6" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+                  <div className="bg-white p-4 sm:p-5 rounded-xl border border-[#E2E8F0] shadow-xs space-y-2">
+                    <div className="w-10 h-10 rounded-xl bg-[#EFF6FF] text-[#0B5ED7] flex items-center justify-center border border-[#BFDBFE]">
+                      <Ruler className="w-5 h-5" />
                     </div>
-                    <h3 className="font-serif text-xs sm:text-base font-bold text-[#1A1A1A]">
-                      100% Seasoned Timber
+                    <h3 className="text-sm sm:text-base font-bold text-[#0A2540]">
+                      Exact Fraction to Decimal
                     </h3>
-                    <p className="text-[11px] sm:text-xs text-[#666666] leading-relaxed line-clamp-3 sm:line-clamp-none">
-                      Kiln-dried wood with regulated moisture content below 10%, preventing seasonal warping and bending during Indian monsoons.
+                    <p className="text-xs text-[#475569] leading-relaxed">
+                      Every 1/16&Prime; to 15/16&Prime; inch measurement converts automatically using the exact workshop decimal table with zero rounding drift.
                     </p>
                   </div>
 
-                  <div className="bg-white p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#E5E5E5] shadow-sm space-y-2">
-                    <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
-                      <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
+                  <div className="bg-white p-4 sm:p-5 rounded-xl border border-[#E2E8F0] shadow-xs space-y-2">
+                    <div className="w-10 h-10 rounded-xl bg-[#FFF7ED] text-[#F97316] flex items-center justify-center border border-[#FED7AA]">
+                      <Sliders className="w-5 h-5" />
                     </div>
-                    <h3 className="font-serif text-xs sm:text-base font-bold text-[#1A1A1A]">
-                      Termite & Borer Proof
+                    <h3 className="text-sm sm:text-base font-bold text-[#0A2540]">
+                      Custom Profile Rules
                     </h3>
-                    <p className="text-[11px] sm:text-xs text-[#666666] leading-relaxed line-clamp-3 sm:line-clamp-none">
-                      Vacuum pressure chemical impregnation treatment to protect against termites and subterranean insect attack for decades.
+                    <p className="text-xs text-[#475569] leading-relaxed">
+                      Configure and save your own aluminium section deductions for 2-Track and 3-Track profiles, glass clearances, and mosquito nets.
                     </p>
                   </div>
 
-                  <div className="bg-white p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#E5E5E5] shadow-sm space-y-2">
-                    <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
-                      <Award className="w-5 h-5 sm:w-6 sm:h-6" />
+                  <div className="bg-white p-4 sm:p-5 rounded-xl border border-[#E2E8F0] shadow-xs space-y-2">
+                    <div className="w-10 h-10 rounded-xl bg-[#EFF6FF] text-[#0B5ED7] flex items-center justify-center border border-[#BFDBFE]">
+                      <Camera className="w-5 h-5" />
                     </div>
-                    <h3 className="font-serif text-xs sm:text-base font-bold text-[#1A1A1A]">
-                      Direct Factory Pricing
+                    <h3 className="text-sm sm:text-base font-bold text-[#0A2540]">
+                      Photo Measurement Scanner
                     </h3>
-                    <p className="text-[11px] sm:text-xs text-[#666666] leading-relaxed line-clamp-3 sm:line-clamp-none">
-                      No intermediaries or showroom overheads. You get authentic CP Sagwan wood direct from our manufacturing facility.
+                    <p className="text-xs text-[#475569] leading-relaxed">
+                      Snap a photo of handwritten site notebook sizes and turn them into verified bulk cutting tables in seconds.
                     </p>
                   </div>
 
-                  <div className="bg-white p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border border-[#E5E5E5] shadow-sm space-y-2">
-                    <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-[#FFF7E3] text-[#C89211] flex items-center justify-center border border-[#C89211]/30">
-                      <Wrench className="w-5 h-5 sm:w-6 sm:h-6" />
+                  <div className="bg-white p-4 sm:p-5 rounded-xl border border-[#E2E8F0] shadow-xs space-y-2">
+                    <div className="w-10 h-10 rounded-xl bg-[#FFF7ED] text-[#F97316] flex items-center justify-center border border-[#FED7AA]">
+                      <Award className="w-5 h-5" />
                     </div>
-                    <h3 className="font-serif text-xs sm:text-base font-bold text-[#1A1A1A]">
-                      Precision Custom Sizing
+                    <h3 className="text-sm sm:text-base font-bold text-[#0A2540]">
+                      PDF, SVG &amp; Excel Export
                     </h3>
-                    <p className="text-[11px] sm:text-xs text-[#666666] leading-relaxed line-clamp-3 sm:line-clamp-none">
-                      Whether standard 36×78" or custom bungalow archway entrances, every shutter and Chaukhat is made to the exact millimetre.
+                    <p className="text-xs text-[#475569] leading-relaxed">
+                      Download clean workshop cutting lists, dimensioned technical drawings, and batch spreadsheets ready for sharing on WhatsApp.
                     </p>
                   </div>
                 </div>
@@ -1100,68 +1742,75 @@ export const App: React.FC = () => {
             </div>
 
             {/* PROMOTIONAL BANNER B (Below Why Indian Homeowners Trust Our Doors, Above Our Story) */}
-            <PromotionalBannerCarousel
-              banners={promotionBanners}
-              slotId="slot_2"
-              onBannerAction={handleBannerAction}
-            />
+            {FEATURE_FLAGS.homeBanners && (
+              <PromotionalBannerCarousel
+                banners={promotionBanners}
+                slotId="slot_2"
+                onBannerAction={handleBannerAction}
+              />
+            )}
 
-            {/* Our Story & Heritage Section */}
-            <OurStorySection teamMembers={teamMembers} settings={settings} />
+            {/* Our Story & Heritage + Owner Section */}
+            {FEATURE_FLAGS.ourStoryAndTeam && (
+              <OurStorySection teamMembers={teamMembers} settings={settings} />
+            )}
 
-            {/* ALL INDIA DELIVERY SECTION (🇮🇳 Door Delivery Across India - Slidable State Cards & Stories) */}
-            <AllIndiaDeliverySection
-              states={deliveryStates}
-              stories={deliveryStories}
-              settings={settings}
-              onOpenCalculator={() => {
-                setActiveView('calculator');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className="my-3 sm:my-5"
-            />
+            {/* ALL INDIA DELIVERY SECTION (Door Delivery Across India - Slidable State Cards & Stories) */}
+            {FEATURE_FLAGS.allIndiaDelivery && (
+              <AllIndiaDeliverySection
+                states={deliveryStates}
+                stories={deliveryStories}
+                settings={settings}
+                onOpenCalculator={() => {
+                  navigateToView('calculator');
+                }}
+                className="my-3 sm:my-5"
+              />
+            )}
 
             {/* Articles & Guides Preview Carousel */}
-            <ArticlesGuidesCarousel
-              articles={articles}
-              settings={settings}
-              onViewAll={() => {
-                setSelectedArticleIdForView(null);
-                setActiveView('articles');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              onSelectArticle={(art: Article) => {
-                setSelectedArticleIdForView(art.id);
-                setActiveView('articles');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className="mt-2 mb-2"
-            />
+            {FEATURE_FLAGS.articlesBlog && (
+              <ArticlesGuidesCarousel
+                articles={articles}
+                settings={settings}
+                onViewAll={() => {
+                  setSelectedArticleIdForView(null);
+                  navigateToView('articles');
+                }}
+                onSelectArticle={(art: Article) => {
+                  setSelectedArticleIdForView(art.id);
+                  navigateToView('articles');
+                }}
+                className="mt-2 mb-2"
+              />
+            )}
 
             {/* AdMob Adaptive Banner Placement (Home Screen) */}
-            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-6 mb-2">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-4 mb-2">
               <AdMobBannerSlot placement="home" settings={settings} />
             </div>
 
-            {/* Design & Content Protection Warning Section */}
-            <ContentProtectionWarning
-              settings={settings}
-              onNavigateLegal={navigateToView}
-              className="mt-6 mb-2"
-            />
+            {/* Design & Content Protection Warning / Copyright Section */}
+            {FEATURE_FLAGS.copyrightFooter && (
+              <ContentProtectionWarning
+                settings={settings}
+                onNavigateLegal={navigateToView}
+                className="mt-6 mb-2"
+              />
+            )}
 
           </div>
         )}
 
         {/* VIEW 2: DOOR GALLERY (Section 3) */}
-        {activeView === 'gallery' && (
+        {FEATURE_FLAGS.doorCatalogue && activeView === 'gallery' && (
           <DoorGallery
             doors={doors}
             categories={categories}
             banners={banners}
             onSelectDoor={door => handleOpenDoorDetail(door)}
             onCalculateDoor={handleCalculateDoor}
-            onOpenVisualizer={handleOpenVisualizer}
+            onOpenVisualizer={FEATURE_FLAGS.visualizer3dAr ? handleOpenVisualizer : undefined}
             onNavigate={navigateToView}
             settings={settings}
             favoriteDoorIds={favoriteDoorIds}
@@ -1186,7 +1835,7 @@ export const App: React.FC = () => {
                 setActiveDoorCalculation(calc);
                 handleOpenQuotationModal(calc, door);
               }}
-              onOpenVisualizer={handleOpenVisualizer}
+              onOpenVisualizer={FEATURE_FLAGS.visualizer3dAr ? handleOpenVisualizer : undefined}
               onOpenProfileHistory={() => handleOpenProfileModal('history')}
               initialCalculationRecord={loadedCalcRecord}
               onClearInitialRecord={() => setLoadedCalcRecord(null)}
@@ -1195,6 +1844,8 @@ export const App: React.FC = () => {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               activeChaukhatCalculation={combinedChaukhat}
+              currentCustomer={currentCustomer}
+              onRequireCalculationLogin={handleRequireCalculationLogin}
             />
           ) : (
             <ChaukhatCalculator
@@ -1206,12 +1857,104 @@ export const App: React.FC = () => {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onUpdateCombinedChaukhat={(result) => setCombinedChaukhat(result)}
+              currentCustomer={currentCustomer}
+              onPayOnlineChaukhat={handlePayOnlineChaukhat}
+              isPayingOnline={isProcessingPayment}
+              onRequireCalculationLogin={handleRequireCalculationLogin}
             />
           )
         )}
 
+        {/* VIEW 3A: INDIAN WINDOW CATEGORY SELECTION SCREEN */}
+        {activeView === 'window-category' && (
+          <WindowSelectionScreen
+            initialCategoryId={selectedWindowCategoryId}
+            systems={windowSystems}
+            onBack={() => navigateToView('home')}
+            onLaunchCalculator={(config) => {
+              setSelectedWindowLaunch(config);
+              setActiveView('window-system-calculator');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
+
+        {/* VIEW 3A-2: DEDICATED INDIAN WINDOW SYSTEM CUTTING CALCULATOR */}
+        {activeView === 'window-system-calculator' && selectedWindowLaunch && (
+          <WindowSystemCalculatorView
+            system={
+              windowSystems.find((s) => s.id === selectedWindowLaunch.system.id) ||
+              selectedWindowLaunch.system
+            }
+            allSystems={windowSystems}
+            initialProfileSeriesId={selectedWindowLaunch.profileSeriesId}
+            initialTrackCount={selectedWindowLaunch.trackCount}
+            initialShutterCount={selectedWindowLaunch.shutterCount}
+            initialMosquitoNet={selectedWindowLaunch.includeMosquitoNet}
+            customerUser={currentCustomer}
+            settings={settings}
+            isAdminLoggedIn={isAdminLoggedIn}
+            onBack={() => {
+              setSelectedWindowCategoryId(selectedWindowLaunch.system.categoryId);
+              setActiveView('window-category');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onSwitchSystem={(nextSys) => {
+              setSelectedWindowLaunch({
+                system: nextSys,
+                profileSeriesId: nextSys.profileSeries[0]?.id,
+                trackCount: nextSys.defaultTrackCount,
+                shutterCount: nextSys.defaultShutterCount,
+                includeMosquitoNet: nextSys.defaultMosquitoNet,
+              });
+            }}
+            onOpenLegacySlidingWorkspace={(tab) => openSlidingWindowSection(tab)}
+            onOpenAdminFormulaManager={() => {
+              setAdminInitialTab('window-systems');
+              setShowAdminPanel(true);
+            }}
+            onRequireCalculationLogin={(_reason, onSuccess) => {
+              if (currentCustomer) return true;
+              handleRequireCalculationLogin(() => {
+                if (onSuccess) onSuccess();
+              });
+              return false;
+            }}
+          />
+        )}
+
+        {/* VIEW 3B: SLIDING WINDOW FABRICATION CALCULATOR */}
+        {activeView === 'sliding-window' && (
+          <React.Suspense fallback={<div className="py-16 text-center text-sm text-[#64748B]">Loading Sliding Window Fabrication Calculator...</div>}>
+            <SlidingWindowCalculator
+              settings={settings}
+              initialTab={slidingWindowTab}
+              scannerLaunchToken={scannerLaunchToken}
+              onTabChange={(tab) => {
+                setSlidingWindowTab(tab);
+                const subPath = tab === 'single' ? '/sliding-window' : `/sliding-window/${tab}`;
+                if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+                  if (window.location.pathname !== subPath) {
+                    window.history.pushState({}, '', subPath);
+                  }
+                }
+              }}
+              onSwitchToDoorCalculator={() => {
+                setCalculatorOption('door');
+                navigateToView('calculator');
+              }}
+              onSwitchToChaukhatCalculator={() => {
+                setCalculatorOption('chaukhat');
+                navigateToView('calculator');
+              }}
+              currentCustomer={currentCustomer}
+              onRequireCalculationLogin={handleRequireCalculationLogin}
+            />
+          </React.Suspense>
+        )}
+
         {/* VIEW: 3D & AR DOOR FITTING STUDIO */}
-        {activeView === 'visualizer' && (
+        {FEATURE_FLAGS.visualizer3dAr && activeView === 'visualizer' && (
           <React.Suspense fallback={<div className="py-16 text-center text-sm text-stone-500">Loading 3D & AR Studio...</div>}>
             <DoorVisualizerPage
               doors={doors}
@@ -1224,11 +1967,9 @@ export const App: React.FC = () => {
               settings={settings}
               onNavigateHome={() => {
                 navigateToView('home');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onNavigateCatalog={() => {
                 navigateToView('gallery');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onOpenQuotationModal={(calc, door) => {
                 handleOpenQuotationModal(calc, door);
@@ -1238,7 +1979,7 @@ export const App: React.FC = () => {
         )}
 
         {/* VIEW 4: ARTICLES & GUIDES (Section 17) */}
-        {activeView === 'articles' && (
+        {FEATURE_FLAGS.articlesBlog && activeView === 'articles' && (
           <>
             <ArticlesSection
               articles={articles}
@@ -1258,10 +1999,10 @@ export const App: React.FC = () => {
         {activeView === 'contact' && (
           <ContactUsPage
             settings={settings}
-            doors={doors}
-            onBack={() => { setActiveView('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            doors={FEATURE_FLAGS.doorCatalogue ? doors : []}
+            onBack={() => navigateToView('home')}
             onOpenCalculator={door => handleCalculateDoor(door)}
-            onOpenGallery={() => { setActiveView('gallery'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onOpenGallery={FEATURE_FLAGS.doorCatalogue ? () => navigateToView('gallery') : undefined}
           />
         )}
 
@@ -1269,30 +2010,30 @@ export const App: React.FC = () => {
         {activeView === 'privacy' && (
           <PrivacyPolicyPage
             settings={settings}
-            onBack={() => { setActiveView('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            onNavigateContact={() => { setActiveView('contact'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onBack={() => navigateToView('home')}
+            onNavigateContact={() => navigateToView('contact')}
           />
         )}
 
-        {/* VIEW 7: ABOUT US */}
+        {/* VIEW 7: ABOUT WINDOWCUT PRO */}
         {activeView === 'about' && (
           <AboutUsPage
             settings={settings}
-            teamMembers={teamMembers}
-            onBack={() => { setActiveView('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            onNavigateGallery={() => { setActiveView('gallery'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            onNavigateCalculator={() => { setActiveView('calculator'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            onNavigateContact={() => { setActiveView('contact'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            teamMembers={FEATURE_FLAGS.ourStoryAndTeam ? teamMembers : []}
+            onBack={() => navigateToView('home')}
+            onNavigateGallery={FEATURE_FLAGS.doorCatalogue ? () => navigateToView('gallery') : undefined}
+            onNavigateCalculator={() => openSlidingWindowSection('single')}
+            onNavigateContact={() => navigateToView('contact')}
           />
         )}
 
         {/* VIEW 8: DISCLAIMER & ESTIMATION TERMS */}
-        {activeView === 'disclaimer' && (
+        {FEATURE_FLAGS.copyrightFooter && activeView === 'disclaimer' && (
           <DisclaimerPage
             settings={settings}
-            onBack={() => { setActiveView('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            onNavigateCalculator={() => { setActiveView('calculator'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            onNavigateContact={() => { setActiveView('contact'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onBack={() => navigateToView('home')}
+            onNavigateCalculator={() => navigateToView('calculator')}
+            onNavigateContact={() => navigateToView('contact')}
           />
         )}
 
@@ -1301,290 +2042,264 @@ export const App: React.FC = () => {
           <React.Suspense fallback={<div className="py-16 text-center text-sm text-stone-500">Loading AI Wood Detector...</div>}>
             <AIWoodDetector
               settings={settings}
-              onNavigateToCatalog={() => {
-                setActiveView('gallery');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              onNavigateToCalculator={() => {
-                setActiveView('calculator');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              onNavigateToContact={() => {
-                setActiveView('contact');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
+              onNavigateToCatalog={FEATURE_FLAGS.doorCatalogue ? () => navigateToView('gallery') : undefined}
+              onNavigateToCalculator={() => navigateToView('calculator')}
+              onNavigateToContact={() => navigateToView('contact')}
+              onPayOnlineCreditPack={handlePayOnlineCreditPack}
+              payingPackId={payingCreditPackId}
+              currentCustomer={currentCustomer}
+              onRequireCalculationLogin={handleRequireCalculationLogin}
             />
           </React.Suspense>
         )}
 
         {/* VIEW 10: CUSTOMER ORDER TRACKING */}
-        {activeView === 'tracking' && (
+        {FEATURE_FLAGS.orderTracking && activeView === 'tracking' && (
           <React.Suspense fallback={<div className="py-16 text-center text-sm text-stone-500">Loading Order Tracking...</div>}>
             <CustomerOrderTracking
               initialTrackingId={trackingInitialId}
               onNavigateHome={() => {
                 navigateToView('home');
               }}
-              onSelectDoor={(doorId) => {
-                const door = doors.find(d => d.id === doorId);
-                if (door) {
-                  handleOpenDoorDetail(door);
-                }
-              }}
+              onSelectDoor={
+                FEATURE_FLAGS.doorCatalogue
+                  ? (doorId) => {
+                      const door = doors.find(d => d.id === doorId);
+                      if (door) {
+                        handleOpenDoorDetail(door);
+                      }
+                    }
+                  : undefined
+              }
             />
             <div className="max-w-4xl mx-auto px-3 sm:px-6 mt-4 mb-2">
               <AdMobBannerSlot placement="tracking" settings={settings} />
             </div>
           </React.Suspense>
         )}
+
+        {/* VIEW 11: WINDOWCUT PRO PREMIUM (AD-FREE SUBSCRIPTION) */}
+        {activeView === 'premium' && (
+          <PremiumSubscriptionView
+            currentCustomer={currentCustomer}
+            entitlement={premiumEntitlement}
+            plans={premiumPlans}
+            onEntitlementUpdated={applyPremiumEntitlement}
+            onRequireLogin={(reason) => {
+              setOtpLoginCustomReason(reason || null);
+              setShowOtpLoginModal(true);
+            }}
+            onBack={() => navigateToView('home')}
+          />
+        )}
       </main>
 
-      {/* Footer (Section 2) */}
-      <footer className="bg-[#F8F8F6] text-[#666666] border-t border-[#E5E5E5] pt-6 sm:pt-10 pb-20 sm:pb-8 mt-4 sm:mt-6">
+      {/* Footer (WindowCut Pro Navigation & Support) */}
+      <footer className="bg-[#F8FAFC] text-[#475569] border-t border-[#E2E8F0] pt-8 sm:pt-10 pb-20 sm:pb-9 mt-6 sm:mt-8">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 sm:gap-8 mb-8 sm:mb-12">
-            
-            {/* Business Brand (Hidden admin gesture access) */}
+          <div className={`grid grid-cols-1 sm:grid-cols-2 ${FEATURE_FLAGS.copyrightFooter ? 'lg:grid-cols-5 mb-8 sm:mb-10' : 'lg:grid-cols-4'} gap-6 sm:gap-8`}>
+            {/* Business Brand (Hidden 6-tap admin gesture preserved) */}
             <div className="space-y-3 sm:col-span-2 lg:col-span-1">
               <div
                 id="footer-brand-logo"
                 data-testid="footer-brand-logo"
                 onClick={handleFooterLogoTap}
                 className="flex items-center gap-2.5 cursor-pointer select-none group"
-                title={settings.businessName}
+                title={resolveBrandName(settings.businessName)}
               >
-                <div className="w-10 h-10 rounded-full overflow-hidden border border-[#C89211]/40 shadow-xs bg-[#0C0A09] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <div className="w-11 h-11 rounded-xl overflow-hidden border border-[#E2E8F0] shadow-xs bg-white flex items-center justify-center shrink-0 p-0.5 group-hover:border-[#0B5ED7] transition-colors">
                   <img
-                    src={settings.logoUrl || '/assets/logo.png'}
-                    alt={settings.businessName || 'Jai Hanuman Door'}
-                    className="w-full h-full object-contain"
+                    src={resolveBrandLogoUrl(settings.logoUrl)}
+                    alt={resolveBrandName(settings.businessName)}
+                    className="w-full h-full object-contain rounded-lg"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = '/assets/logo.png';
+                      (e.target as HTMLImageElement).src = BRAND_LOGO_URL;
                     }}
                   />
                 </div>
-                <span className="font-serif text-xl font-bold text-[#1A1A1A] tracking-tight group-hover:text-[#C89211] transition-colors">
-                  {settings.businessName}
-                </span>
-              </div>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                {settings.tagline || 'Direct manufacturer of seasoned Sagwan, Teak wood and designer entrance doors for homes and commercial estates.'}
-              </p>
-              {settings.gstNumber && (
-                <div className="text-[11px] text-[#C89211] font-mono font-semibold">
-                  GSTIN: {settings.gstNumber}
+                <div>
+                  <span className="text-lg font-extrabold text-[#0A2540] tracking-tight group-hover:text-[#0B5ED7] transition-colors block leading-none">
+                    {resolveBrandName(settings.businessName)}
+                  </span>
+                  <span className="text-[11px] font-semibold text-[#0B5ED7] block mt-0.5">
+                    {resolveBrandTagline(settings.tagline)}
+                  </span>
                 </div>
-              )}
+              </div>
+              <p className="text-xs text-[#475569] leading-relaxed">
+                Precision 2-Track &amp; 3-Track sliding window cutting lists, glass sizes, bearing positions, mosquito net dimensions, bulk batch sheets, and photo measurement scanning.
+              </p>
             </div>
 
-            {/* Quick Links */}
+            {/* Calculators & Tools */}
             <div>
-              <h4 className="font-serif text-sm font-bold text-[#1A1A1A] mb-3">
-                Collections & Tools
+              <h4 className="text-sm font-bold text-[#0A2540] mb-3">
+                Fabrication Calculators
               </h4>
               <ul className="space-y-2 text-xs">
                 <li>
                   <button
+                    id="footer-link-sliding-window"
+                    onClick={() => openSlidingWindowSection('single')}
+                    className="text-[#475569] hover:text-[#0B5ED7] transition-colors flex items-center gap-1.5 cursor-pointer font-medium"
+                  >
+                    <SlidingWindowIcon className="w-3.5 h-3.5 text-[#0B5ED7]" />
+                    <span>Sliding Window Size Calculator</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => openSlidingWindowSection('bulk')}
+                    className="text-[#475569] hover:text-[#0B5ED7] transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-[#F97316]" />
+                    <span>Bulk Window Calculator</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => openSlidingWindowSection('bulk', true)}
+                    className="text-[#475569] hover:text-[#0B5ED7] transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-[#0B5ED7]" />
+                    <span>Photo Measurement Scanner</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => openSlidingWindowSection('settings')}
+                    className="text-[#475569] hover:text-[#0B5ED7] transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Sliders className="w-3.5 h-3.5 text-[#475569]" />
+                    <span>Fabrication Settings &amp; Rules</span>
+                  </button>
+                </li>
+                <li>
+                  <button
                     onClick={() => navigateToView('calculator')}
-                    className="text-[#666666] hover:text-[#C89211] transition-colors"
+                    className="text-[#475569] hover:text-[#0B5ED7] transition-colors cursor-pointer"
                   >
-                    Door Price Calculator
+                    Frame &amp; Shutter Estimator
                   </button>
                 </li>
                 <li>
                   <button
-                    onClick={() => navigateToView('gallery')}
-                    className="text-[#666666] hover:text-[#C89211] transition-colors"
+                    id="footer-link-wood-detector"
+                    onClick={() => navigateToView('wood-detector')}
+                    className="text-[#475569] hover:text-[#0B5ED7] transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
-                    Door Catalog Gallery
-                  </button>
-                </li>
-                <li>
-                  <button
-                    onClick={() => navigateToView('articles')}
-                    className="text-[#666666] hover:text-[#C89211] transition-colors"
-                  >
-                    Wood Care & Dimension Guides
-                  </button>
-                </li>
-                <li>
-                  <button
-                    id="footer-link-visualizer"
-                    onClick={() => navigateToView('visualizer')}
-                    className="text-[#666666] hover:text-[#C89211] transition-colors flex items-center gap-1.5"
-                  >
-                    <Box className="w-3.5 h-3.5 text-[#C89211]" />
-                    <span>3D &amp; AR Fitting Studio</span>
-                  </button>
-                </li>
-                <li>
-                  <button
-                    id="footer-link-track"
-                    onClick={() => navigateToView('tracking')}
-                    className="text-[#666666] hover:text-[#C89211] transition-colors flex items-center gap-1.5"
-                  >
-                    <Truck className="w-3.5 h-3.5 text-[#C89211]" />
-                    <span>Track Order &amp; Manufacturing</span>
+                    <Sparkles className="w-3.5 h-3.5 text-[#F97316]" />
+                    <span>AI Wood Detector</span>
                   </button>
                 </li>
               </ul>
             </div>
 
-            {/* Information & Legal Section */}
+            {/* Application & Policies */}
             <div>
-              <h4 className="font-serif text-sm font-bold text-[#1A1A1A] mb-3">
-                Information &amp; Legal
+              <h4 className="text-sm font-bold text-[#0A2540] mb-3">
+                Application &amp; Info
               </h4>
               <ul className="space-y-2 text-xs">
                 <li>
                   <button
+                    id="footer-link-premium"
+                    onClick={() => navigateToView('premium')}
+                    className="text-[#475569] hover:text-[#F97316] transition-colors flex items-center gap-1.5 cursor-pointer font-semibold"
+                  >
+                    <Award className="w-3.5 h-3.5 text-[#F97316]" />
+                    <span>{premiumEntitlement.isPremium ? 'WindowCut Pro Premium (Active)' : 'Remove Ads (Premium)'}</span>
+                  </button>
+                </li>
+                <li>
+                  <button
                     id="footer-link-about"
                     onClick={() => navigateToView('about')}
-                    className="text-[#666666] hover:text-[#C89211] transition-colors text-left"
+                    className="text-[#475569] hover:text-[#0B5ED7] transition-colors text-left cursor-pointer"
                   >
-                    About Us &amp; Heritage
+                    About WindowCut Pro
                   </button>
                 </li>
                 <li>
                   <button
                     id="footer-link-contact"
                     onClick={() => navigateToView('contact')}
-                    className="text-[#666666] hover:text-[#C89211] transition-colors text-left"
+                    className="text-[#475569] hover:text-[#0B5ED7] transition-colors text-left cursor-pointer"
                   >
-                    Contact Us &amp; Inquiries
+                    Contact &amp; Support
                   </button>
                 </li>
                 <li>
                   <button
                     id="footer-link-privacy"
                     onClick={() => navigateToView('privacy')}
-                    className="text-[#666666] hover:text-[#C89211] transition-colors text-left"
+                    className="text-[#475569] hover:text-[#0B5ED7] transition-colors text-left cursor-pointer"
                   >
                     Privacy Policy
-                  </button>
-                </li>
-                <li>
-                  <button
-                    id="footer-link-disclaimer"
-                    onClick={() => navigateToView('disclaimer')}
-                    className="text-[#666666] hover:text-[#C89211] transition-colors text-left"
-                  >
-                    Disclaimer &amp; Terms
                   </button>
                 </li>
               </ul>
             </div>
 
-            {/* Factory Location & Hours */}
+            {/* Direct Support & Assistance */}
             <div>
-              <h4 className="font-serif text-sm font-bold text-[#1A1A1A] mb-3">
-                Workshop & Showroom
+              <h4 className="text-sm font-bold text-[#0A2540] mb-3">
+                Support &amp; Assistance
               </h4>
-              <p className="text-xs text-[#666666] leading-relaxed mb-2">
-                {settings.address}
-              </p>
-              <div className="text-xs text-[#666666] space-y-1 mb-3">
-                <div>Mon – Sat: 9:00 AM – 8:00 PM</div>
-                <div>Sunday: By Appointment</div>
-              </div>
-              <a
-                id="footer-shop-location-btn"
-                href={getGoogleMapsUrl(settings.googleMapsUrl || settings.legalSettings?.socialLinks?.googleBusiness)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2.5 px-3 py-2 rounded-xl bg-[#FFF8E8] hover:bg-[#FFF2D4] border border-[#C89211] text-left transition-all duration-200 shadow-xs hover:shadow-sm group mt-1 max-w-full"
-                title="Open Shop Location in Google Maps"
-              >
-                <div className="w-7 h-7 rounded-lg bg-white border border-[#C89211]/30 flex items-center justify-center text-[#C89211] shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                  <MapPin className="w-4 h-4 text-[#C89211] fill-[#C89211]/20" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-xs text-[#222222] leading-tight">
-                    Shop Location
-                  </div>
-                  <div className="text-[10px] text-[#C89211] font-semibold flex items-center gap-0.5 mt-0.5 leading-none">
-                    <span>View on Google Maps</span>
-                    <span className="group-hover:translate-x-0.5 transition-transform">→</span>
-                  </div>
-                </div>
-              </a>
-            </div>
-
-            {/* Direct Connect & Admin Access */}
-            <div>
-              <h4 className="font-serif text-sm font-bold text-[#1A1A1A] mb-3">
-                Factory Assistance
-              </h4>
-              <div className="space-y-2 text-xs">
+              <div className="space-y-2.5 text-xs">
                 <div>
-                  <span className="text-[#999999]">Phone:</span>{' '}
-                  <a href={`tel:${settings.phone}`} className="text-[#1A1A1A] hover:text-[#C89211] font-mono font-medium">
-                    {settings.phone}
+                  <span className="text-[#64748B]">Support Email:</span>{' '}
+                  <a href={`mailto:${settings.email || 'support@windowcutpro.com'}`} className="text-[#0F172A] hover:text-[#0B5ED7] font-medium">
+                    {settings.email || 'support@windowcutpro.com'}
                   </a>
                 </div>
-                <div>
-                  <span className="text-[#999999]">WhatsApp:</span>{' '}
-                  <a
-                    id="footer-whatsapp-link"
-                    href={getWhatsAppUrl(settings?.whatsappNumber)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#16803A] font-mono font-semibold hover:underline"
+                <p className="text-[#64748B] leading-relaxed">
+                  Need help with profile deductions, bulk sheets, or account support? Reach out via our in-app support desk.
+                </p>
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => navigateToView('contact')}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white hover:bg-[#EFF6FF] border border-[#CBD5E1] hover:border-[#0B5ED7] text-left transition-colors group cursor-pointer"
                   >
-                    {formatWhatsAppDisplay(settings?.whatsappNumber)}
-                  </a>
-                </div>
-                <div>
-                  <span className="text-[#999999]">Email:</span>{' '}
-                  <a href={`mailto:${settings.email}`} className="text-[#1A1A1A] hover:text-[#C89211]">
-                    {settings.email}
-                  </a>
+                    <span className="font-semibold text-xs text-[#0A2540] group-hover:text-[#0B5ED7]">
+                      Open Support Form →
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>
-
           </div>
 
-          <div className="pt-8 border-t border-[#E5E5E5] text-center text-xs text-[#666666] flex flex-col md:flex-row items-center justify-between gap-4">
-            <div>
-              © {new Date().getFullYear()} {settings.businessName}. All rights reserved.
+          {FEATURE_FLAGS.copyrightFooter && (
+            <div className="pt-8 border-t border-[#E2E8F0] text-center text-xs text-[#64748B] flex flex-col md:flex-row items-center justify-between gap-4">
+              <div>
+                © {new Date().getFullYear()} {resolveBrandName(settings.businessName)}. All rights reserved.
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
+                <button
+                  onClick={() => navigateToView('privacy')}
+                  className="text-[#64748B] hover:text-[#0B5ED7] transition-colors cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+                <span className="text-[#CBD5E1]">•</span>
+                <button
+                  onClick={() => navigateToView('about')}
+                  className="text-[#64748B] hover:text-[#0B5ED7] transition-colors cursor-pointer"
+                >
+                  About
+                </button>
+                <span className="text-[#CBD5E1]">•</span>
+                <button
+                  onClick={() => navigateToView('contact')}
+                  className="text-[#64748B] hover:text-[#0B5ED7] transition-colors cursor-pointer"
+                >
+                  Contact
+                </button>
+              </div>
             </div>
-
-            {/* Quick Inline Legal Links */}
-            <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
-              <button
-                onClick={() => navigateToView('privacy')}
-                className="text-[#666666] hover:text-[#C89211] transition-colors"
-              >
-                Privacy Policy
-              </button>
-              <span className="text-[#CCCCCC]">•</span>
-              <button
-                onClick={() => navigateToView('about')}
-                className="text-[#666666] hover:text-[#C89211] transition-colors"
-              >
-                About Us
-              </button>
-              <span className="text-[#CCCCCC]">•</span>
-              <button
-                onClick={() => navigateToView('contact')}
-                className="text-[#666666] hover:text-[#C89211] transition-colors"
-              >
-                Contact Us
-              </button>
-              <span className="text-[#CCCCCC]">•</span>
-              <button
-                onClick={() => navigateToView('disclaimer')}
-                className="text-[#666666] hover:text-[#C89211] transition-colors flex items-center gap-1"
-              >
-                <span>Disclaimer &amp; Content Protection</span>
-              </button>
-            </div>
-
-            <div className="text-[11px] text-[#666666]">
-              Handcrafted in India • 100% Kiln-Dried Solid Timber
-            </div>
-          </div>
+          )}
         </div>
       </footer>
 
@@ -1595,18 +2310,23 @@ export const App: React.FC = () => {
         onOpenFavorites={() => handleOpenProfileModal('favorites')}
         onOpenProfile={handleOpenProfileModal}
         favoritesCount={favoriteDoorIds.length}
+        isPremium={premiumEntitlement.isPremium}
       />
 
       {/* MODAL 1: Door Detail Modal (Section 3) */}
-      {selectedDoorForDetail && (
+      {FEATURE_FLAGS.doorCatalogue && selectedDoorForDetail && (
         <DoorDetailModal
           door={selectedDoorForDetail}
           onClose={handleCloseDoorDetail}
           onCalculateThisDoor={handleCalculateDoor}
-          onOpenVisualizer={(door) => {
-            handleCloseDoorDetail();
-            handleOpenVisualizer(door);
-          }}
+          onOpenVisualizer={
+            FEATURE_FLAGS.visualizer3dAr
+              ? (door) => {
+                  handleCloseDoorDetail();
+                  handleOpenVisualizer(door);
+                }
+              : undefined
+          }
           allDoors={doors}
           onSelectDoor={d => handleOpenDoorDetail(d)}
           settings={settings}
@@ -1622,6 +2342,13 @@ export const App: React.FC = () => {
           door={quotationDoor}
           settings={settings}
           onClose={() => setQuotationCalcResult(null)}
+          currentCustomer={currentCustomer}
+          materials={materials}
+          finishes={finishes}
+          frames={frames}
+          hardware={hardware}
+          onPayOnlineQuote={handlePayOnlineQuote}
+          isPayingOnline={isProcessingPayment}
         />
       )}
 
@@ -1641,7 +2368,7 @@ export const App: React.FC = () => {
         </React.Suspense>
       )}
 
-      {/* MODAL 5: Saved Doors & Calculations History (Public Browser Storage) */}
+      {/* MODAL 5: Customer Account, Payment History, Orders & Saved Estimates */}
       {showProfileModal && (
         <UserProfileModal
           isOpen={showProfileModal}
@@ -1649,6 +2376,21 @@ export const App: React.FC = () => {
           settings={settings}
           doors={doors}
           initialTab={profileActiveTab}
+          currentCustomer={currentCustomer}
+          entitlement={premiumEntitlement}
+          onOpenPremium={() => {
+            setShowProfileModal(false);
+            navigateToView('premium');
+          }}
+          customerPayments={customerPayments}
+          customerQuotes={customerQuotes}
+          customerOrders={customerOrders}
+          onOpenOtpLogin={() => {
+            setShowProfileModal(false);
+            setShowOtpLoginModal(true);
+          }}
+          onCustomerUpdated={(updated) => setCurrentCustomer(updated)}
+          onCustomerLogout={handleCustomerLogout}
           onSelectDoor={door => {
             setShowProfileModal(false);
             handleOpenDoorDetail(door);
@@ -1660,6 +2402,70 @@ export const App: React.FC = () => {
           onLoadCalculation={handleLoadCalculation}
         />
       )}
+
+      {/* MODAL 5B: Mandatory Login Required Popup for Guest Calculation Attempts */}
+      <LoginRequiredPopup
+        isOpen={showLoginRequiredPopup}
+        onClose={() => {
+          setShowLoginRequiredPopup(false);
+          pendingCalculationActionRef.current = null;
+        }}
+        onLoginClick={() => {
+          setShowLoginRequiredPopup(false);
+          setOtpLoginCustomReason(
+            'Please login with your mobile number to view your calculation results.'
+          );
+          setShowOtpLoginModal(true);
+        }}
+      />
+
+      {/* MODAL 6: Customer Mobile Number OTP Login */}
+      <CustomerOtpLoginModal
+        isOpen={showOtpLoginModal}
+        onClose={() => {
+          setShowOtpLoginModal(false);
+          setPendingPaymentPayload(null);
+          setOtpLoginCustomReason(null);
+          pendingCalculationActionRef.current = null;
+        }}
+        onAuthenticated={async (session) => {
+          applyCustomerSession(session);
+          setShowOtpLoginModal(false);
+          setOtpLoginCustomReason(null);
+          await refreshMonetizationState();
+          if (pendingPaymentPayload) {
+            const payloadToResume = pendingPaymentPayload;
+            setPendingPaymentPayload(null);
+            await executeOnlinePayment(
+              payloadToResume,
+              payloadToResume.itemType === 'credit_pack' ? payloadToResume.packId : null
+            );
+          }
+          if (pendingCalculationActionRef.current) {
+            const resumeCalc = pendingCalculationActionRef.current;
+            pendingCalculationActionRef.current = null;
+            window.setTimeout(() => {
+              void resumeCalc();
+            }, 80);
+          }
+        }}
+        title={pendingPaymentPayload ? 'Sign In to Complete Payment' : 'Customer Mobile Login'}
+        subtitle={
+          otpLoginCustomReason ||
+          (pendingPaymentPayload
+            ? 'Verify your 10-digit Indian mobile number via OTP so your payment receipt and order history are linked to your account.'
+            : 'Sign in securely with a 6-digit SMS OTP to save your profile, pay online, and access payment receipts.')
+        }
+      />
+
+      {/* MODAL 7: Verified Payment Outcome & Downloadable PDF Receipt */}
+      <PaymentReceiptModal
+        isOpen={Boolean(activePaymentReceipt)}
+        onClose={() => setActivePaymentReceipt(null)}
+        payment={activePaymentReceipt?.payment || null}
+        statusMessage={activePaymentReceipt?.statusMessage}
+        settings={settings}
+      />
 
     </div>
   );

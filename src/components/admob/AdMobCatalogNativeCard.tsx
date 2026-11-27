@@ -51,22 +51,29 @@ export const AdMobCatalogNativeCard: React.FC<AdMobCatalogNativeCardProps> = ({
   settings,
   variant = 'catalog',
 }) => {
+  const [isPremium, setIsPremium] = React.useState<boolean>(() => adMobService.isPremiumActive());
+
+  useEffect(() => {
+    setIsPremium(adMobService.isPremiumActive());
+    return adMobService.subscribeEntitlementChange((premium) => setIsPremium(premium));
+  }, []);
+
   const isAdmin = adMobService.isAdminActive();
   const adConfig = getActiveAdMobSettings(settings?.adSettings);
 
-  const isEnabled = !isAdmin && (
+  const isEnabled = !isAdmin && !isPremium && (
     variant === 'articles'
       ? (adConfig.enabled && adConfig.enableArticlesNativeAds !== false)
       : (adConfig.enabled && adConfig.enableCatalogNativeAds)
   );
 
   useEffect(() => {
-    if (isEnabled && !isAdmin) {
+    if (isEnabled && !isAdmin && !isPremium) {
       adMobService.trackEvent('impression', 'native', variant);
     }
-  }, [isEnabled, variant, isAdmin]);
+  }, [isEnabled, variant, isAdmin, isPremium]);
 
-  if (isAdmin || !isEnabled) {
+  if (isAdmin || isPremium || !isEnabled) {
     return null;
   }
 

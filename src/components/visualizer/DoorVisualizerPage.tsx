@@ -400,21 +400,6 @@ export const DoorVisualizerPage: React.FC<DoorVisualizerPageProps> = ({
     setActiveMode('live_ar');
   };
 
-  // WhatsApp Enquiry Trigger
-  const handleSendWhatsApp = () => {
-    const text = `Hello Jai Hanuman Door,
-I customized "${selectedDoor.name}" (Catalogue ID: ${selectedDoor.id}) in your 3D & AR Fitting Studio:
-- Wood Species: ${fittingState.woodType}
-- Size: ${fittingState.widthInch}" × ${fittingState.heightInch}" (${calculation.sqFt} sq.ft)
-- Thickness: ${fittingState.thicknessInch}"
-- Estimated Factory Price: ₹${calculation.total.toLocaleString('en-IN')}
-
-Please share final pricing, delivery schedule, and site measurement assistance for my home entrance.`;
-
-    const url = getWhatsAppUrl(settings.whatsappNumber || '7887412884', text);
-    window.open(url, '_blank');
-  };
-
   return (
     <div className="min-h-screen bg-white text-[#1A1A1A] pb-32 pt-4 sm:pt-6">
       {/* Top Navigation Bar */}
@@ -594,14 +579,6 @@ Please share final pricing, delivery schedule, and site measurement assistance f
                     <span>View Specifications</span>
                   </button>
                 )}
-
-                <button
-                  onClick={handleSendWhatsApp}
-                  className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition cursor-pointer"
-                >
-                  <MessageCircle className="w-4 h-4 fill-white" />
-                  <span className="hidden sm:inline">WhatsApp</span>
-                </button>
               </div>
 
               {/* Get Official Quotation CTA */}
@@ -1131,7 +1108,6 @@ Please share final pricing, delivery schedule, and site measurement assistance f
         fittingState={fittingState}
         estimatedPrice={calculation.total}
         capturedImageUrl={capturedModalImage}
-        officialWhatsApp={settings.whatsappNumber || '7887412884'}
         onOpenQuotation={() => onOpenQuotationModal(calculation, selectedDoor)}
       />
     </div>

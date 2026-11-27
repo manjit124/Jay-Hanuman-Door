@@ -309,7 +309,7 @@ export const AdminLegalTab: React.FC<AdminLegalTabProps> = ({
                 type="url"
                 value={googleBusiness}
                 onChange={e => setGoogleBusiness(e.target.value)}
-                placeholder="https://maps.app.goo.gl/your-workshop"
+                placeholder="Optional internal reference URL"
                 className="w-full px-3 py-2 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] text-[#1A1A1A] text-xs focus:border-[#C89211] outline-none"
               />
             </div>

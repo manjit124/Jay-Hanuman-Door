@@ -53,11 +53,13 @@ import {
   Server,
   Activity,
   Cloud,
+  CreditCard,
 } from 'lucide-react';
 import { ProtectedImage } from './ProtectedImage.tsx';
 import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 import { DEFAULT_CONTENT_PROTECTION } from '../lib/contentProtection.ts';
 import { adMobService } from '../lib/admob/admobService.ts';
+import { FEATURE_FLAGS, isAdminTabDisabled } from '../config/featureFlags.ts';
 
 // Lazy-loaded sub-tab modules to optimize initial Admin Panel modal open speed
 const AdminNotificationsTab = React.lazy(() => import('./AdminNotificationsTab.tsx').then(m => ({ default: m.AdminNotificationsTab })));
@@ -74,6 +76,8 @@ const AdminDeliveryTab = React.lazy(() => import('./admin/AdminDeliveryTab.tsx')
 const AdminChaukhatTab = React.lazy(() => import('./admin/AdminChaukhatTab.tsx').then(m => ({ default: m.AdminChaukhatTab })));
 const AdminAdMobTab = React.lazy(() => import('./admin/AdminAdMobTab.tsx').then(m => ({ default: m.AdminAdMobTab })));
 const AdminGoogleDriveTab = React.lazy(() => import('./admin/AdminGoogleDriveTab.tsx').then(m => ({ default: m.AdminGoogleDriveTab })));
+const AdminPaymentsTab = React.lazy(() => import('./admin/AdminPaymentsTab.tsx').then(m => ({ default: m.AdminPaymentsTab })));
+const AdminWindowSystemsTab = React.lazy(() => import('./admin/AdminWindowSystemsTab.tsx').then(m => ({ default: m.AdminWindowSystemsTab })));
 import {
   Door,
   Category,
@@ -202,6 +206,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     | 'wood-detector'
     | 'admob'
     | 'googledrive'
+    | 'payments'
+    | 'window-systems'
   >('dashboard');
 
   // Loaded DB data in Admin
@@ -451,7 +457,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   useEffect(() => {
     if (initialTab) {
       const mapped = initialTab === 'prices' ? 'materials' : initialTab === 'orders' ? 'tracking' : (initialTab === 'deliveries' || initialTab === 'delivery-stories' || initialTab === 'shipping') ? 'delivery' : (initialTab === '3d' || initialTab === 'ar') ? 'visualizer' : initialTab === 'drive' ? 'googledrive' : initialTab;
-      if (['dashboard', 'tracking', 'delivery', 'doors', 'visualizer', 'materials', 'finishes', 'frames', 'hardware', 'banners', 'articles', 'settings', 'quotes', 'team', 'notifications', 'enquiries', 'legal', 'backup', 'wood-detector', 'admob', 'googledrive'].includes(mapped)) {
+      if (isAdminTabDisabled(mapped)) {
+        setActiveTab('dashboard');
+        return;
+      }
+      if (['dashboard', 'tracking', 'delivery', 'doors', 'visualizer', 'materials', 'finishes', 'frames', 'hardware', 'banners', 'main-banners', 'promotion-banners', 'articles', 'settings', 'quotes', 'team', 'story', 'notifications', 'enquiries', 'legal', 'backup', 'wood-detector', 'admob', 'googledrive', 'payments', 'window-systems'].includes(mapped)) {
         setActiveTab(mapped as any);
       }
     }
@@ -535,9 +545,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleTabSelect = (tab: typeof activeTab) => {
-    setActiveTab(tab);
+    const safeTab = isAdminTabDisabled(tab) ? 'dashboard' : tab;
+    setActiveTab(safeTab);
     if (onNavigateTab) {
-      onNavigateTab(tab);
+      onNavigateTab(safeTab);
     }
   };
 
@@ -562,7 +573,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         const results = await Promise.all(
           chunk.map(async file => {
             const res = await uploadImage(file, {
-              category: 'products',
+              category: FEATURE_FLAGS.doorCatalogue ? 'products' : 'general',
               maxDimension: 1680,
               quality: 0.82,
               onProgress: (pct) => {
@@ -751,24 +762,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* Top Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5] bg-[#F8F8F6] sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full overflow-hidden border border-[#C89211]/40 shadow-xs bg-[#0C0A09] flex items-center justify-center shrink-0">
+            <div className="w-11 h-11 rounded-xl overflow-hidden border border-[#BFDBFE] shadow-xs bg-white p-0.5 flex items-center justify-center shrink-0">
               <img
-                src="/assets/logo.png"
-                alt="Jai Hanuman Door Logo"
+                src="/assets/aistudio/file_00000000987c8211861f7f4e3ee30de1_a307444c.png"
+                alt="WindowCut Pro Logo"
                 className="w-full h-full object-contain"
               />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="font-serif text-lg sm:text-xl font-bold text-[#1A1A1A]">
-                  Manufacturer Admin Control Center
+                <h2 className="font-bold text-lg sm:text-xl text-[#0A2540]">
+                  WindowCut Pro Admin Control Center
                 </h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#FFF7E3] text-[#C89211] border border-[#C89211]/30 uppercase">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#EFF6FF] text-[#0B5ED7] border border-[#BFDBFE] uppercase">
                   Secure Backend
                 </span>
               </div>
-              <p className="text-xs text-[#666666]">
-                Manage doors, live rates, Chaukhat frames, hardware, banners & WhatsApp settings
+              <p className="text-xs text-[#475569]">
+                Manage WindowCut Pro calculators, live rates, AdMob &amp; Premium plans, payments &amp; business settings
               </p>
             </div>
           </div>
@@ -873,18 +884,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               /* Admin Login Form Screen */
               <div className="w-full max-w-md mx-auto my-auto p-6 sm:p-8 space-y-6">
                 <div className="text-center space-y-2">
-                  <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-[#C89211]/60 shadow-lg bg-[#0C0A09] flex items-center justify-center mx-auto mb-2">
+                  <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-[#BFDBFE] shadow-lg bg-white p-1 flex items-center justify-center mx-auto mb-2">
                     <img
-                      src="/assets/logo.png"
-                      alt="Jai Hanuman Door Logo"
+                      src="/assets/aistudio/file_00000000987c8211861f7f4e3ee30de1_a307444c.png"
+                      alt="WindowCut Pro Logo"
                       className="w-full h-full object-contain"
                     />
                   </div>
-                  <h3 className="font-serif text-2xl font-bold text-[#1A1A1A]">
-                    Administrator Sign In
+                  <h3 className="text-2xl font-bold text-[#0A2540]">
+                    WindowCut Pro Admin Sign In
                   </h3>
-                  <p className="text-xs text-[#666666]">
-                    Enter master security credentials to manage manufacturing catalog, live pricing & business configuration
+                  <p className="text-xs text-[#475569]">
+                    Enter master security credentials to manage WindowCut Pro calculators, pricing, subscriptions &amp; business configuration
                   </p>
                 </div>
 
@@ -1192,49 +1203,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   Dashboard
                 </button>
 
-                <button
-                  id="admin-tab-tracking"
-                  onClick={() => handleTabSelect('tracking')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'tracking' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <Truck className="w-4 h-4" />
-                  Order Tracking &amp; Mfg
-                </button>
+                {FEATURE_FLAGS.orderTracking && (
+                  <button
+                    id="admin-tab-tracking"
+                    onClick={() => handleTabSelect('tracking')}
+                    className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                      activeTab === 'tracking' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                    }`}
+                  >
+                    <Truck className="w-4 h-4" />
+                    Order Tracking &amp; Mfg
+                  </button>
+                )}
 
-                <button
-                  id="admin-tab-delivery"
-                  onClick={() => handleTabSelect('delivery')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'delivery' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <MapPin className="w-4 h-4 text-amber-500" />
-                  India Delivery Stories ({deliveryStories.length})
-                </button>
+                {FEATURE_FLAGS.allIndiaDelivery && (
+                  <button
+                    id="admin-tab-delivery"
+                    onClick={() => handleTabSelect('delivery')}
+                    className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                      activeTab === 'delivery' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                    }`}
+                  >
+                    <MapPin className="w-4 h-4 text-amber-500" />
+                    India Delivery Stories ({deliveryStories.length})
+                  </button>
+                )}
 
-                <button
-                  id="admin-tab-doors"
-                  onClick={() => { handleTabSelect('doors'); setEditingDoor(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'doors' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <DoorClosed className="w-4 h-4" />
-                  Door Designs ({doors.length})
-                </button>
+                {FEATURE_FLAGS.doorCatalogue && (
+                  <button
+                    id="admin-tab-doors"
+                    onClick={() => { handleTabSelect('doors'); setEditingDoor(null); }}
+                    className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                      activeTab === 'doors' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                    }`}
+                  >
+                    <DoorClosed className="w-4 h-4" />
+                    Door Designs ({doors.length})
+                  </button>
+                )}
 
-                <button
-                  id="admin-tab-visualizer"
-                  onClick={() => handleTabSelect('visualizer')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'visualizer' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <Box className="w-4 h-4" />
-                  3D &amp; AR Models
-                </button>
+                {FEATURE_FLAGS.visualizer3dAr && (
+                  <button
+                    id="admin-tab-visualizer"
+                    onClick={() => handleTabSelect('visualizer')}
+                    className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                      activeTab === 'visualizer' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                    }`}
+                  >
+                    <Box className="w-4 h-4" />
+                    3D &amp; AR Models
+                  </button>
+                )}
 
                 <button
                   id="admin-tab-materials"
@@ -1280,38 +1299,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   Hardware & Aldrops
                 </button>
 
-                <button
-                  id="admin-tab-main-banners"
-                  onClick={() => { handleTabSelect('main-banners'); setEditingBanner(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'main-banners' || activeTab === 'banners' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <ImageIcon className="w-4 h-4" />
-                  Main Banner Management ({banners.filter(b => b.bannerType === 'main' || b.slot === 'hero' || b.slot === 'main' || (!b.bannerType && (!b.slot || b.slot === 'hero' || b.slot === 'main' || b.id === 'ban-1' || b.id === 'ban-3'))).length})
-                </button>
+                {FEATURE_FLAGS.homeBanners && (
+                  <>
+                    <button
+                      id="admin-tab-main-banners"
+                      onClick={() => { handleTabSelect('main-banners'); setEditingBanner(null); }}
+                      className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeTab === 'main-banners' || activeTab === 'banners' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                      }`}
+                    >
+                      <ImageIcon className="w-4 h-4" />
+                      Main Banner Management ({banners.filter(b => b.bannerType === 'main' || b.slot === 'hero' || b.slot === 'main' || (!b.bannerType && (!b.slot || b.slot === 'hero' || b.slot === 'main' || b.id === 'ban-1' || b.id === 'ban-3'))).length})
+                    </button>
 
-                <button
-                  id="admin-tab-promotion-banners"
-                  onClick={() => { handleTabSelect('promotion-banners'); setEditingBanner(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'promotion-banners' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Promotion Banner Management ({banners.filter(b => b.bannerType === 'promotion' || (b.slot && b.slot !== 'hero' && b.slot !== 'main') || (!b.bannerType && b.id && b.id.startsWith('ban-17'))).length})
-                </button>
+                    <button
+                      id="admin-tab-promotion-banners"
+                      onClick={() => { handleTabSelect('promotion-banners'); setEditingBanner(null); }}
+                      className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeTab === 'promotion-banners' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                      }`}
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      Promotion Banner Management ({banners.filter(b => b.bannerType === 'promotion' || (b.slot && b.slot !== 'hero' && b.slot !== 'main') || (!b.bannerType && b.id && b.id.startsWith('ban-17'))).length})
+                    </button>
+                  </>
+                )}
 
-                <button
-                  id="admin-tab-articles"
-                  onClick={() => { handleTabSelect('articles'); setEditingArticle(null); }}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'articles' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <BookOpen className="w-4 h-4" />
-                  Articles & Guides
-                </button>
+                {FEATURE_FLAGS.articlesBlog && (
+                  <button
+                    id="admin-tab-articles"
+                    onClick={() => { handleTabSelect('articles'); setEditingArticle(null); }}
+                    className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                      activeTab === 'articles' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                    }`}
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    Articles & Guides
+                  </button>
+                )}
 
                 <button
                   id="admin-tab-quotes"
@@ -1325,37 +1350,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
 
                 <button
-                  id="admin-tab-notifications"
-                  onClick={() => handleTabSelect('notifications')}
+                  id="admin-tab-payments"
+                  onClick={() => handleTabSelect('payments')}
                   className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'notifications' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                    activeTab === 'payments' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
                   }`}
                 >
-                  <Bell className="w-4 h-4" />
-                  Push Notifications
+                  <CreditCard className="w-4 h-4" />
+                  Razorpay Payments
                 </button>
 
-                <button
-                  id="admin-tab-team"
-                  onClick={() => handleTabSelect('team')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'team' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <Users className="w-4 h-4" />
-                  Team & Leadership ({teamMembers.length})
-                </button>
+                {FEATURE_FLAGS.appMessages && (
+                  <button
+                    id="admin-tab-notifications"
+                    onClick={() => handleTabSelect('notifications')}
+                    className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                      activeTab === 'notifications' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                    }`}
+                  >
+                    <Bell className="w-4 h-4" />
+                    Push Notifications
+                  </button>
+                )}
 
-                <button
-                  id="admin-tab-story"
-                  onClick={() => handleTabSelect('story')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'story' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <BookOpen className="w-4 h-4 text-[#C89211]" />
-                  Brand &amp; Company Story
-                </button>
+                {FEATURE_FLAGS.ourStoryAndTeam && (
+                  <>
+                    <button
+                      id="admin-tab-team"
+                      onClick={() => handleTabSelect('team')}
+                      className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeTab === 'team' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                      }`}
+                    >
+                      <Users className="w-4 h-4" />
+                      Team & Leadership ({teamMembers.length})
+                    </button>
+
+                    <button
+                      id="admin-tab-story"
+                      onClick={() => handleTabSelect('story')}
+                      className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeTab === 'story' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                      }`}
+                    >
+                      <BookOpen className="w-4 h-4 text-[#C89211]" />
+                      Brand &amp; Company Story
+                    </button>
+                  </>
+                )}
 
                 <button
                   id="admin-tab-enquiries"
@@ -1368,16 +1410,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   Customer Inquiries
                 </button>
 
-                <button
-                  id="admin-tab-legal"
-                  onClick={() => handleTabSelect('legal')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
-                    activeTab === 'legal' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
-                  }`}
-                >
-                  <FileText className="w-4 h-4" />
-                  Legal &amp; Information Pages
-                </button>
+                {FEATURE_FLAGS.copyrightFooter && (
+                  <button
+                    id="admin-tab-legal"
+                    onClick={() => handleTabSelect('legal')}
+                    className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                      activeTab === 'legal' ? 'bg-[#C89211] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                    }`}
+                  >
+                    <FileText className="w-4 h-4" />
+                    Legal &amp; Information Pages
+                  </button>
+                )}
 
                 <button
                   id="admin-tab-settings"
@@ -1424,6 +1468,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
 
                 <button
+                  id="admin-tab-window-systems"
+                  onClick={() => handleTabSelect('window-systems')}
+                  className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'window-systems' ? 'bg-[#0B5ED7] text-white shadow-sm font-bold' : 'text-[#666666] hover:text-[#1A1A1A] hover:bg-stone-200/60'
+                  }`}
+                >
+                  <LayoutGrid className="w-4 h-4 text-[#0B5ED7]" />
+                  Window Systems &amp; Formulas
+                </button>
+
+                <button
                   id="admin-tab-googledrive"
                   onClick={() => handleTabSelect('googledrive')}
                   className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
@@ -1456,15 +1511,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                     {/* Stats Grid */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                      <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] shadow-xs">
-                        <div className="text-xs text-[#666666] font-medium">Door Designs</div>
-                        <div className="text-2xl sm:text-3xl font-bold font-mono text-[#C89211] mt-1">
-                          {doors.length}
+                      {FEATURE_FLAGS.doorCatalogue ? (
+                        <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] shadow-xs">
+                          <div className="text-xs text-[#666666] font-medium">Door Designs</div>
+                          <div className="text-2xl sm:text-3xl font-bold font-mono text-[#C89211] mt-1">
+                            {doors.length}
+                          </div>
+                          <div className="text-[11px] text-[#666666] mt-1">
+                            {doors.filter(d => d.featured).length} Featured
+                          </div>
                         </div>
-                        <div className="text-[11px] text-[#666666] mt-1">
-                          {doors.filter(d => d.featured).length} Featured
+                      ) : FEATURE_FLAGS.allIndiaDelivery ? (
+                        <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] shadow-xs">
+                          <div className="text-xs text-[#666666] font-medium">India Delivery Stories</div>
+                          <div className="text-2xl sm:text-3xl font-bold font-mono text-[#C89211] mt-1">
+                            {deliveryStories.length}
+                          </div>
+                          <div className="text-[11px] text-[#666666] mt-1">
+                            {deliveryStates.length} States Configured
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] shadow-xs">
+                          <div className="text-xs text-[#666666] font-medium">Chaukhat &amp; Hardware</div>
+                          <div className="text-2xl sm:text-3xl font-bold font-mono text-[#C89211] mt-1">
+                            {frames.length + hardware.length}
+                          </div>
+                          <div className="text-[11px] text-[#666666] mt-1">
+                            {frames.length} Frames • {hardware.length} Hardware
+                          </div>
+                        </div>
+                      )}
 
                       <div className="p-4 rounded-xl bg-white border border-[#E5E5E5] shadow-xs">
                         <div className="text-xs text-[#666666] font-medium">Quotes Generated</div>
@@ -1617,7 +1694,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 )}
 
                 {/* 2. DOOR MANAGEMENT (Section 14) */}
-                {activeTab === 'doors' && (
+                {FEATURE_FLAGS.doorCatalogue && activeTab === 'doors' && (
                   <div className="space-y-6">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
@@ -3896,7 +3973,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 )}
 
                 {/* 7A. MAIN BANNER MANAGEMENT */}
-                {(activeTab === 'main-banners' || activeTab === 'banners') && (() => {
+                {FEATURE_FLAGS.homeBanners && (activeTab === 'main-banners' || activeTab === 'banners') && (() => {
                   const mainBannersList = banners
                     .filter(b => b.bannerType === 'main' || b.slot === 'hero' || b.slot === 'main' || (!b.bannerType && (!b.slot || b.slot === 'hero' || b.slot === 'main' || b.id === 'ban-1' || b.id === 'ban-3')))
                     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
@@ -4374,7 +4451,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 })()}
 
                 {/* 7B. PROMOTION BANNER MANAGEMENT - INDEPENDENT SLOT A & SLOT B */}
-                {activeTab === 'promotion-banners' && (() => {
+                {FEATURE_FLAGS.homeBanners && activeTab === 'promotion-banners' && (() => {
                   const allPromoBanners = banners
                     .filter(b => b.bannerType === 'promotion' || (b.slot && b.slot !== 'hero' && b.slot !== 'main'))
                     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
@@ -5355,7 +5432,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 })()}
 
                 {/* 8. ARTICLES / BLOG (Section 17) */}
-                {activeTab === 'articles' && (
+                {FEATURE_FLAGS.articlesBlog && activeTab === 'articles' && (
                   <AdminArticlesTab
                     doors={doors}
                     settings={settings || undefined}
@@ -5495,11 +5572,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             type="text"
                             value={settings.whatsappNumber}
                             onChange={e => setSettings({ ...settings, whatsappNumber: e.target.value.replace(/[^0-9]/g, '') })}
-                            placeholder="e.g. 7887412884"
-                            className="w-full px-3 py-2 rounded bg-white border border-emerald-600/50 text-emerald-300 font-mono"
+                            placeholder="Optional internal contact number"
+                            className="w-full px-3 py-2 rounded bg-white border border-emerald-600/50 text-emerald-700 font-mono"
                           />
                           <span className="text-[10px] text-[#666666] mt-1 block">
-                            Official customer WhatsApp number (e.g. 7887412884). Customer WhatsApp actions route via +91 {settings.whatsappNumber}.
+                            Stored for internal admin reference only (hidden from public customer pages).
                           </span>
                         </div>
 
@@ -5507,7 +5584,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <div className="sm:col-span-2">
                           <label className="block font-semibold text-[#C89211] mb-1 flex items-center gap-1.5">
                             <MapPin className="w-4 h-4 text-[#C89211]" />
-                            Google Maps Location (URL)
+                            Location Reference URL (Internal Only)
                           </label>
                           <input
                             type="url"
@@ -5526,11 +5603,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 },
                               });
                             }}
-                            placeholder="https://maps.app.goo.gl/n2xV9vhz5tpVumc6A?g_st=ac"
-                            className="w-full px-3 py-2 rounded bg-white border border-amber-600/50 text-amber-200 font-mono text-xs sm:text-sm"
+                            placeholder="Optional internal reference URL"
+                            className="w-full px-3 py-2 rounded bg-white border border-amber-600/50 text-amber-800 font-mono text-xs sm:text-sm"
                           />
                           <span className="text-[10px] text-[#666666] mt-1 block">
-                            Direct Google Maps link opened by the "View Shop Location" buttons across Contact Us, About Us, and Footer.
+                            Stored for internal admin records only (not exposed on public customer screens).
                           </span>
                         </div>
 
@@ -5674,6 +5751,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
 
                     {/* Content Protection & Anti-Copy System Card */}
+                    {FEATURE_FLAGS.copyrightFooter && (
                     <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-xl space-y-6">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E5E5E5] pb-4">
                         <div className="flex items-center gap-3">
@@ -5701,7 +5779,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 contentProtection: {
                                   enableImageProtection: settings.contentProtection?.enableImageProtection ?? true,
                                   enableWatermark: settings.contentProtection?.enableWatermark ?? true,
-                                  watermarkText: settings.contentProtection?.watermarkText || 'Jai Hanuman Door',
+                                  watermarkText: settings.contentProtection?.watermarkText || 'WindowCut Pro',
                                   watermarkOpacity: settings.contentProtection?.watermarkOpacity ?? 0.22,
                                   watermarkPattern: settings.contentProtection?.watermarkPattern || 'diagonal',
                                   enableAndroidFlagSecure: settings.contentProtection?.enableAndroidFlagSecure ?? true,
@@ -5806,7 +5884,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </label>
                               <input
                                 type="text"
-                                value={settings.contentProtection?.watermarkText ?? 'Jai Hanuman Door'}
+                                value={settings.contentProtection?.watermarkText ?? 'WindowCut Pro'}
                                 onChange={(e) => {
                                   const current = settings.contentProtection || DEFAULT_CONTENT_PROTECTION;
                                   setSettings({
@@ -5814,7 +5892,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     contentProtection: { ...current, watermarkText: e.target.value },
                                   });
                                 }}
-                                placeholder="Jai Hanuman Door"
+                                placeholder="WindowCut Pro"
                                 maxLength={50}
                                 className="w-full px-3 py-1.5 rounded-lg bg-white border border-[#E5E5E5] text-[#1A1A1A] text-xs font-medium focus:border-[#C89211] outline-none"
                               />
@@ -5960,6 +6038,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </div>
                     </div>
+                    )}
                   </div>
                 )}
 
@@ -5974,7 +6053,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }
                 >
                   {/* Push Notifications Admin Tab */}
-                  {activeTab === 'notifications' && (
+                  {FEATURE_FLAGS.appMessages && activeTab === 'notifications' && (
                     <AdminNotificationsTab
                       doors={doors}
                       onShowToast={showToast}
@@ -5982,7 +6061,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   )}
 
                   {/* Team & Leadership Admin Tab */}
-                  {activeTab === 'team' && (
+                  {FEATURE_FLAGS.ourStoryAndTeam && activeTab === 'team' && (
                     <AdminTeamTab
                       teamMembers={teamMembers}
                       onReload={async () => {
@@ -5994,7 +6073,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   )}
 
                   {/* Brand & Company Story Admin Tab */}
-                  {activeTab === 'story' && (
+                  {FEATURE_FLAGS.ourStoryAndTeam && activeTab === 'story' && (
                     <AdminBrandStoryTab
                       settings={settings}
                       onDataUpdated={async () => {
@@ -6013,7 +6092,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   )}
 
                   {/* Legal & Info Pages Admin Tab */}
-                  {activeTab === 'legal' && (
+                  {FEATURE_FLAGS.copyrightFooter && activeTab === 'legal' && (
                     <AdminLegalTab
                       settings={settings}
                       onSaved={async () => {
@@ -6047,15 +6126,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   )}
 
                   {/* Order Tracking & Manufacturing Progress Admin Tab */}
-                  {activeTab === 'tracking' && (
+                  {FEATURE_FLAGS.orderTracking && activeTab === 'tracking' && (
                     <AdminOrderTrackingTab
                       quotes={quotes}
-                      officialWhatsApp={settings?.whatsappNumber || '7887412884'}
+                      officialWhatsApp={settings?.whatsappNumber || ''}
                     />
                   )}
 
                   {/* All India Delivery & Customer Stories Admin Tab */}
-                  {activeTab === 'delivery' && (
+                  {FEATURE_FLAGS.allIndiaDelivery && activeTab === 'delivery' && (
                     <AdminDeliveryTab
                       states={deliveryStates}
                       stories={deliveryStories}
@@ -6068,7 +6147,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   )}
 
                   {/* 3D & AR Design Management Tab */}
-                  {activeTab === 'visualizer' && (
+                  {FEATURE_FLAGS.visualizer3dAr && activeTab === 'visualizer' && (
                     <AdminVisualizerTab
                       doors={doors}
                       onDoorUpdated={async () => {
@@ -6095,6 +6174,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   {/* Owner Google Drive Central Media Storage Admin Tab */}
                   {activeTab === 'googledrive' && (
                     <AdminGoogleDriveTab />
+                  )}
+
+                  {/* Razorpay Payments & OTP Gateway Management Tab */}
+                  {activeTab === 'payments' && (
+                    <AdminPaymentsTab settings={settings} showToast={showToast} />
+                  )}
+
+                  {/* Indian Aluminium Window Systems, Profile Series & Formula Manager Tab */}
+                  {activeTab === 'window-systems' && (
+                    <AdminWindowSystemsTab
+                      onSystemsUpdated={() => onDataUpdated()}
+                      showToast={showToast}
+                    />
                   )}
                 </React.Suspense>
 

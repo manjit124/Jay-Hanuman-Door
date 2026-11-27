@@ -3,18 +3,14 @@ import {
   ArrowLeft,
   Shield,
   Lock,
-  Eye,
-  Server,
   FileText,
   UserCheck,
   CheckCircle2,
   Mail,
-  Phone,
-  MessageCircle,
   Building,
 } from 'lucide-react';
 import { BusinessSettings } from '../../types.ts';
-import { getWhatsAppUrl, formatWhatsAppDisplay } from '../../lib/contactUtils.ts';
+import { BRAND_NAME, resolveBrandName } from '../../config/brand.ts';
 
 interface PrivacyPolicyPageProps {
   settings: BusinessSettings;
@@ -27,312 +23,162 @@ export const PrivacyPolicyPage: React.FC<PrivacyPolicyPageProps> = ({
   onBack,
   onNavigateContact,
 }) => {
+  const brandName = resolveBrandName(settings.businessName);
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    document.title = 'Privacy Policy | Jai Hanuman Door';
+    document.title = `Privacy Policy | ${BRAND_NAME}`;
     const metaDesc = document.querySelector('meta[name="description"]');
     if (metaDesc) {
       metaDesc.setAttribute(
         'content',
-        `Privacy Policy for ${settings.businessName || 'Jai Hanuman Door'}. Learn how your personal data and quotation specifications are securely handled.`
+        `Privacy Policy for ${brandName}. Learn how your account details, saved sliding window projects, and measurement data are securely handled.`
       );
     }
-  }, [settings.businessName]);
+  }, [brandName]);
 
-  const lastUpdated = settings.legalSettings?.lastUpdated || 'September 2026';
-  const customPolicyText = settings.legalSettings?.privacyPolicy;
+  const lastUpdated = settings.legalSettings?.lastUpdated || 'November 2026';
 
   return (
-    <div id="privacy-policy-page" className="min-h-screen bg-white text-[#1A1A1A] py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
+    <div id="privacy-policy-page" className="min-h-screen bg-white text-[#0F172A] py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
-        
-        {/* Back navigation & breadcrumb */}
         <div className="flex items-center justify-between gap-4 mb-8">
           <button
             id="privacy-back-btn"
+            type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-[#E5E5E5] text-[#1A1A1A] hover:text-[#C89211] hover:border-[#C89211] transition-all text-xs font-semibold group shadow-sm"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-[#E2E8F0] text-[#0F172A] hover:text-[#0B5ED7] hover:border-[#0B5ED7] transition-all text-xs font-semibold group shadow-xs cursor-pointer"
           >
-            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform text-[#C89211]" />
-            <span>Back to Storefront</span>
+            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform text-[#0B5ED7]" />
+            <span>Back to Home</span>
           </button>
 
-          <span className="text-[11px] font-mono text-[#C89211] bg-[#FFF7E3] px-3 py-1 rounded-full border border-[#C89211]/30">
+          <span className="text-[11px] font-mono font-semibold text-[#0B5ED7] bg-[#EFF6FF] px-3 py-1 rounded-full border border-[#BFDBFE]">
             Last Updated: {lastUpdated}
           </span>
         </div>
 
         {/* Hero Header */}
-        <div className="rounded-3xl bg-[#F8F8F6] border border-[#E5E5E5] p-6 sm:p-10 shadow-sm relative overflow-hidden mb-10">
-          <div className="absolute top-0 right-0 -mt-10 -mr-10 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
-          
-          <div className="flex items-center gap-2.5 text-[#C89211] text-xs font-bold tracking-widest uppercase mb-3">
+        <div className="rounded-3xl bg-[#F8FAFC] border border-[#E2E8F0] p-6 sm:p-10 shadow-xs mb-10">
+          <div className="flex items-center gap-2 text-[#0B5ED7] text-xs font-bold tracking-wider uppercase mb-3">
             <Shield className="w-4 h-4" />
-            <span>Legal & Data Protection</span>
+            <span>Legal &amp; Data Protection</span>
           </div>
 
-          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#1A1A1A] tracking-tight leading-tight">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-[#0A2540] tracking-tight leading-tight">
             Privacy Policy
           </h1>
 
-          <p className="text-[#666666] text-sm sm:text-base mt-4 leading-relaxed max-w-2xl">
-            This Privacy Policy outlines how{' '}
-            <strong>{settings.businessName || 'Jai Hanuman Door'}</strong> collects, uses, protects, and handles your personal information, design preferences, and quotation details across our application.
+          <p className="text-[#475569] text-sm sm:text-base mt-4 leading-relaxed max-w-2xl">
+            This Privacy Policy explains how <strong>{brandName}</strong> collects, uses, protects, and manages your mobile login details, saved fabrication profiles, cutting sheets, and support inquiries.
           </p>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-8 pt-6 border-t border-[#E5E5E5] text-xs">
-            <div className="flex items-center gap-2 text-[#1A1A1A]">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-7 pt-6 border-t border-[#E2E8F0] text-xs">
+            <div className="flex items-center gap-2 text-[#0A2540] font-medium">
               <CheckCircle2 className="w-4 h-4 text-[#16803A] shrink-0" />
               <span>No Third-Party Sale</span>
             </div>
-            <div className="flex items-center gap-2 text-[#1A1A1A]">
-              <Lock className="w-4 h-4 text-[#C89211] shrink-0" />
-              <span>Salted Hashed Auth</span>
+            <div className="flex items-center gap-2 text-[#0A2540] font-medium">
+              <Lock className="w-4 h-4 text-[#0B5ED7] shrink-0" />
+              <span>Hashed OTP Auth</span>
             </div>
-            <div className="flex items-center gap-2 text-[#1A1A1A]">
-              <FileText className="w-4 h-4 text-[#C89211] shrink-0" />
-              <span>Direct Factory Estimates</span>
+            <div className="flex items-center gap-2 text-[#0A2540] font-medium">
+              <FileText className="w-4 h-4 text-[#F97316] shrink-0" />
+              <span>Private Cutting Sheets</span>
             </div>
-            <div className="flex items-center gap-2 text-[#1A1A1A]">
+            <div className="flex items-center gap-2 text-[#0A2540] font-medium">
               <UserCheck className="w-4 h-4 text-[#16803A] shrink-0" />
               <span>Full User Control</span>
             </div>
           </div>
         </div>
 
-        {/* Admin Customized Policy Notice (if configured) */}
-        {customPolicyText && (
-          <div className="mb-10 p-6 rounded-2xl bg-[#FFF7E3] border border-[#C89211]/30 text-[#1A1A1A]">
-            <div className="flex items-center gap-2 text-[#C89211] font-bold text-xs uppercase tracking-wider mb-2">
-              <FileText className="w-4 h-4" />
-              <span>Notice from Factory Management</span>
-            </div>
-            <p className="text-sm leading-relaxed whitespace-pre-line text-[#1A1A1A]">
-              {customPolicyText}
-            </p>
-          </div>
-        )}
-
-        {/* Core Policy Content Sections */}
-        <div className="space-y-8 text-[#666666] text-sm leading-relaxed">
-          
-          {/* Section 1: Introduction */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h2 className="font-serif text-xl font-bold text-[#1A1A1A] flex items-center gap-2.5 mb-3 text-[#C89211]">
-              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] text-xs flex items-center justify-center font-mono">01</span>
-              Introduction & Identity
+        <div className="space-y-6 text-[#475569] text-sm leading-relaxed">
+          <section className="bg-white border border-[#E2E8F0] rounded-2xl p-6 sm:p-8 shadow-xs">
+            <h2 className="text-lg font-extrabold text-[#0A2540] flex items-center gap-2.5 mb-3">
+              <span className="w-7 h-7 rounded-lg bg-[#EFF6FF] text-[#0B5ED7] text-xs flex items-center justify-center font-mono font-bold">01</span>
+              <span>Introduction &amp; Scope</span>
             </h2>
             <p>
-              Jai Hanuman Door is a dedicated woodworking and door manufacturing enterprise created for customers, builders, architects, and homeowners seeking high-quality solid wood doors. The physical manufacturing, timber seasoning, and fulfillment operations are conducted by <strong>{settings.businessName || 'Jai Hanuman Door'}</strong> ({settings.address || 'Pune, Maharashtra, India'}).
-            </p>
-            <p className="mt-3">
-              By accessing Jai Hanuman Door, using our door price estimation calculator, or submitting customer contact inquiries, you acknowledge and agree to the data practices described in this policy.
+              <strong>{brandName}</strong> provides sliding window fabrication calculators, custom profile deduction management, bulk window cutting lists, AI photo measurement scanning, and workshop estimation tools. By signing in or using {brandName}, you agree to the practices described in this Privacy Policy.
             </p>
           </section>
 
-          {/* Section 2: Information We Collect */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h2 className="font-serif text-xl font-bold text-[#1A1A1A] flex items-center gap-2.5 mb-3 text-[#C89211]">
-              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] text-xs flex items-center justify-center font-mono">02</span>
-              Information We Collect
+          <section className="bg-white border border-[#E2E8F0] rounded-2xl p-6 sm:p-8 shadow-xs">
+            <h2 className="text-lg font-extrabold text-[#0A2540] flex items-center gap-2.5 mb-3">
+              <span className="w-7 h-7 rounded-lg bg-[#EFF6FF] text-[#0B5ED7] text-xs flex items-center justify-center font-mono font-bold">02</span>
+              <span>Information We Collect</span>
             </h2>
-            <p>
-              We collect only the minimum necessary information required to compute accurate door estimates, respond to custom woodworking inquiries, and manage customer quotes:
-            </p>
-            <ul className="mt-4 space-y-3 pl-2">
+            <ul className="space-y-2.5 pl-1">
               <li className="flex items-start gap-2.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#C89211] mt-2 shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0B5ED7] mt-2 shrink-0" />
                 <span>
-                  <strong>Customer Contact Details:</strong> When you request a quote or submit an enquiry via our Contact form, we collect your name, mobile phone number, optional email address, and city or site location.
+                  <strong>Account &amp; OTP Verification:</strong> Your 10-digit mobile number and optional name/email used to verify login via SMS OTP and keep your saved fabrication projects and subscription status synced.
                 </span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#C89211] mt-2 shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0B5ED7] mt-2 shrink-0" />
                 <span>
-                  <strong>Quotation & Calculation Specifications:</strong> Selected door models, width and height dimensions in inches, timber material species (e.g. Seasoned Sagwan, CP Teak, Pine Wood), frame (chaukhat) selections, polish finish grades, and hardware options.
+                  <strong>Fabrication Profiles &amp; Projects:</strong> Window dimensions, track configurations, glass deductions, and saved project sheets that you choose to store in your workspace.
                 </span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#C89211] mt-2 shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0B5ED7] mt-2 shrink-0" />
                 <span>
-                  <strong>Account Credentials:</strong> If you register a customer profile, we store your name, phone, city, and a cryptographically salted password hash.
+                  <strong>Uploaded Measurement Photos:</strong> Photos uploaded to the Photo Measurement Scanner or AI Wood Detector are processed strictly to extract measurements or visual estimates for your session.
                 </span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#C89211] mt-2 shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0B5ED7] mt-2 shrink-0" />
                 <span>
-                  <strong>App Preferences & Interaction Data:</strong> Favorite door IDs, saved calculations, and article reading bookmarks stored locally on your device.
+                  <strong>Payments &amp; Subscriptions:</strong> Google Play subscription purchase tokens and Razorpay payment transaction references used strictly to verify your entitlement and issue receipts.
                 </span>
               </li>
             </ul>
           </section>
 
-          {/* Section 3: Customer Inquiries & Quotation Privacy */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h2 className="font-serif text-xl font-bold text-[#1A1A1A] flex items-center gap-2.5 mb-3 text-[#C89211]">
-              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] text-xs flex items-center justify-center font-mono">03</span>
-              Customer Inquiries & Quotation Privacy
+          <section className="bg-white border border-[#E2E8F0] rounded-2xl p-6 sm:p-8 shadow-xs">
+            <h2 className="text-lg font-extrabold text-[#0A2540] flex items-center gap-2.5 mb-3">
+              <span className="w-7 h-7 rounded-lg bg-[#EFF6FF] text-[#0B5ED7] text-xs flex items-center justify-center font-mono font-bold">03</span>
+              <span>Data Security &amp; Your Rights</span>
             </h2>
-            <div className="p-4 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 mb-4 flex items-start gap-3">
-              <FileText className="w-5 h-5 text-[#C89211] shrink-0 mt-0.5" />
-              <div className="text-xs text-[#1A1A1A] space-y-1">
-                <p className="font-semibold text-[#C89211]">Your Quotation Data Is Strictly Confidential</p>
-                <p className="leading-relaxed">
-                  All door measurements, timber grade selections, pricing estimates, and contact records are handled with complete confidentiality and stored securely.
-                </p>
-              </div>
-            </div>
             <p>
-              We do not sell, rent, or trade your contact numbers or quotation requests to third-party marketing brokers. Your information is accessed exclusively by our direct workshop carpentry estimators.
+              We protect your account with HTTPS/TLS transport encryption, cryptographically hashed OTP codes with expiry and attempt limits, and strict access controls. We never sell or rent your phone number or project data to third-party brokers. You may request export or deletion of your account data at any time.
             </p>
           </section>
 
-          {/* Section 4: How We Use Your Information */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h2 className="font-serif text-xl font-bold text-[#1A1A1A] flex items-center gap-2.5 mb-3 text-[#C89211]">
-              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] text-xs flex items-center justify-center font-mono">04</span>
-              How We Use Your Information
+          <section className="bg-white border border-[#E2E8F0] rounded-2xl p-6 sm:p-8 shadow-xs">
+            <h2 className="text-lg font-extrabold text-[#0A2540] flex items-center gap-2.5 mb-3">
+              <span className="w-7 h-7 rounded-lg bg-[#EFF6FF] text-[#0B5ED7] text-xs flex items-center justify-center font-mono font-bold">04</span>
+              <span>Privacy Contact</span>
             </h2>
-            <ul className="space-y-2.5">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#16803A] shrink-0 mt-1" />
-                <span>To generate transparent itemized price estimates and formal PDF quotation sheets.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#16803A] shrink-0 mt-1" />
-                <span>To coordinate site measurement appointments and dispatch logistics directly from our workshop.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#16803A] shrink-0 mt-1" />
-                <span>To communicate order updates, wood seasoning status, and delivery schedules via phone or WhatsApp.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#16803A] shrink-0 mt-1" />
-                <span>To deliver optional push notification updates regarding new seasonal door designs (when opted in).</span>
-              </li>
-            </ul>
-          </section>
-
-          {/* Section 5: Data Security */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h2 className="font-serif text-xl font-bold text-[#1A1A1A] flex items-center gap-2.5 mb-3 text-[#C89211]">
-              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] text-xs flex items-center justify-center font-mono">05</span>
-              Data Security & Protection Measures
-            </h2>
-            <p>
-              We implement industry-standard technical safeguards to protect your personal information:
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 text-xs">
-              <div className="p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
-                <span className="font-bold text-[#C89211] block mb-1">Encrypted In Transit</span>
-                All network communication utilizes HTTPS / TLS encryption to protect against data interception.
-              </div>
-              <div className="p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
-                <span className="font-bold text-[#C89211] block mb-1">Salted Hashed Passwords</span>
-                User passwords are never stored in plaintext. They are hashed using individual cryptographic salts.
-              </div>
-              <div className="p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
-                <span className="font-bold text-[#C89211] block mb-1">Anti-Spam & Rate Limits</span>
-                Enquiry endpoints feature strict rate limiting and deduplication guards against malicious abuse.
-              </div>
-              <div className="p-3.5 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
-                <span className="font-bold text-[#C89211] block mb-1">Role-Based Admin Protection</span>
-                Administrative endpoints require secure bearer token authentication.
-              </div>
-            </div>
-          </section>
-
-          {/* Section 6: Third-Party Services */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h2 className="font-serif text-xl font-bold text-[#1A1A1A] flex items-center gap-2.5 mb-3 text-[#C89211]">
-              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] text-xs flex items-center justify-center font-mono">06</span>
-              Third-Party Services & Integrations
-            </h2>
-            <p>
-              We do not sell, rent, or trade customer information. We interface only with trusted technology infrastructure:
-            </p>
-            <ul className="mt-3 space-y-2">
-              <li>
-                <strong>WhatsApp Messaging:</strong> When you initiate a WhatsApp chat or send an inquiry, your chat interaction is governed by WhatsApp / Meta's privacy policies.
-              </li>
-              <li>
-                <strong>AI Vision API:</strong> Entrance opening detection is processed securely via Google Gemini Vision API to detect structural geometry coordinates.
-              </li>
-            </ul>
-          </section>
-
-          {/* Section 7: User Rights & Data Retention */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h2 className="font-serif text-xl font-bold text-[#1A1A1A] flex items-center gap-2.5 mb-3 text-[#C89211]">
-              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] text-xs flex items-center justify-center font-mono">07</span>
-              Your Privacy Rights & Choices
-            </h2>
-            <p>
-              As a customer, you have complete control over your data:
-            </p>
-            <ul className="mt-3 space-y-2 pl-4 list-disc">
-              <li>You may request a copy of the quotations and enquiries registered under your phone number.</li>
-              <li>You can clear local favorites and calculation history at any time from your browser settings or user profile.</li>
-              <li>You may opt out of push notifications at any time via your browser notification permissions.</li>
-              <li>You can request the permanent deletion of your account and customer inquiry records by emailing us.</li>
-            </ul>
-          </section>
-
-          {/* Section 8: Grievance Officer & Contact */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h2 className="font-serif text-xl font-bold text-[#1A1A1A] flex items-center gap-2.5 mb-3 text-[#C89211]">
-              <span className="w-7 h-7 rounded-lg bg-[#FFF7E3] text-[#C89211] text-xs flex items-center justify-center font-mono">08</span>
-              Privacy Grievances & Factory Contact
-            </h2>
-            <p>
-              If you have any questions, clarifications, or requests regarding this Privacy Policy, please contact our workshop:
-            </p>
-            
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
-                <Building className="w-4 h-4 text-[#C89211] shrink-0" />
-                <span>{settings.businessName || 'Jai Hanuman Door'}</span>
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+                <Building className="w-4 h-4 text-[#0B5ED7] shrink-0" />
+                <span className="font-semibold text-[#0A2540]">{brandName}</span>
               </div>
-              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
-                <Mail className="w-4 h-4 text-[#C89211] shrink-0" />
-                <a href={`mailto:${settings.email}`} className="text-[#C89211] hover:underline">
-                  {settings.email || 'shivshahidoors@gmail.com'}
-                </a>
-              </div>
-              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5]">
-                <Phone className="w-4 h-4 text-[#C89211] shrink-0" />
-                <a href={`tel:${settings.phone}`} className="text-[#1A1A1A] font-mono hover:underline">
-                  {settings.phone || '+91 78874 12884'}
-                </a>
-              </div>
-              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
-                <MessageCircle className="w-4 h-4 text-[#16803A] shrink-0" />
-                <a
-                  href={getWhatsAppUrl(settings.whatsappNumber, `Hello ${settings.businessName || 'Jai Hanuman Door'}, I have a question regarding privacy.`)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#16803A] font-mono hover:underline"
-                >
-                  {formatWhatsAppDisplay(settings.whatsappNumber)}
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+                <Mail className="w-4 h-4 text-[#0B5ED7] shrink-0" />
+                <a href={`mailto:${settings.email || 'support@windowcutpro.com'}`} className="text-[#0B5ED7] hover:underline">
+                  {settings.email || 'support@windowcutpro.com'}
                 </a>
               </div>
             </div>
 
             {onNavigateContact && (
-              <div className="mt-6 pt-6 border-t border-[#E5E5E5] flex justify-end">
+              <div className="mt-6 pt-5 border-t border-[#E2E8F0] flex justify-end">
                 <button
+                  type="button"
                   onClick={onNavigateContact}
-                  className="px-5 py-2.5 rounded-xl bg-[#C89211] hover:bg-amber-600 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-xl bg-[#0B5ED7] hover:bg-[#084BB3] text-white font-bold text-xs shadow-xs transition-colors flex items-center gap-2 cursor-pointer"
                 >
                   <Mail className="w-3.5 h-3.5" />
-                  Visit Contact Page
+                  <span>Visit Contact Page</span>
                 </button>
               </div>
             )}
           </section>
-
         </div>
-
       </div>
     </div>
   );

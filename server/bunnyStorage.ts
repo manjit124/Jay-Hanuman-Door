@@ -33,6 +33,7 @@ export const BUNNY_MEDIA_FOLDERS = [
   'notifications',
   'tracking',
   'chaukhat',
+  'notebook-scans',
   'general',
 ] as const;
 
@@ -61,6 +62,7 @@ export interface BunnyValidationResult {
 
 export interface BunnyUploadResult {
   success: boolean;
+  bunnyVerified?: boolean;
   objectPath: string;
   folder: BunnyMediaFolder;
   filename: string;
@@ -95,10 +97,16 @@ export const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 MB
 export const MAX_VIDEO_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
 export const MAX_MODEL_UPLOAD_BYTES = 60 * 1024 * 1024; // 60 MB
 
+export const DEFAULT_BUNNY_STORAGE_ZONE = 'jai-hanuman-door-media';
+export const DEFAULT_BUNNY_STORAGE_ENDPOINT = 'https://sg.storage.bunnycdn.com/jai-hanuman-door-media';
+
 function getEnvVars() {
-  const zone = String(process.env.BUNNY_STORAGE_ZONE || '').trim();
+  const rawZone = String(process.env.BUNNY_STORAGE_ZONE || '').trim();
+  const zone = rawZone || DEFAULT_BUNNY_STORAGE_ZONE;
   const password = String(process.env.BUNNY_STORAGE_PASSWORD || '').trim();
-  let endpointRaw = String(process.env.BUNNY_STORAGE_ENDPOINT || '').trim().replace(/\/+$/, '');
+  let endpointRaw = String(process.env.BUNNY_STORAGE_ENDPOINT || DEFAULT_BUNNY_STORAGE_ENDPOINT)
+    .trim()
+    .replace(/\/+$/, '');
   const cdnUrl = String(process.env.BUNNY_CDN_URL || process.env.BUNNY_PULL_ZONE_URL || '')
     .trim()
     .replace(/\/+$/, '');
@@ -145,7 +153,7 @@ export function getBunnyConfigSummary(): BunnyConfigSummary {
   } catch {}
 
   return {
-    configured: missingVars.length === 0,
+    configured: Boolean(zone && password && endpoint),
     zone,
     region: inferBunnyRegion(endpoint),
     endpointConfigured: Boolean(endpoint),
@@ -573,6 +581,10 @@ export async function uploadToBunnyStorage(
   const timeoutMs = validation.kind === 'video' ? 180000 : 60000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  console.log(
+    `📤 [Bunny Storage] Uploading "${objectPath}" (${buffer.length} bytes, ${validation.mimeType}) -> zone="${zone}" (${summary.region})`
+  );
+
   try {
     const response = await fetch(targetUrl, {
       method: 'PUT',
@@ -592,6 +604,9 @@ export async function uploadToBunnyStorage(
         errText = (await response.text()).slice(0, 300);
       } catch {}
       const isAuth = response.status === 401 || response.status === 403;
+      console.error(
+        `❌ [Bunny Storage] PUT failed for "${objectPath}" (HTTP ${response.status})${errText ? `: ${errText}` : ''}`
+      );
       return {
         success: false,
         objectPath,
@@ -611,13 +626,38 @@ export async function uploadToBunnyStorage(
       };
     }
 
+    // Verify that Bunny Storage actually persisted the file before reporting success
+    const verifyRes = await fetchFromBunnyStorage(objectPath, 'bytes=0-0');
+    if (!verifyRes.ok || !verifyRes.buffer || verifyRes.buffer.length === 0) {
+      console.error(
+        `❌ [Bunny Storage] Post-upload verification failed for "${objectPath}" (HTTP ${verifyRes.status})`
+      );
+      return {
+        success: false,
+        bunnyVerified: false,
+        objectPath,
+        folder,
+        filename: uniqueFilename,
+        mimeType: validation.mimeType,
+        size: buffer.length,
+        url: '',
+        proxyUrl: '',
+        storageZone: zone,
+        region: summary.region,
+        statusCode: 502,
+        errorCode: 'BUNNY_VERIFY_FAILED',
+        error: `Bunny Storage PUT returned ${response.status}, but post-upload verification read failed (HTTP ${verifyRes.status}). File was not confirmed in Bunny Storage.`,
+      };
+    }
+
     const urls = buildBunnyPublicUrls(objectPath);
     console.log(
-      `✅ [Bunny Storage] Uploaded ${objectPath} (${(buffer.length / 1024).toFixed(1)} KB, ${validation.mimeType}) to zone "${zone}"`
+      `✅ [Bunny Storage] Uploaded & verified ${objectPath} (${(buffer.length / 1024).toFixed(1)} KB, ${validation.mimeType}) in zone "${zone}" -> ${urls.url}`
     );
 
     return {
       success: true,
+      bunnyVerified: true,
       objectPath,
       folder,
       filename: uniqueFilename,
@@ -632,6 +672,9 @@ export async function uploadToBunnyStorage(
   } catch (err: any) {
     clearTimeout(timeoutId);
     const isTimeout = err?.name === 'AbortError';
+    console.error(
+      `❌ [Bunny Storage] Network error uploading "${objectPath}": ${err?.message || 'Unknown error'}`
+    );
     return {
       success: false,
       objectPath,

@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.doorstudio.ai',
-  appName: 'Jai Hanuman Door',
+  appName: 'WindowCut Pro',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
@@ -19,9 +19,9 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 2200,
+      launchShowDuration: 1800,
       launchAutoHide: true,
-      backgroundColor: '#0c0a09',
+      backgroundColor: '#FFFFFF',
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
@@ -30,7 +30,7 @@ const config: CapacitorConfig = {
     },
     StatusBar: {
       style: 'DARK',
-      backgroundColor: '#0c0a09',
+      backgroundColor: '#0A2540',
       overlaysWebView: false,
     },
   },

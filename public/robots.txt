@@ -1,4 +1,4 @@
-# Robots.txt for Jai Hanuman Door
+# Robots.txt for WindowCut Pro
 # Canonical Production: https://jaihanumandoor.com
 
 User-agent: *

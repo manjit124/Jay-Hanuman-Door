@@ -31,12 +31,12 @@ export const DisclaimerPage: React.FC<DisclaimerPageProps> = ({
 }) => {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    document.title = 'Disclaimer | Jai Hanuman Door';
+    document.title = 'Disclaimer | WindowCut Pro';
     const metaDesc = document.querySelector('meta[name="description"]');
     if (metaDesc) {
       metaDesc.setAttribute(
         'content',
-        `Disclaimer and estimation terms for ${settings.businessName || 'Jai Hanuman Door'}. Information regarding price calculations, dimension measurements, timber variations, and quotation validity.`
+        `Disclaimer and estimation terms for ${settings.businessName || 'WindowCut Pro'}. Information regarding sliding window fabrication calculations, dimension measurements, and quotation validity.`
       );
     }
   }, [settings.businessName]);
@@ -129,7 +129,7 @@ export const DisclaimerPage: React.FC<DisclaimerPageProps> = ({
               1. Price Calculations & Formal Quotations
             </h2>
             <p className="leading-relaxed">
-              All price calculations generated through the Jai Hanuman Door Price Calculator are estimates provided for planning and budgeting convenience. The calculation is derived mathematically based on standard dimensions entered, standard 35mm thickness, standard frame jamb sizing (e.g. 4&quot;x2.5&quot; or 5&quot;x2.5&quot;), selected timber material rate per square foot, and polish grades.
+              All cutting measurements and cost estimates generated through WindowCut Pro are provided for fabrication planning and budgeting convenience. Results are mathematically derived from your entered opening dimensions, profile deductions, glass clearances, and configured material rates.
             </p>
             <p className="mt-3 leading-relaxed">
               Final confirmed pricing may vary based on:
@@ -183,7 +183,7 @@ export const DisclaimerPage: React.FC<DisclaimerPageProps> = ({
               4. Educational Articles & Technical Timber Guides
             </h2>
             <p>
-              All articles, wood seasoning guides, joinery comparisons, and dimensioning tips published in Jai Hanuman Door are for educational and informational purposes only. Customers and builders must consult their local licensed contractors, structural civil engineers, or master carpenters for site-specific lintel loads, wall anchor specifications, and local building code compliance.
+              All guides, fabrication formulas, cutting tables, and dimensioning tips published in WindowCut Pro are for informational and workshop reference purposes only. Fabricators and builders must verify site-specific structural conditions, profile tolerances, and local building standards before final cutting.
             </p>
           </section>
 
@@ -197,7 +197,7 @@ export const DisclaimerPage: React.FC<DisclaimerPageProps> = ({
               Unless explicitly specified in a formal written contract:
             </p>
             <ul className="mt-2 space-y-2 pl-4 list-disc text-[#666666] text-xs sm:text-sm">
-              <li>Freight and transportation charges from our factory workshop ({settings.address || 'Pune'}) are charged extra at actual vehicular logistics rates based on site distance.</li>
+              <li>Freight and transportation charges are charged extra at actual vehicular logistics rates based on site distance.</li>
               <li>Unloading, crane hoisting for high-rise apartments, and manual carrying upstairs are the customer’s site responsibility.</li>
               <li>Jamb civil masonry work, plaster touching, tile skirting cuts, and on-site hinge mortising are excluded from raw door shutter supply unless a turnkey fitting package is agreed upon.</li>
             </ul>
@@ -210,7 +210,7 @@ export const DisclaimerPage: React.FC<DisclaimerPageProps> = ({
               6. Quotation Validity & Timber Market Commodity Rates
             </h2>
             <p>
-              Forest timber auction prices fluctuate based on seasonal harvesting, government forestry regulations, and market demand. Quotation estimates generated through Jai Hanuman Door are valid for <strong>30 calendar days</strong> from the date of generation. Orders confirmed after this period may be subject to prevailing timber lumber rates.
+              Raw aluminium, glass, and material market prices fluctuate based on supplier rates and regional availability. Quotation estimates generated through WindowCut Pro are valid for <strong>30 calendar days</strong> from the date of generation. Orders confirmed after this period may be subject to prevailing material rates.
             </p>
           </section>
 

@@ -119,10 +119,10 @@ export const ForegroundNotificationBanner: React.FC<ForegroundNotificationBanner
 
         {/* Action Button */}
         <div className="mt-3 pt-2.5 border-t border-[#E5E5E5] flex items-center justify-between">
-          <span className="text-[10px] text-[#666666] font-medium">Jai Hanuman Door</span>
+          <span className="text-[10px] text-[#475569] font-semibold">WindowCut Pro</span>
           <button
             onClick={handleActionClick}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#C89211] hover:bg-amber-600 text-white font-bold text-xs shadow-sm transition-all active:scale-95"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0B5ED7] hover:bg-[#084BB3] text-white font-bold text-xs shadow-sm transition-all active:scale-95"
           >
             <span>View Details</span>
             <ArrowRight className="w-3.5 h-3.5" />

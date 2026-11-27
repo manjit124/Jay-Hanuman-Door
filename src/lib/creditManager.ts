@@ -159,6 +159,21 @@ export function addPurchasedCredits(creditsToAdd: number, _transactionId?: strin
 }
 
 /**
+ * Syncs the authoritative server-verified credit balance after OTP login or verified Razorpay payment.
+ */
+export function syncServerCredits(verifiedCredits: number): number {
+  if (typeof window === 'undefined') return Math.max(0, Math.floor(verifiedCredits || 0));
+  const safeVal = Math.max(0, Math.floor(Number(verifiedCredits) || 0));
+  try {
+    localStorage.setItem(CREDITS_STORAGE_KEY, String(safeVal));
+    window.dispatchEvent(new CustomEvent('jai_credits_updated', { detail: { credits: safeVal } }));
+    return safeVal;
+  } catch {
+    return safeVal;
+  }
+}
+
+/**
  * Subscribe to credit balance changes
  */
 export function subscribeCreditsChange(callback: (credits: number) => void): () => void {

@@ -3,21 +3,26 @@
 @layer base {
   :root {
     --bg-main: #FFFFFF;
-    --bg-section: #F8F8F6;
+    --bg-section: #F8FAFC;
     --bg-card: #FFFFFF;
-    --bg-input: #F7F7F7;
-    --text-primary: #1A1A1A;
-    --text-secondary: #666666;
-    --border-color: #E5E5E5;
-    --gold-accent: #C89211;
-    --gold-light: #FFF7E3;
-    --success-green: #16803A;
-    --error-red: #C62828;
+    --bg-input: #F1F5F9;
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
+    --border-color: #E2E8F0;
+    --brand-blue: #0B5ED7;
+    --brand-blue-dark: #0A2540;
+    --brand-blue-light: #EFF6FF;
+    --brand-orange: #F97316;
+    --brand-orange-light: #FFF7ED;
+    --gold-accent: #0B5ED7;
+    --gold-light: #EFF6FF;
+    --success-green: #16A34A;
+    --error-red: #DC2626;
   }
 
   body {
     background-color: #FFFFFF;
-    color: #1A1A1A;
+    color: #0F172A;
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   }
 }
@@ -29,5 +34,25 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+}
+
+@media print {
+  body.jhd-printing-drawing * {
+    visibility: hidden !important;
+  }
+  body.jhd-printing-drawing #jhd-print-drawing-portal,
+  body.jhd-printing-drawing #jhd-print-drawing-portal * {
+    visibility: visible !important;
+  }
+  body.jhd-printing-drawing #jhd-print-drawing-portal {
+    position: fixed !important;
+    inset: 0 !important;
+    background: #FFFFFF !important;
+    z-index: 99999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 8mm !important;
   }
 }

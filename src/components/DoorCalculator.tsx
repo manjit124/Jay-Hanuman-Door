@@ -28,6 +28,7 @@ import {
   Check,
   Layers,
   ChevronLeft,
+  Lock,
 } from 'lucide-react';
 import {
   DoorMaterial,
@@ -41,8 +42,10 @@ import {
   UserProfile,
   UserCalculationRecord,
   ChaukhatCalculationResult,
+  CustomerAccount,
 } from '../types.ts';
 import {
+  calculatePrice,
   saveUserCalculation,
   DEFAULT_MATERIALS,
   DEFAULT_FINISHES,
@@ -50,9 +53,9 @@ import {
   DEFAULT_HARDWARE,
   resolveImageUrl,
 } from '../lib/api.ts';
-import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 import { adMobService } from '../lib/admob/admobService.ts';
 import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
+import { FEATURE_FLAGS } from '../config/featureFlags.ts';
 
 interface DoorCalculatorProps {
   doors?: Door[];
@@ -67,6 +70,8 @@ interface DoorCalculatorProps {
   onOpenQuotationModal: (calcResult: CalculationResult, selectedDoor?: Door | null) => void;
   onOpenVisualizer?: (door?: Door | null) => void;
   currentUser?: UserProfile | null;
+  currentCustomer?: CustomerAccount | null;
+  onRequireCalculationLogin?: (resumeAction: () => void | Promise<void>) => void;
   onOpenAuth?: (contextMsg?: string) => void;
   onOpenProfileHistory?: () => void;
   initialCalculationRecord?: UserCalculationRecord | null;
@@ -88,6 +93,8 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
   onOpenQuotationModal,
   onOpenVisualizer,
   currentUser,
+  currentCustomer,
+  onRequireCalculationLogin,
   onOpenAuth,
   onOpenProfileHistory,
   initialCalculationRecord,
@@ -97,6 +104,7 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
 }) => {
   // 1. Live Active Catalogue Doors (single source of truth from Catalogue / Admin)
   const activeDoors = useMemo(() => {
+    if (!FEATURE_FLAGS.doorCatalogue) return [];
     const list = Array.isArray(propDoors) && propDoors.length > 0 ? propDoors : [];
     return list.filter(d => d.active !== false);
   }, [propDoors]);
@@ -124,6 +132,7 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
 
   // Selected Door State
   const [selectedDoor, setSelectedDoor] = useState<Door | null>(() => {
+    if (!FEATURE_FLAGS.doorCatalogue) return null;
     if (preselectedDoor) return preselectedDoor;
     if (activeDoors.length > 0) return activeDoors[0];
     return null;
@@ -131,6 +140,10 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
 
   // Keep in sync with preselectedDoor from outside (e.g. Catalogue "Calculate Price" button)
   useEffect(() => {
+    if (!FEATURE_FLAGS.doorCatalogue) {
+      setSelectedDoor(null);
+      return;
+    }
     if (preselectedDoor) {
       setSelectedDoor(preselectedDoor);
     } else if (!selectedDoor && activeDoors.length > 0) {
@@ -401,191 +414,209 @@ export const DoorCalculator: React.FC<DoorCalculatorProps> = ({
     }
   }, [initialCalculationRecord, materials, finishes, frames, hardware, activeDoors]);
 
-  // Calculation Math (Section 4 & 5: Product-Specific Pricing Logic)
-  const calculation: CalculationResult = useMemo(() => {
-    const isValidDim = isWidthValid && isHeightValid;
-    const w = isValidDim ? widthInch : 0;
-    const h = isValidDim ? heightInch : 0;
-    const rawSqFt = isValidDim ? (w * h) / 144 : 0;
-    const sqFt = Math.round(rawSqFt * 100) / 100;
+  // Entered surface area (pure geometric conversion from user's input dimensions; no price leakage)
+  const enteredSqFt = useMemo(() => {
+    if (!isWidthValid || !isHeightValid) return 0;
+    return Math.round(((widthInch * heightInch) / 144) * 100) / 100;
+  }, [isWidthValid, isHeightValid, widthInch, heightInch]);
 
-    // 1. Pricing Model: Determine whether catalogue door is all-inclusive base price or craftsmanship-only
-    const isCraftsmanshipOnly = selectedDoor ? (selectedDoor.craftsmanshipOnly === true) : false;
-    const isAllInclusive = selectedDoor ? !isCraftsmanshipOnly : false;
+  const selectedMaterialObj = useMemo(
+    () => materials.find(m => m.id === selectedMaterialId) || materials[0] || DEFAULT_MATERIALS[0],
+    [materials, selectedMaterialId]
+  );
+  const selectedFinishObj = useMemo(
+    () => finishes.find(f => f.id === selectedFinishId) || finishes[0] || DEFAULT_FINISHES[1],
+    [finishes, selectedFinishId]
+  );
+  const selectedHardwareObj = useMemo(() => {
+    if (selectedHardwareId === 'none' || selectedHardwareId === 'hwd-0') return null;
+    return hardware.find(h => h.id === selectedHardwareId) || null;
+  }, [hardware, selectedHardwareId]);
 
-    const doorPricingType = selectedDoor?.pricingType || 'sqft';
-    let doorBaseRate = 800; // Standard craftsmanship rate for custom doors
-    let hasMissingPrice = false;
-    let missingPriceMessage: string | undefined = undefined;
-
-    if (selectedDoor?.basePrice !== undefined && selectedDoor.basePrice > 0) {
-      doorBaseRate = selectedDoor.basePrice;
-    } else if (selectedDoor?.startingPrice && selectedDoor.startingPrice > 0) {
-      // Backward-compatible calculation for legacy doors without explicit basePrice
-      doorBaseRate = Math.round(selectedDoor.startingPrice / 19.5);
-    } else if (selectedDoor) {
-      // Door selected but no price configured
-      doorBaseRate = 0;
-      hasMissingPrice = true;
-      missingPriceMessage = `Price for "${selectedDoor.name}" is pending workshop configuration. Click 'Get Official Quotation' or enquire on WhatsApp for custom pricing.`;
+  // Dimension advisory (pure input validation; no price calculation)
+  const dimensionAdvisory = useMemo(() => {
+    if (!isWidthValid || !isHeightValid) {
+      return 'Please enter valid width and height dimensions to calculate quotation.';
     }
-
-    // Material Cost (respects door-specific override rate if configured)
-    const mat = materials.find(m => m.id === selectedMaterialId) || materials[0] || DEFAULT_MATERIALS[0];
-    const materialRate = (selectedDoor?.materialPrices && selectedDoor.materialPrices[selectedMaterialId] !== undefined)
-      ? selectedDoor.materialPrices[selectedMaterialId]
-      : (mat ? mat.ratePerSqFt : 800);
-    const materialName = mat ? mat.name : 'Sagwan';
-
-    let doorCost = 0;
-    let materialCost = 0;
-    let materialAdjustmentPerSqFt = 0;
-
-    if (selectedDoor && isAllInclusive) {
-      // Catalogue Design with All-Inclusive Base Door Price:
-      // The catalogue door starting price covers the entire door in its configured wood.
-      const defaultMaterialName = selectedDoor.material || 'Sagwan';
-      const defaultMat = materials.find(m => m.name.toLowerCase().includes(defaultMaterialName.toLowerCase())) || materials[0];
-      const defaultMaterialStandardRate = defaultMat ? defaultMat.ratePerSqFt : 1000;
-      const selectedMaterialStandardRate = mat ? mat.ratePerSqFt : 1000;
-
-      // If customer chooses a different timber material, adjust by the price difference
-      materialAdjustmentPerSqFt = selectedMaterialStandardRate - defaultMaterialStandardRate;
-
-      if (doorPricingType === 'fixed') {
-        const fixedBase = selectedDoor.basePrice !== undefined && selectedDoor.basePrice > 0
-          ? selectedDoor.basePrice
-          : (selectedDoor.startingPrice || 15000);
-        doorCost = isValidDim ? Math.max(0, fixedBase + Math.round(sqFt * materialAdjustmentPerSqFt)) : 0;
-      } else {
-        const effectiveRate = Math.max(0, doorBaseRate + materialAdjustmentPerSqFt);
-        doorCost = isValidDim ? Math.round(sqFt * effectiveRate) : 0;
+    if (selectedDoor) {
+      if (selectedDoor.minWidthInch && widthInch < selectedDoor.minWidthInch) {
+        return `Width is below recommended minimum (${selectedDoor.minWidthInch}") for ${selectedDoor.name}.`;
       }
-
-      // Wood material is already included in the base door shutter price, not charged twice
-      materialCost = 0;
-    } else {
-      // Custom Door without catalogue design OR explicitly configured craftsmanship-only door
-      if (doorPricingType === 'fixed') {
-        doorCost = selectedDoor?.basePrice !== undefined && selectedDoor.basePrice > 0
-          ? selectedDoor.basePrice
-          : (selectedDoor?.startingPrice || 0);
-      } else {
-        doorCost = isValidDim ? Math.round(sqFt * doorBaseRate) : 0;
+      if (selectedDoor.maxWidthInch && widthInch > selectedDoor.maxWidthInch) {
+        return `Width exceeds recommended maximum (${selectedDoor.maxWidthInch}") for ${selectedDoor.name}.`;
       }
-      materialCost = isValidDim ? Math.round(sqFt * materialRate) : 0;
-    }
-
-    // Minimum order price enforcement
-    if (!hasMissingPrice && selectedDoor?.minPrice && doorCost < selectedDoor.minPrice) {
-      doorCost = selectedDoor.minPrice;
-    }
-
-    // Dimension range warnings
-    let validationWarning: string | undefined = undefined;
-    if (!isValidDim) {
-      validationWarning = 'Please enter valid width and height dimensions to calculate quotation.';
-    } else if (selectedDoor) {
-      if (selectedDoor.minWidthInch && w < selectedDoor.minWidthInch) {
-        validationWarning = `Width is below recommended minimum (${selectedDoor.minWidthInch}") for ${selectedDoor.name}.`;
-      } else if (selectedDoor.maxWidthInch && w > selectedDoor.maxWidthInch) {
-        validationWarning = `Width exceeds recommended maximum (${selectedDoor.maxWidthInch}") for ${selectedDoor.name}.`;
-      } else if (selectedDoor.minHeightInch && h < selectedDoor.minHeightInch) {
-        validationWarning = `Height is below recommended minimum (${selectedDoor.minHeightInch}") for ${selectedDoor.name}.`;
-      } else if (selectedDoor.maxHeightInch && h > selectedDoor.maxHeightInch) {
-        validationWarning = `Height exceeds recommended maximum (${selectedDoor.maxHeightInch}") for ${selectedDoor.name}.`;
+      if (selectedDoor.minHeightInch && heightInch < selectedDoor.minHeightInch) {
+        return `Height is below recommended minimum (${selectedDoor.minHeightInch}") for ${selectedDoor.name}.`;
+      }
+      if (selectedDoor.maxHeightInch && heightInch > selectedDoor.maxHeightInch) {
+        return `Height exceeds recommended maximum (${selectedDoor.maxHeightInch}") for ${selectedDoor.name}.`;
       }
     }
+    return undefined;
+  }, [isWidthValid, isHeightValid, widthInch, heightInch, selectedDoor]);
 
-    // Polish Cost (respects door-specific override rate if configured)
-    const fin = finishes.find(f => f.id === selectedFinishId) || finishes[0] || DEFAULT_FINISHES[1];
-    const finishRate = (selectedDoor?.finishPrices && selectedDoor.finishPrices[selectedFinishId] !== undefined)
-      ? selectedDoor.finishPrices[selectedFinishId]
-      : (fin ? fin.ratePerSqFt : 150);
-    const finishName = fin ? fin.name : 'Teak Polish';
-    const finishCost = isValidDim ? Math.round(sqFt * finishRate) : 0;
+  // Server-authoritative calculation state (strictly gated behind verified customer login)
+  const [serverCalculation, setServerCalculation] = useState<CalculationResult | null>(null);
+  const [isCalculatingPrice, setIsCalculatingPrice] = useState<boolean>(false);
+  const [calcError, setCalcError] = useState<string | null>(null);
 
-    // Door Price Calculator is strictly door shutter + timber + finish + hardware (no chaukhat added)
-    const frameCost = 0;
-    const frameName = 'No Frame / Shutter Only';
+  // Active calculation result visible ONLY when customer is authenticated
+  const calculation: CalculationResult | null = currentCustomer ? serverCalculation : null;
 
-    // Hardware Cost (supports 'none')
-    let hardwareCost = 0;
-    let hardwareName = 'No Hardware Included';
-    let hardwarePrice = 0;
-    const qty = Math.max(0, Number(hardwareQty) || 1);
-
-    if (selectedHardwareId !== 'none') {
-      const hwd = hardware.find(h => h.id === selectedHardwareId) || hardware[0] || DEFAULT_HARDWARE[1];
-      hardwarePrice = (selectedDoor?.hardwarePrices && selectedDoor.hardwarePrices[selectedHardwareId] !== undefined)
-        ? selectedDoor.hardwarePrices[selectedHardwareId]
-        : (hwd ? hwd.price : 700);
-      hardwareName = hwd ? hwd.name : 'Single Aldrop';
-      hardwareCost = hardwarePrice * qty;
-    }
-
-    // Subtotal & Total (Frame cost is not added)
-    const subtotal = doorCost + materialCost + finishCost + hardwareCost;
-    const taxPercent = Number(settings?.additionalChargePercentage) || 0;
-    const additionalCharges = Math.round((subtotal * taxPercent) / 100);
-    const total = subtotal + additionalCharges;
-
-    return {
-      widthInch: w,
-      heightInch: h,
-      sqFt,
-      doorId: selectedDoor?.id,
-      doorName: selectedDoor?.name || 'Custom Handcrafted Door',
-      doorImage: selectedDoor?.images?.[0],
-      doorCategory: selectedDoor?.category,
-      doorPricingType,
-      doorBaseRate,
-      doorCost,
-      materialIncludedInDoorPrice: isAllInclusive,
-      materialAdjustmentPerSqFt,
-      materialName,
-      materialRate,
-      materialCost,
-      finishName,
-      finishRate,
-      finishCost,
-      frameId: 'none',
-      frameName,
-      frameCost: 0,
-      hardwareName,
-      hardwarePrice,
-      hardwareQty: qty,
-      hardwareCost,
-      subtotal,
-      additionalCharges,
-      additionalChargeName: settings?.additionalChargeName || 'Taxes',
-      total,
-      validationWarning: validationWarning || missingPriceMessage,
-      hasMissingPrice,
-      missingPriceMessage,
-    };
-  }, [
-    customWidth,
-    customHeight,
-    isWidthValid,
-    isHeightValid,
+  // Keep latest inputs in a ref so post-OTP login auto-resume calculates exact entered values
+  const calcInputsRef = useRef({
+    doorId: selectedDoor?.id,
+    doorName: selectedDoor?.name,
+    doorImage: selectedDoor?.images?.[0],
     widthInch,
     heightInch,
+    isWidthValid,
+    isHeightValid,
+    materialId: selectedMaterialId,
+    finishId: selectedFinishId,
+    hardwareId: selectedHardwareId,
+    hardwareQty,
+  });
+
+  useEffect(() => {
+    calcInputsRef.current = {
+      doorId: selectedDoor?.id,
+      doorName: selectedDoor?.name,
+      doorImage: selectedDoor?.images?.[0],
+      widthInch,
+      heightInch,
+      isWidthValid,
+      isHeightValid,
+      materialId: selectedMaterialId,
+      finishId: selectedFinishId,
+      hardwareId: selectedHardwareId,
+      hardwareQty,
+    };
+  }, [
     selectedDoor,
+    widthInch,
+    heightInch,
+    isWidthValid,
+    isHeightValid,
     selectedMaterialId,
     selectedFinishId,
     selectedHardwareId,
     hardwareQty,
-    materials,
-    finishes,
-    hardware,
-    settings,
+  ]);
+
+  // Immediately clear calculated results when customer logs out (restores mandatory login gate)
+  useEffect(() => {
+    if (!currentCustomer) {
+      setServerCalculation(null);
+      setCalcError(null);
+    }
+  }, [currentCustomer]);
+
+  const runServerDoorCalculation = async (options?: {
+    triggerInterstitial?: boolean;
+    scrollToResult?: boolean;
+  }) => {
+    const snap = calcInputsRef.current;
+    if (!snap.isWidthValid || !snap.isHeightValid || snap.widthInch <= 0 || snap.heightInch <= 0) {
+      setCalcError('Please enter valid width and height dimensions to calculate door price.');
+      return;
+    }
+
+    setIsCalculatingPrice(true);
+    setCalcError(null);
+    try {
+      const res = await calculatePrice({
+        doorId: snap.doorId,
+        doorName: snap.doorName,
+        doorImage: snap.doorImage,
+        widthInch: snap.widthInch,
+        heightInch: snap.heightInch,
+        materialId: snap.materialId,
+        finishId: snap.finishId,
+        frameId: 'none',
+        hardwareId: snap.hardwareId,
+        hardwareQty: Math.max(0, Number(snap.hardwareQty) || 1),
+      });
+      setServerCalculation(res);
+
+      if (options?.scrollToResult) {
+        window.setTimeout(() => {
+          document.getElementById('door-calculation-result-card')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+          });
+        }, 100);
+      }
+
+      if (options?.triggerInterstitial && res.total > 0) {
+        window.setTimeout(() => {
+          adMobService
+            .showPlacementInterstitial('door_calculator', () => {}, settings?.adSettings)
+            .catch(() => {});
+        }, 650);
+      }
+    } catch (err: any) {
+      if (err?.code === 'CUSTOMER_AUTH_REQUIRED' || err?.status === 401) {
+        setServerCalculation(null);
+        if (onRequireCalculationLogin) {
+          onRequireCalculationLogin(() =>
+            runServerDoorCalculation({ triggerInterstitial: true, scrollToResult: true })
+          );
+        } else {
+          setCalcError('Please login with your mobile number to view your calculation results.');
+        }
+        return;
+      }
+      setCalcError(err?.message || 'Unable to calculate door price right now. Please try again.');
+    } finally {
+      setIsCalculatingPrice(false);
+    }
+  };
+
+  const handleCalculateDoorPrice = () => {
+    if (!isWidthValid || !isHeightValid || widthInch <= 0 || heightInch <= 0) {
+      setCalcError('Please enter valid width and height dimensions to calculate door price.');
+      return;
+    }
+    if (!currentCustomer) {
+      if (onRequireCalculationLogin) {
+        onRequireCalculationLogin(() =>
+          runServerDoorCalculation({ triggerInterstitial: true, scrollToResult: true })
+        );
+      } else {
+        setCalcError('Please login with your mobile number to view your calculation results.');
+      }
+      return;
+    }
+    runServerDoorCalculation({ triggerInterstitial: true, scrollToResult: true });
+  };
+
+  // For already logged-in customers who already calculated once, smoothly keep server breakdown synced when options change
+  useEffect(() => {
+    if (!currentCustomer || !serverCalculation) return;
+    if (!isWidthValid || !isHeightValid || widthInch <= 0 || heightInch <= 0) return;
+    const timer = window.setTimeout(() => {
+      runServerDoorCalculation({ triggerInterstitial: false, scrollToResult: false });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [
+    currentCustomer?.id,
+    selectedDoor?.id,
+    widthInch,
+    heightInch,
+    isWidthValid,
+    isHeightValid,
+    selectedMaterialId,
+    selectedFinishId,
+    selectedHardwareId,
+    hardwareQty,
   ]);
 
   // WhatsApp Message Formatter (Section 9)
   const prepareWhatsAppMessage = () => {
+    if (!calculation) return '';
     const isMatIncluded = calculation.materialIncludedInDoorPrice;
-    return `Hello ${settings?.businessName || 'Jai Hanuman Door'}, I am interested in this door quotation.
+    return `Hello ${settings?.businessName || 'WindowCut Pro'}, I am interested in this estimate quotation.
 
 Door Design: ${selectedDoor ? `${selectedDoor.name} (ID: ${selectedDoor.id})` : 'Custom Handcrafted Door'}
 Category: ${selectedDoor?.category || 'Main Entrance'}
@@ -600,18 +631,13 @@ Estimated Total: ₹${calculation.total.toLocaleString('en-IN')}
 Please provide official factory dispatch schedule and installation assistance.`;
   };
 
-  const handleSendWhatsApp = () => {
-    const text = prepareWhatsAppMessage();
-    const url = getWhatsAppUrl(settings?.whatsappNumber, text);
-    window.open(url, '_blank');
-  };
-
   const handleShareQuote = async () => {
+    if (!calculation) return;
     const text = prepareWhatsAppMessage();
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `${settings?.businessName || 'Jai Hanuman Door'} Door Estimate`,
+          title: `${settings?.businessName || 'WindowCut Pro'} Fabrication Estimate`,
           text: text,
         });
       } catch {
@@ -619,31 +645,33 @@ Please provide official factory dispatch schedule and installation assistance.`;
       }
     } else {
       await navigator.clipboard.writeText(text);
-      alert('Quotation summary copied to clipboard!');
+      setSaveStatus('saved');
+      setSaveMsg('Quotation summary copied to clipboard!');
+      setTimeout(() => setSaveStatus('idle'), 3000);
     }
   };
 
-  // AdMob Quotation Interstitial Logic (Part 2 requirement)
+  // AdMob Door Price Calculator Interstitial (never interrupts quotation generation or PDF download)
   const [isGeneratingQuote, setIsGeneratingQuote] = useState(false);
 
-  // Preload interstitial so it's ready when user taps "Get Official Quotation PDF"
+  // Preload interstitial in background for post-calculation break
   useEffect(() => {
     adMobService.preloadInterstitial(settings?.adSettings);
   }, [settings?.adSettings]);
 
   const handleGenerateQuotation = async () => {
     if (isGeneratingQuote) return;
+    if (!calculation) {
+      handleCalculateDoorPrice();
+      return;
+    }
     if (!isWidthValid || !isHeightValid || widthInch <= 0 || heightInch <= 0) {
-      alert('Please enter valid door dimensions (width & height) to generate quotation.');
+      setCalcError('Please enter valid door dimensions (width & height) to generate quotation.');
       return;
     }
     setIsGeneratingQuote(true);
     try {
-      // Show preloaded interstitial with fail-safe timeout; quotation modal always opens
-      await adMobService.showQuotationInterstitial(() => {
-        onOpenQuotationModal(calculation, selectedDoor);
-      }, settings?.adSettings);
-    } catch {
+      // Never interrupt customer quotation generation or PDF download
       onOpenQuotationModal(calculation, selectedDoor);
     } finally {
       setIsGeneratingQuote(false);
@@ -656,6 +684,8 @@ Please provide official factory dispatch schedule and installation assistance.`;
     setHasEnteredCustom(false);
     setSelectedPreset('36x78');
     setDimensionUnit('in');
+    setServerCalculation(null);
+    setCalcError(null);
     if (activeDoors.length > 0) setSelectedDoor(activeDoors[0]);
     if (materials[0]) setSelectedMaterialId(materials[0].id);
     if (finishes[0]) setSelectedFinishId(finishes[0].id);
@@ -665,6 +695,10 @@ Please provide official factory dispatch schedule and installation assistance.`;
   };
 
   const handleSaveCalculation = async () => {
+    if (!calculation) {
+      handleCalculateDoorPrice();
+      return;
+    }
     try {
       setSaveStatus('saving');
       setSaveMsg(null);
@@ -687,6 +721,12 @@ Please provide official factory dispatch schedule and installation assistance.`;
       setSaveStatus('saved');
       setSaveMsg('Calculation saved to your profile history!');
       setTimeout(() => setSaveStatus('idle'), 3000);
+      // Optional frequency-capped interstitial after successfully saving a completed calculation
+      window.setTimeout(() => {
+        adMobService
+          .showPlacementInterstitial('door_calculator', () => {}, settings?.adSettings)
+          .catch(() => {});
+      }, 400);
     } catch (err: any) {
       setSaveStatus('error');
       setSaveMsg(err.message || 'Please log in to save this estimate');
@@ -736,11 +776,13 @@ Please provide official factory dispatch schedule and installation assistance.`;
               <Calculator className="w-3.5 h-3.5 text-[#C89211]" />
               <span>Direct Factory Pricing Engine</span>
             </div>
-            <h1 className="font-serif text-2xl sm:text-3xl lg:text-4xl font-black text-[#1A1A1A] tracking-tight">
-              Door Price Calculator
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-[#0A2540] tracking-tight">
+              Shutter &amp; Frame Price Estimator
             </h1>
             <p className="text-xs sm:text-sm text-[#666666] mt-1 max-w-2xl">
-              Configure your exact doorway dimensions, select handcrafted Catalogue designs, choose seasoned timber species, polish coats, and fittings with 100% transparent pricing.
+              {FEATURE_FLAGS.doorCatalogue
+                ? 'Configure your exact doorway dimensions, select handcrafted Catalogue designs, choose seasoned timber species, polish coats, and fittings with 100% transparent pricing.'
+                : 'Configure your exact doorway dimensions, choose seasoned timber species, polish coats, Chaukhat frames, and hardware fittings with 100% transparent factory pricing.'}
             </p>
           </div>
 
@@ -772,6 +814,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
           {/* ========================================================================= */}
           {/* DESKTOP SIDEBAR / SECTION 1: Door Designs Thumbnail Sidebar */}
           {/* ========================================================================= */}
+          {FEATURE_FLAGS.doorCatalogue && (
           <div className="hidden lg:block lg:col-span-4 sticky top-20 space-y-4">
             <div className="p-4 rounded-2xl bg-white border border-[#E5E5E5] shadow-sm space-y-3.5">
               <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-3">
@@ -956,18 +999,19 @@ Please provide official factory dispatch schedule and installation assistance.`;
               </div>
             </div>
           </div>
+          )}
 
           {/* ========================================================================= */}
           {/* MAIN COLUMN: 6-STEP CUSTOMER CALCULATION FLOW */}
           {/* ========================================================================= */}
-          <div className="lg:col-span-8 space-y-6">
+          <div className={FEATURE_FLAGS.doorCatalogue ? 'lg:col-span-8 space-y-6' : 'lg:col-span-12 max-w-4xl mx-auto w-full space-y-6'}>
 
             {/* Validation warning banner if door dimension out of bounds */}
-            {calculation.validationWarning && (
+            {(calculation?.validationWarning || dimensionAdvisory) && (
               <div className="p-3.5 rounded-xl bg-[#FFF7E3] border border-[#C89211]/40 text-[#1A1A1A] text-xs flex items-start gap-2.5 shadow-sm">
                 <AlertCircle className="w-4 h-4 text-[#C89211] shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <strong className="text-[#C89211]">Custom Size Advisory:</strong> {calculation.validationWarning} Our workshop will custom manufacture this design to your exact specification.
+                  <strong className="text-[#C89211]">Custom Size Advisory:</strong> {calculation?.validationWarning || dimensionAdvisory} Our workshop will custom manufacture this design to your exact specification.
                 </div>
               </div>
             )}
@@ -1145,10 +1189,10 @@ Please provide official factory dispatch schedule and installation assistance.`;
                   {isWidthValid && isHeightValid ? (
                     <>
                       <div className="font-mono text-xl sm:text-2xl font-black text-[#1A1A1A] mt-0.5">
-                        {calculation.sqFt.toFixed(2)} <span className="text-xs font-normal text-[#666666]">sq.ft</span>
+                        {enteredSqFt.toFixed(2)} <span className="text-xs font-normal text-[#666666]">sq.ft</span>
                       </div>
                       <div className="text-[10px] text-[#666666] mt-0.5">
-                        ({parsedWidth}" × {parsedHeight}" ÷ 144) • {Math.round(calculation.sqFt * 0.092903 * 100) / 100} sq.m
+                        ({parsedWidth}" × {parsedHeight}" ÷ 144) • {Math.round(enteredSqFt * 0.092903 * 100) / 100} sq.m
                       </div>
                     </>
                   ) : (
@@ -1168,6 +1212,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
             {/* --------------------------------------------------------------------- */}
             {/* STEP 2: Select Door Design (Mobile Carousel / Grid + Selected Banner) */}
             {/* --------------------------------------------------------------------- */}
+            {FEATURE_FLAGS.doorCatalogue && (
             <div className="p-5 rounded-2xl bg-white border border-[#E5E5E5] shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-3">
                 <div className="flex items-center gap-2.5">
@@ -1235,10 +1280,14 @@ Please provide official factory dispatch schedule and installation assistance.`;
                               : `₹${selectedDoor.basePrice || Math.round((selectedDoor.startingPrice || 15600) / 19.5)}/sq.ft`}
                           </strong>
                         </span>
-                        <span className="text-[#CCCCCC]">•</span>
-                        <span>
-                          Door Cost: <strong className="font-mono text-[#16803A]">₹{calculation.doorCost.toLocaleString('en-IN')}</strong>
-                        </span>
+                        {calculation && (
+                          <>
+                            <span className="text-[#CCCCCC]">•</span>
+                            <span>
+                              Door Cost: <strong className="font-mono text-[#16803A]">₹{calculation.doorCost.toLocaleString('en-IN')}</strong>
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1257,7 +1306,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                       <span>Full Preview</span>
                     </button>
 
-                    {onOpenVisualizer && (
+                    {FEATURE_FLAGS.visualizer3dAr && onOpenVisualizer && (
                       <button
                         type="button"
                         onClick={() => onOpenVisualizer(selectedDoor)}
@@ -1294,10 +1343,14 @@ Please provide official factory dispatch schedule and installation assistance.`;
                         <span>
                           Craftsmanship Rate: <strong className="font-mono text-[#C89211]">₹800/sq.ft</strong>
                         </span>
-                        <span className="text-[#CCCCCC]">•</span>
-                        <span>
-                          Door Workmanship: <strong className="font-mono text-[#16803A]">₹{calculation.doorCost.toLocaleString('en-IN')}</strong>
-                        </span>
+                        {calculation && (
+                          <>
+                            <span className="text-[#CCCCCC]">•</span>
+                            <span>
+                              Door Workmanship: <strong className="font-mono text-[#16803A]">₹{calculation.doorCost.toLocaleString('en-IN')}</strong>
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1392,6 +1445,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                 </div>
               </div>
             </div>
+            )}
 
             {/* --------------------------------------------------------------------- */}
             {/* STEP 3: Wood / Material */}
@@ -1414,7 +1468,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                 </div>
 
                 <span className="text-xs font-mono font-bold text-[#C89211]">
-                  ₹{calculation.materialCost.toLocaleString('en-IN')}
+                  {calculation ? `₹${calculation.materialCost.toLocaleString('en-IN')}` : selectedMaterialObj.name}
                 </span>
               </div>
 
@@ -1424,7 +1478,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                   const effectiveRate = (selectedDoor?.materialPrices && selectedDoor.materialPrices[mat.id] !== undefined)
                     ? selectedDoor.materialPrices[mat.id]
                     : mat.ratePerSqFt;
-                  const itemCost = Math.round(calculation.sqFt * effectiveRate);
+                  const itemCost = calculation ? Math.round(calculation.sqFt * effectiveRate) : null;
                   const matImg = mat.image || getMaterialImage(mat);
 
                   return (
@@ -1452,16 +1506,22 @@ Please provide official factory dispatch schedule and installation assistance.`;
 
                       {/* Content (2 lines) */}
                       <div className="flex-1 min-w-0">
-                        {/* Line 1: Option Name (Left) & Price (Right) */}
+                        {/* Line 1: Option Name (Left) & Price/Rate (Right) */}
                         <div className="flex items-center justify-between gap-2">
                           <div className="font-bold text-[13px] sm:text-sm text-[#1A1A1A] flex items-center gap-1.5 truncate">
                             <span className="truncate">{mat.name}</span>
                             {isSelected && <Check className="w-3.5 h-3.5 text-[#C89211] shrink-0" />}
                           </div>
                           <div className="text-right shrink-0">
-                            <span className="font-bold font-mono text-[13px] sm:text-sm text-[#C89211]">
-                              ₹{itemCost.toLocaleString('en-IN')}
-                            </span>
+                            {itemCost !== null ? (
+                              <span className="font-bold font-mono text-[13px] sm:text-sm text-[#C89211]">
+                                ₹{itemCost.toLocaleString('en-IN')}
+                              </span>
+                            ) : (
+                              <span className="font-mono text-[11px] font-semibold text-[#666666]">
+                                ₹{effectiveRate}/sq.ft
+                              </span>
+                            )}
                           </div>
                         </div>
 
@@ -1470,9 +1530,11 @@ Please provide official factory dispatch schedule and installation assistance.`;
                           <p className="truncate flex-1">
                             {mat.description || 'Premium kiln-dried seasoned timber'}
                           </p>
-                          <span className="font-mono text-[10px] text-[#888888] shrink-0">
-                            (₹{effectiveRate}/sq.ft)
-                          </span>
+                          {itemCost !== null && (
+                            <span className="font-mono text-[10px] text-[#888888] shrink-0">
+                              (₹{effectiveRate}/sq.ft)
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1502,7 +1564,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                 </div>
 
                 <span className="text-xs font-mono font-bold text-[#C89211]">
-                  ₹{calculation.finishCost.toLocaleString('en-IN')}
+                  {calculation ? `₹${calculation.finishCost.toLocaleString('en-IN')}` : selectedFinishObj.name}
                 </span>
               </div>
 
@@ -1512,7 +1574,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                   const effectiveRate = (selectedDoor?.finishPrices && selectedDoor.finishPrices[fin.id] !== undefined)
                     ? selectedDoor.finishPrices[fin.id]
                     : fin.ratePerSqFt;
-                  const itemCost = Math.round(calculation.sqFt * effectiveRate);
+                  const itemCost = calculation ? Math.round(calculation.sqFt * effectiveRate) : null;
                   const finImg = fin.image || getFinishImage(fin);
 
                   return (
@@ -1540,16 +1602,22 @@ Please provide official factory dispatch schedule and installation assistance.`;
 
                       {/* Content (2 lines) */}
                       <div className="flex-1 min-w-0">
-                        {/* Line 1: Option Name (Left) & Price (Right) */}
+                        {/* Line 1: Option Name (Left) & Price/Rate (Right) */}
                         <div className="flex items-center justify-between gap-2">
                           <div className="font-bold text-[13px] sm:text-sm text-[#1A1A1A] flex items-center gap-1.5 truncate">
                             <span className="truncate">{fin.name}</span>
                             {isSelected && <Check className="w-3.5 h-3.5 text-[#C89211] shrink-0" />}
                           </div>
                           <div className="text-right shrink-0">
-                            <span className={`font-bold font-mono text-[13px] sm:text-sm ${effectiveRate === 0 ? 'text-[#16803A]' : 'text-[#C89211]'}`}>
-                              {effectiveRate === 0 ? '₹0' : `₹${itemCost.toLocaleString('en-IN')}`}
-                            </span>
+                            {itemCost !== null ? (
+                              <span className={`font-bold font-mono text-[13px] sm:text-sm ${effectiveRate === 0 ? 'text-[#16803A]' : 'text-[#C89211]'}`}>
+                                {effectiveRate === 0 ? '₹0' : `₹${itemCost.toLocaleString('en-IN')}`}
+                              </span>
+                            ) : (
+                              <span className="font-mono text-[11px] font-semibold text-[#666666]">
+                                {effectiveRate === 0 ? 'Raw' : `₹${effectiveRate}/sq.ft`}
+                              </span>
+                            )}
                           </div>
                         </div>
 
@@ -1558,7 +1626,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                           <p className="truncate flex-1">
                             {fin.description || 'Protective wood polish finish'}
                           </p>
-                          {effectiveRate > 0 && (
+                          {itemCost !== null && effectiveRate > 0 && (
                             <span className="font-mono text-[10px] text-[#888888] shrink-0">
                               (₹{effectiveRate}/sq.ft)
                             </span>
@@ -1614,7 +1682,11 @@ Please provide official factory dispatch schedule and installation assistance.`;
                   )}
 
                   <span className="text-xs font-mono font-bold text-[#C89211]">
-                    ₹{calculation.hardwareCost.toLocaleString('en-IN')}
+                    {calculation
+                      ? `₹${calculation.hardwareCost.toLocaleString('en-IN')}`
+                      : selectedHardwareObj
+                      ? selectedHardwareObj.name
+                      : 'No Hardware'}
                   </span>
                 </div>
               </div>
@@ -1646,7 +1718,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                       </div>
                       <div className="text-right shrink-0">
                         <span className="font-bold font-mono text-[13px] sm:text-sm text-[#16803A]">
-                          ₹0
+                          {calculation ? '₹0' : 'None'}
                         </span>
                       </div>
                     </div>
@@ -1664,7 +1736,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                     const price = (selectedDoor?.hardwarePrices && selectedDoor.hardwarePrices[hwd.id] !== undefined)
                       ? selectedDoor.hardwarePrices[hwd.id]
                       : hwd.price;
-                    const itemTotal = price * (isSelected ? hardwareQty : 1);
+                    const itemTotal = calculation ? price * (isSelected ? hardwareQty : 1) : null;
                     const hwdImg = hwd.image || getHardwareImage(hwd);
 
                     return (
@@ -1710,9 +1782,15 @@ Please provide official factory dispatch schedule and installation assistance.`;
                               {isSelected && <Check className="w-3.5 h-3.5 text-[#C89211] shrink-0" />}
                             </div>
                             <div className="text-right shrink-0">
-                              <span className="font-bold font-mono text-[13px] sm:text-sm text-[#C89211]">
-                                ₹{itemTotal.toLocaleString('en-IN')}
-                              </span>
+                              {itemTotal !== null ? (
+                                <span className="font-bold font-mono text-[13px] sm:text-sm text-[#C89211]">
+                                  ₹{itemTotal.toLocaleString('en-IN')}
+                                </span>
+                              ) : (
+                                <span className="font-mono text-[11px] font-semibold text-[#666666]">
+                                  ₹{price}/unit
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -1721,7 +1799,7 @@ Please provide official factory dispatch schedule and installation assistance.`;
                             <p className="truncate flex-1">
                               {hwd.description || 'Premium architectural door fitting'}
                             </p>
-                            {isSelected && hardwareQty > 1 && (
+                            {itemTotal !== null && isSelected && hardwareQty > 1 && (
                               <span className="font-mono text-[10px] text-[#888888] shrink-0">
                                 (₹{price} × {hardwareQty})
                               </span>
@@ -1735,202 +1813,261 @@ Please provide official factory dispatch schedule and installation assistance.`;
             </div>
 
             {/* --------------------------------------------------------------------- */}
-            {/* FINAL TRANSPARENT QUOTATION BREAKDOWN */}
+            {/* CALCULATE CTA & FINAL TRANSPARENT QUOTATION BREAKDOWN */}
             {/* --------------------------------------------------------------------- */}
-            <div className="p-6 rounded-3xl bg-white border-2 border-[#C89211]/30 shadow-xl space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E5E5E5] pb-4">
-                <div>
-                  <span className="text-xs uppercase tracking-widest font-bold text-[#C89211]">
-                    Official Quotation Breakdown
-                  </span>
-                  <h3 className="font-serif text-xl sm:text-2xl font-black text-[#1A1A1A] mt-0.5">
-                    {calculation.doorName}
-                  </h3>
-                  <div className="text-xs text-[#666666] mt-0.5">
-                    Category: <strong className="text-[#1A1A1A]">{calculation.doorCategory || 'Main Door'}</strong> • Size: <strong className="text-[#C89211] font-mono">{calculation.widthInch}" × {calculation.heightInch}" ({calculation.sqFt.toFixed(2)} sq.ft)</strong>
-                  </div>
-                </div>
-
-                <div className="text-left sm:text-right">
-                  <div className="text-[11px] text-[#666666]">Estimated Total (Inclusive of all specs):</div>
-                  <div className="font-mono text-2xl sm:text-3xl lg:text-4xl font-black text-[#C89211]">
-                    ₹{calculation.total.toLocaleString('en-IN')}
-                  </div>
-                </div>
-              </div>
-
-              {/* Itemized Transparent List */}
-              <div className="bg-[#F8F8F6] rounded-2xl p-4 border border-[#E5E5E5] divide-y divide-[#E5E5E5] text-xs sm:text-sm">
-                {/* 1. Door Price */}
-                <div className="py-2.5 flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="font-semibold text-[#1A1A1A]">
-                      {calculation.materialIncludedInDoorPrice
-                        ? `Door Shutter & Design (${calculation.doorName})`
-                        : `Door Design / Craftsmanship (${calculation.doorName})`}
-                    </span>
-                    <div className="text-[11px] text-[#666666] font-mono">
-                      {calculation.hasMissingPrice ? (
-                        <span className="text-[#C89211] font-sans font-semibold">
-                          Custom workshop quotation required (pricing pending in Admin)
-                        </span>
-                      ) : calculation.doorPricingType === 'fixed' ? (
-                        `Fixed Price Shutter (${calculation.materialName} Wood)`
-                      ) : calculation.materialIncludedInDoorPrice ? (
-                        calculation.materialAdjustmentPerSqFt !== 0 && calculation.materialAdjustmentPerSqFt !== undefined ? (
-                          `${calculation.sqFt.toFixed(2)} sq.ft @ ₹${(calculation.doorBaseRate || 0) + calculation.materialAdjustmentPerSqFt}/sq.ft (Base ₹${calculation.doorBaseRate} + ${calculation.materialName} timber adj.)`
-                        ) : (
-                          `${calculation.sqFt.toFixed(2)} sq.ft @ ₹${calculation.doorBaseRate}/sq.ft (Solid ${calculation.materialName} Timber)`
-                        )
-                      ) : (
-                        `${calculation.sqFt.toFixed(2)} sq.ft @ ₹${calculation.doorBaseRate}/sq.ft`
-                      )}
-                    </div>
-                  </div>
-                  <span className="font-mono font-bold text-[#C89211]">
-                    {calculation.hasMissingPrice
-                      ? 'Custom Quote'
-                      : `₹${calculation.doorCost.toLocaleString('en-IN')}`}
-                  </span>
-                </div>
-
-                {/* 2. Material */}
-                <div className="py-2.5 flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="font-semibold text-[#1A1A1A]">
-                      Wood Material ({calculation.materialName})
-                    </span>
-                    <div className="text-[11px] text-[#666666] font-mono">
-                      {calculation.materialIncludedInDoorPrice ? (
-                        <span className="text-[#16803A] font-sans font-medium flex items-center gap-1">
-                          <Check className="w-3 h-3 text-[#16803A]" />
-                          Included in Door Shutter (All-Inclusive Base Price)
-                        </span>
-                      ) : (
-                        `${calculation.sqFt.toFixed(2)} sq.ft @ ₹${calculation.materialRate}/sq.ft`
-                      )}
-                    </div>
-                  </div>
-                  {calculation.materialIncludedInDoorPrice ? (
-                    <span className="font-mono font-semibold text-xs text-[#16803A] bg-[#E8F5E9] px-2 py-0.5 rounded border border-[#C8E6C9]">
-                      Included (₹0)
-                    </span>
-                  ) : (
-                    <span className="font-mono font-bold text-[#1A1A1A]">
-                      ₹{calculation.materialCost.toLocaleString('en-IN')}
-                    </span>
-                  )}
-                </div>
-
-                {/* 3. Polish */}
-                <div className="py-2.5 flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="font-semibold text-[#1A1A1A]">
-                      Polish / Finish ({calculation.finishName})
-                    </span>
-                    <div className="text-[11px] text-[#666666] font-mono">
-                      {calculation.sqFt.toFixed(2)} sq.ft @ ₹${calculation.finishRate}/sq.ft
-                    </div>
-                  </div>
-                  <span className="font-mono font-bold text-[#1A1A1A]">
-                    ₹{calculation.finishCost.toLocaleString('en-IN')}
-                  </span>
-                </div>
-
-
-                {/* 5. Hardware */}
-                <div className="py-2.5 flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="font-semibold text-[#1A1A1A]">
-                      Hardware & Fitting ({calculation.hardwareName})
-                    </span>
-                    <div className="text-[11px] text-[#666666]">
-                      {calculation.hardwareCost > 0 ? `Qty: ${calculation.hardwareQty} Unit(s)` : 'No hardware'}
-                    </div>
-                  </div>
-                  <span className="font-mono font-bold text-[#1A1A1A]">
-                    ₹{calculation.hardwareCost.toLocaleString('en-IN')}
-                  </span>
-                </div>
-
-                {/* Taxes / Additional if configured */}
-                {calculation.additionalCharges > 0 && (
-                  <div className="py-2.5 flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <span className="font-semibold text-[#1A1A1A]">
-                        {calculation.additionalChargeName} ({settings.additionalChargePercentage}%)
-                      </span>
-                    </div>
-                    <span className="font-mono font-bold text-[#666666]">
-                      ₹{calculation.additionalCharges.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Status Message */}
-              {saveMsg && (
-                <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
-                  saveStatus === 'saved' ? 'bg-[#16803A]/10 text-[#16803A] border border-[#16803A]/30' : 'bg-[#C62828]/10 text-[#C62828] border border-[#C62828]/30'
-                }`}>
-                  {saveStatus === 'saved' ? <CheckCircle2 className="w-4 h-4 text-[#16803A]" /> : <AlertCircle className="w-4 h-4 text-[#C62828]" />}
-                  <span>{saveMsg}</span>
+            <div
+              id="door-calculation-result-card"
+              className="p-6 rounded-3xl bg-white border-2 border-[#C89211]/30 shadow-xl space-y-5"
+            >
+              {calcError && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{calcError}</span>
                 </div>
               )}
 
-              {/* Action Buttons (Section 8 & 9) */}
-              <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleGenerateQuotation}
-                  disabled={isGeneratingQuote}
-                  className="w-full sm:flex-1 py-3.5 px-5 rounded-xl bg-gradient-to-r from-[#C89211] to-[#b07d08] hover:opacity-95 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer active:scale-98 disabled:opacity-70"
-                >
-                  <FileText className="w-5 h-5 text-white" />
-                  <span>{isGeneratingQuote ? 'Preparing Official Quotation...' : 'Get Official Quotation PDF'}</span>
-                </button>
+              {!calculation ? (
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E5E5E5] pb-4">
+                    <div>
+                      <span className="text-xs uppercase tracking-widest font-bold text-[#C89211]">
+                        Ready to Calculate
+                      </span>
+                      <h3 className="font-serif text-xl sm:text-2xl font-black text-[#1A1A1A] mt-0.5">
+                        {selectedDoor?.name || 'Custom Handcrafted Door'}
+                      </h3>
+                      <div className="text-xs text-[#666666] mt-0.5">
+                        Size:{' '}
+                        <strong className="text-[#1A1A1A] font-mono">
+                          {isWidthValid && isHeightValid ? `${widthInch}" × ${heightInch}" (${enteredSqFt.toFixed(2)} sq.ft)` : 'Enter dimensions above'}
+                        </strong>
+                      </div>
+                    </div>
 
-                <button
-                  type="button"
-                  onClick={handleSendWhatsApp}
-                  className="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
-                  title="Direct WhatsApp Enquiry"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  <span>Enquire on WhatsApp</span>
-                </button>
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FAF8F4] border border-[#E5E5E5] text-xs font-semibold text-[#555555]">
+                      <Lock className="w-3.5 h-3.5 text-[#C89211]" />
+                      <span>{currentCustomer ? 'Click Calculate for Factory Price' : 'Mobile Login Required for Results'}</span>
+                    </div>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={handleSaveCalculation}
-                  disabled={saveStatus === 'saving'}
-                  className="w-full sm:w-auto px-4 py-3.5 rounded-xl bg-white hover:bg-[#F8F8F6] text-[#1A1A1A] border border-[#E5E5E5] text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm"
-                  title="Save to history"
-                >
-                  <BookmarkPlus className="w-4 h-4 text-[#C89211]" />
-                  <span>{saveStatus === 'saving' ? 'Saving...' : 'Save Estimate'}</span>
-                </button>
+                  {/* Selected Specification Summary (No Calculated Prices Rendered) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs bg-[#F8F8F6] rounded-2xl p-4 border border-[#E5E5E5]">
+                    <div>
+                      <span className="text-[#666666] block text-[11px]">Wood / Material</span>
+                      <strong className="text-[#1A1A1A]">{selectedMaterialObj.name}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[#666666] block text-[11px]">Polish / Coating</span>
+                      <strong className="text-[#1A1A1A]">{selectedFinishObj.name}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[#666666] block text-[11px]">Hardware &amp; Fitting</span>
+                      <strong className="text-[#1A1A1A]">
+                        {selectedHardwareObj ? `${selectedHardwareObj.name} (Qty: ${hardwareQty})` : 'No Hardware Included'}
+                      </strong>
+                    </div>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={handleShareQuote}
-                  className="w-full sm:w-auto p-3.5 rounded-xl bg-white hover:bg-[#F8F8F6] text-[#666666] border border-[#E5E5E5] text-xs flex items-center justify-center transition-colors cursor-pointer shadow-sm"
-                  title="Share breakdown"
-                >
-                  <Share2 className="w-4 h-4" />
-                </button>
-              </div>
+                  <button
+                    id="btn-calculate-door-price"
+                    type="button"
+                    onClick={handleCalculateDoorPrice}
+                    disabled={isCalculatingPrice}
+                    className="w-full py-3.5 px-5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    <Calculator className="w-5 h-5 text-white" />
+                    <span>{isCalculatingPrice ? 'Calculating Factory Price...' : 'Calculate Door Price'}</span>
+                  </button>
 
-              {/* Factory Assurance Footer */}
-              <div className="pt-3 border-t border-[#E5E5E5] text-[11px] text-[#666666] flex flex-wrap items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#16803A]" />
-                  100% Genuine Timber &amp; Seasoning Warranty
-                </span>
-                <span>
-                  Official Factory WhatsApp: <strong className="text-[#C89211]">+91 {settings.whatsappNumber || '78874 12884'}</strong>
-                </span>
-              </div>
+                  {!currentCustomer && (
+                    <p className="text-[11px] text-[#666666] text-center">
+                      Enter all your measurements above, then click <strong>Calculate Door Price</strong>. Your specs are kept intact after quick mobile OTP login.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E5E5E5] pb-4">
+                    <div>
+                      <span className="text-xs uppercase tracking-widest font-bold text-[#C89211]">
+                        Official Quotation Breakdown
+                      </span>
+                      <h3 className="font-serif text-xl sm:text-2xl font-black text-[#1A1A1A] mt-0.5">
+                        {calculation.doorName}
+                      </h3>
+                      <div className="text-xs text-[#666666] mt-0.5">
+                        Category: <strong className="text-[#1A1A1A]">{calculation.doorCategory || 'Main Door'}</strong> • Size: <strong className="text-[#C89211] font-mono">{calculation.widthInch}" × {calculation.heightInch}" ({calculation.sqFt.toFixed(2)} sq.ft)</strong>
+                      </div>
+                    </div>
+
+                    <div className="text-left sm:text-right">
+                      <div className="text-[11px] text-[#666666]">Estimated Total (Inclusive of all specs):</div>
+                      <div className="font-mono text-2xl sm:text-3xl lg:text-4xl font-black text-[#C89211]">
+                        ₹{calculation.total.toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Itemized Transparent List */}
+                  <div className="bg-[#F8F8F6] rounded-2xl p-4 border border-[#E5E5E5] divide-y divide-[#E5E5E5] text-xs sm:text-sm">
+                    {/* 1. Door Price */}
+                    <div className="py-2.5 flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="font-semibold text-[#1A1A1A]">
+                          {calculation.materialIncludedInDoorPrice
+                            ? `Door Shutter & Design (${calculation.doorName})`
+                            : `Door Design / Craftsmanship (${calculation.doorName})`}
+                        </span>
+                        <div className="text-[11px] text-[#666666] font-mono">
+                          {calculation.hasMissingPrice ? (
+                            <span className="text-[#C89211] font-sans font-semibold">
+                              Custom workshop quotation required (pricing pending in Admin)
+                            </span>
+                          ) : calculation.doorPricingType === 'fixed' ? (
+                            `Fixed Price Shutter (${calculation.materialName} Wood)`
+                          ) : calculation.materialIncludedInDoorPrice ? (
+                            calculation.materialAdjustmentPerSqFt !== 0 && calculation.materialAdjustmentPerSqFt !== undefined ? (
+                              `${calculation.sqFt.toFixed(2)} sq.ft @ ₹${(calculation.doorBaseRate || 0) + calculation.materialAdjustmentPerSqFt}/sq.ft (Base ₹${calculation.doorBaseRate} + ${calculation.materialName} timber adj.)`
+                            ) : (
+                              `${calculation.sqFt.toFixed(2)} sq.ft @ ₹${calculation.doorBaseRate}/sq.ft (Solid ${calculation.materialName} Timber)`
+                            )
+                          ) : (
+                            `${calculation.sqFt.toFixed(2)} sq.ft @ ₹${calculation.doorBaseRate}/sq.ft`
+                          )}
+                        </div>
+                      </div>
+                      <span className="font-mono font-bold text-[#C89211]">
+                        {calculation.hasMissingPrice
+                          ? 'Custom Quote'
+                          : `₹${calculation.doorCost.toLocaleString('en-IN')}`}
+                      </span>
+                    </div>
+
+                    {/* 2. Material */}
+                    <div className="py-2.5 flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="font-semibold text-[#1A1A1A]">
+                          Wood Material ({calculation.materialName})
+                        </span>
+                        <div className="text-[11px] text-[#666666] font-mono">
+                          {calculation.materialIncludedInDoorPrice ? (
+                            <span className="text-[#16803A] font-sans font-medium flex items-center gap-1">
+                              <Check className="w-3 h-3 text-[#16803A]" />
+                              Included in Door Shutter (All-Inclusive Base Price)
+                            </span>
+                          ) : (
+                            `${calculation.sqFt.toFixed(2)} sq.ft @ ₹${calculation.materialRate}/sq.ft`
+                          )}
+                        </div>
+                      </div>
+                      {calculation.materialIncludedInDoorPrice ? (
+                        <span className="font-mono font-semibold text-xs text-[#16803A] bg-[#E8F5E9] px-2 py-0.5 rounded border border-[#C8E6C9]">
+                          Included (₹0)
+                        </span>
+                      ) : (
+                        <span className="font-mono font-bold text-[#1A1A1A]">
+                          ₹{calculation.materialCost.toLocaleString('en-IN')}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* 3. Polish */}
+                    <div className="py-2.5 flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="font-semibold text-[#1A1A1A]">
+                          Polish / Finish ({calculation.finishName})
+                        </span>
+                        <div className="text-[11px] text-[#666666] font-mono">
+                          {calculation.sqFt.toFixed(2)} sq.ft @ ₹{calculation.finishRate}/sq.ft
+                        </div>
+                      </div>
+                      <span className="font-mono font-bold text-[#1A1A1A]">
+                        ₹{calculation.finishCost.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+
+                    {/* 5. Hardware */}
+                    <div className="py-2.5 flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="font-semibold text-[#1A1A1A]">
+                          Hardware &amp; Fitting ({calculation.hardwareName})
+                        </span>
+                        <div className="text-[11px] text-[#666666]">
+                          {calculation.hardwareCost > 0 ? `Qty: ${calculation.hardwareQty} Unit(s)` : 'No hardware'}
+                        </div>
+                      </div>
+                      <span className="font-mono font-bold text-[#1A1A1A]">
+                        ₹{calculation.hardwareCost.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+
+                    {/* Taxes / Additional if configured */}
+                    {calculation.additionalCharges > 0 && (
+                      <div className="py-2.5 flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <span className="font-semibold text-[#1A1A1A]">
+                            {calculation.additionalChargeName} ({settings.additionalChargePercentage}%)
+                          </span>
+                        </div>
+                        <span className="font-mono font-bold text-[#666666]">
+                          ₹{calculation.additionalCharges.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Status Message */}
+                  {saveMsg && (
+                    <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                      saveStatus === 'saved' ? 'bg-[#16803A]/10 text-[#16803A] border border-[#16803A]/30' : 'bg-[#C62828]/10 text-[#C62828] border border-[#C62828]/30'
+                    }`}>
+                      {saveStatus === 'saved' ? <CheckCircle2 className="w-4 h-4 text-[#16803A]" /> : <AlertCircle className="w-4 h-4 text-[#C62828]" />}
+                      <span>{saveMsg}</span>
+                    </div>
+                  )}
+
+                  {/* Action Buttons (Section 8 & 9) */}
+                  <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleGenerateQuotation}
+                      disabled={isGeneratingQuote}
+                      className="w-full sm:flex-1 py-3.5 px-5 rounded-xl bg-gradient-to-r from-[#C89211] to-[#b07d08] hover:opacity-95 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer active:scale-98 disabled:opacity-70"
+                    >
+                      <FileText className="w-5 h-5 text-white" />
+                      <span>{isGeneratingQuote ? 'Preparing Official Quotation...' : 'Get Official Quotation PDF'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveCalculation}
+                      disabled={saveStatus === 'saving'}
+                      className="w-full sm:w-auto px-4 py-3.5 rounded-xl bg-white hover:bg-[#F8F8F6] text-[#1A1A1A] border border-[#E5E5E5] text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                      title="Save to history"
+                    >
+                      <BookmarkPlus className="w-4 h-4 text-[#C89211]" />
+                      <span>{saveStatus === 'saving' ? 'Saving...' : 'Save Estimate'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleShareQuote}
+                      className="w-full sm:w-auto p-3.5 rounded-xl bg-white hover:bg-[#F8F8F6] text-[#666666] border border-[#E5E5E5] text-xs flex items-center justify-center transition-colors cursor-pointer shadow-sm"
+                      title="Share breakdown"
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Assurance Footer */}
+                  <div className="pt-3 border-t border-[#E5E5E5] text-[11px] text-[#666666] flex flex-wrap items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#16803A]" />
+                      100% Precision Fabrication Estimate
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* AdMob Adaptive Banner Placement (Below Quotation Summary, never occluding inputs or actions) */}

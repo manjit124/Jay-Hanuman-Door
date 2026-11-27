@@ -1,4 +1,5 @@
 import { getDb } from './db.ts';
+import { FEATURE_FLAGS } from '../src/config/featureFlags.ts';
 
 const CANONICAL_DOMAIN = 'https://jaihanumandoor.com';
 
@@ -49,13 +50,26 @@ export function generateSitemapXml(): string {
     changefreq: SitemapUrlEntry['changefreq'];
   }> = [
     { path: '/', priority: '1.0', changefreq: 'daily' },
-    { path: '/catalog', priority: '0.9', changefreq: 'daily' },
+    ...(FEATURE_FLAGS.doorCatalogue
+      ? [{ path: '/catalog', priority: '0.9', changefreq: 'daily' as const }]
+      : []),
     { path: '/calculator', priority: '0.9', changefreq: 'weekly' },
-    { path: '/articles', priority: '0.8', changefreq: 'weekly' },
-    { path: '/about', priority: '0.7', changefreq: 'monthly' },
+    { path: '/sliding-window', priority: '0.9', changefreq: 'weekly' },
+    { path: '/wood-detector', priority: '0.8', changefreq: 'weekly' },
+    ...(FEATURE_FLAGS.orderTracking
+      ? [{ path: '/track', priority: '0.8', changefreq: 'weekly' as const }]
+      : []),
+    ...(FEATURE_FLAGS.articlesBlog
+      ? [{ path: '/articles', priority: '0.8', changefreq: 'weekly' as const }]
+      : []),
+    ...(FEATURE_FLAGS.ourStoryAndTeam
+      ? [{ path: '/about', priority: '0.7', changefreq: 'monthly' as const }]
+      : []),
     { path: '/contact', priority: '0.7', changefreq: 'monthly' },
     { path: '/privacy-policy', priority: '0.5', changefreq: 'yearly' },
-    { path: '/disclaimer', priority: '0.5', changefreq: 'yearly' },
+    ...(FEATURE_FLAGS.copyrightFooter
+      ? [{ path: '/disclaimer', priority: '0.5', changefreq: 'yearly' as const }]
+      : []),
   ];
 
   for (const page of corePages) {
@@ -67,34 +81,38 @@ export function generateSitemapXml(): string {
     });
   }
 
-  // 2. Real dynamic published Articles from Database
-  const articles = (db.articles || []).filter(
-    (a) => a.published !== false && a.status !== 'draft'
-  );
+  // 2. Real dynamic published Articles from Database (only when enabled)
+  if (FEATURE_FLAGS.articlesBlog) {
+    const articles = (db.articles || []).filter(
+      (a) => a.published !== false && a.status !== 'draft'
+    );
 
-  for (const article of articles) {
-    const slug = (article.slug && article.slug.trim()) || article.id;
-    if (slug) {
-      urlEntries.push({
-        loc: `${CANONICAL_DOMAIN}/article/${encodeURIComponent(slug)}`,
-        lastmod: formatDate(article.updatedAt || article.publishedAt || article.createdAt),
-        changefreq: 'weekly',
-        priority: '0.8',
-      });
+    for (const article of articles) {
+      const slug = (article.slug && article.slug.trim()) || article.id;
+      if (slug) {
+        urlEntries.push({
+          loc: `${CANONICAL_DOMAIN}/article/${encodeURIComponent(slug)}`,
+          lastmod: formatDate(article.updatedAt || article.publishedAt || article.createdAt),
+          changefreq: 'weekly',
+          priority: '0.8',
+        });
+      }
     }
   }
 
-  // 3. Real dynamic active Doors (Products) from Database
-  const doors = (db.doors || []).filter((d) => d.active !== false);
+  // 3. Real dynamic active Doors (Products) from Database (only when enabled)
+  if (FEATURE_FLAGS.doorCatalogue) {
+    const doors = (db.doors || []).filter((d) => d.active !== false);
 
-  for (const door of doors) {
-    if (door.id) {
-      urlEntries.push({
-        loc: `${CANONICAL_DOMAIN}/door/${encodeURIComponent(door.id)}`,
-        lastmod: formatDate(door.createdAt),
-        changefreq: 'weekly',
-        priority: '0.8',
-      });
+    for (const door of doors) {
+      if (door.id) {
+        urlEntries.push({
+          loc: `${CANONICAL_DOMAIN}/door/${encodeURIComponent(door.id)}`,
+          lastmod: formatDate(door.createdAt),
+          changefreq: 'weekly',
+          priority: '0.8',
+        });
+      }
     }
   }
 
@@ -124,7 +142,7 @@ export function generateSitemapXml(): string {
  */
 export function generateRobotsTxt(): string {
   return [
-    '# Robots.txt for Jai Hanuman Door',
+    '# Robots.txt for WindowCut Pro',
     `# Canonical Production: ${CANONICAL_DOMAIN}`,
     '',
     'User-agent: *',

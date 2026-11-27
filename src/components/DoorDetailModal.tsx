@@ -4,7 +4,6 @@ import { Door, BusinessSettings } from '../types.ts';
 import { ProtectedImage } from './ProtectedImage.tsx';
 import { ContentProtectionWarning } from './ContentProtectionWarning.tsx';
 import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
-import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 import { resolveImageUrl, isGoogleDriveEmbedUrl } from '../lib/api.ts';
 
 interface DoorDetailModalProps {
@@ -302,17 +301,6 @@ export const DoorDetailModal: React.FC<DoorDetailModalProps> = ({
                   <Calculator className="w-5 h-5 text-[#C89211]" />
                   Calculate Price for this Door
                 </button>
-
-                <a
-                  id="modal-whatsapp-btn"
-                  href={getWhatsAppUrl(settings?.whatsappNumber, whatsappMessage)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center justify-center gap-2 transition-all shadow-sm"
-                >
-                  <MessageCircle className="w-5 h-5 text-white" />
-                  WhatsApp Enquiry
-                </a>
               </div>
 
               {/* Design & Media Protection Warning Badge */}

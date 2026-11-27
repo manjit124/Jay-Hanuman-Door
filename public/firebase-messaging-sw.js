@@ -1,5 +1,5 @@
 /* eslint-disable no-restricted-globals */
-// Firebase Messaging & Web Push Service Worker for Shivshahi Doors
+// Firebase Messaging & Web Push Service Worker for WindowCut Pro
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -12,10 +12,10 @@ self.addEventListener('activate', (event) => {
 // Handle incoming background push notifications
 self.addEventListener('push', (event) => {
   let notificationData = {
-    title: 'Shivshahi Doors Update',
-    body: 'Check out our new door designs and woodcraft updates.',
-    icon: '/assets/app-icon.svg',
-    badge: '/assets/app-icon.svg',
+    title: 'WindowCut Pro Update',
+    body: 'New sliding window fabrication calculator updates and saved sheet notifications.',
+    icon: '/assets/logo-192.png',
+    badge: '/assets/logo-192.png',
     image: undefined,
     data: { url: '/' },
   };
@@ -53,8 +53,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: notificationData.body,
-    icon: notificationData.icon || '/assets/app-icon.svg',
-    badge: notificationData.badge || '/assets/app-icon.svg',
+    icon: notificationData.icon || '/assets/logo-192.png',
+    badge: notificationData.badge || '/assets/logo-192.png',
     image: notificationData.image,
     vibrate: [200, 100, 200],
     tag: notificationData.data.campaignId || 'door-update',

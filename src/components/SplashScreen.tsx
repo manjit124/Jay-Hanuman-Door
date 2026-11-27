@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { BRAND_LOGO_URL, BRAND_NAME, BRAND_TAGLINE } from '../config/brand.ts';
 
 interface SplashScreenProps {
   onFinish?: () => void;
@@ -8,20 +9,18 @@ interface SplashScreenProps {
 
 export const SplashScreen: React.FC<SplashScreenProps> = ({
   onFinish,
-  minDurationMs = 1200,
-  isDataReady = true,
+  minDurationMs = 1100,
 }) => {
   const [visible, setVisible] = useState(true);
   const [fadeOut, setFadeOut] = useState(false);
 
   useEffect(() => {
-    // Keep splash brief and snappy without delaying the app startup
     const timer = setTimeout(() => {
       setFadeOut(true);
       const hideTimer = setTimeout(() => {
         setVisible(false);
         if (onFinish) onFinish();
-      }, 400); // 400ms fade transition
+      }, 360);
       return () => clearTimeout(hideTimer);
     }, minDurationMs);
 
@@ -34,41 +33,40 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
     <div
       id="app-splash-screen"
       role="status"
-      aria-label="Loading Jai Hanuman Door"
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0C0A09] text-white transition-opacity duration-500 select-none ${
+      aria-label={`Loading ${BRAND_NAME}`}
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-white text-[#0A2540] transition-opacity duration-300 select-none ${
         fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
     >
-      {/* Subtle luxury golden radial glow in background */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(200,146,17,0.18)_0%,rgba(12,10,9,0.95)_70%)] pointer-events-none" />
+      {/* Subtle engineering blueprint tint */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(11,94,215,0.08)_0%,rgba(255,255,255,0)_58%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.06)_0%,rgba(255,255,255,0)_50%)] pointer-events-none" />
 
-      <div className="relative z-10 flex flex-col items-center px-6 text-center animate-in fade-in zoom-in-95 duration-500">
-        {/* Official Jai Hanuman Door Logo with subtle golden aura */}
-        <div className="relative mb-5 group">
-          <div className="absolute -inset-2 rounded-full bg-gradient-to-r from-[#C89211]/30 via-[#FEF08A]/20 to-[#C89211]/30 blur-md animate-pulse" />
+      <div className="relative z-10 flex flex-col items-center px-6 text-center animate-in fade-in zoom-in-95 duration-300">
+        {/* Exact WindowCut Pro Official Logo */}
+        <div className="mb-5 p-2 rounded-3xl bg-white border border-[#E2E8F0] shadow-[0_14px_40px_rgba(11,94,215,0.12)]">
           <img
-            src="/assets/logo.png"
-            alt="Jai Hanuman Door Official Logo"
-            className="relative w-36 h-36 sm:w-44 sm:h-44 rounded-full object-contain shadow-2xl border-2 border-[#C89211]/60 bg-[#0C0A09]"
+            src={BRAND_LOGO_URL}
+            alt={`${BRAND_NAME} Official Logo`}
+            className="w-44 h-44 sm:w-52 sm:h-52 rounded-2xl object-contain"
             loading="eager"
             draggable={false}
           />
         </div>
 
-        {/* Brand Text */}
-        <h1 className="font-serif text-2xl sm:text-3xl font-extrabold tracking-tight text-[#FEF08A] drop-shadow-sm">
-          Jai Hanuman Door
+        {/* Brand Wordmark */}
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#0A2540]">
+          WindowCut <span className="text-[#F97316]">Pro</span>
         </h1>
-        <p className="text-xs sm:text-sm text-amber-200/80 font-medium tracking-wider uppercase mt-1">
-          Wooden Door • Sagwan Door • Door Frame
+        <p className="text-xs sm:text-sm font-semibold text-[#0B5ED7] tracking-wide mt-1">
+          {BRAND_TAGLINE}
         </p>
-        <p className="text-[11px] text-stone-400 mt-1 max-w-xs">
-          Direct Workshop Manufacturing &amp; Instant Estimation
+        <p className="text-xs text-[#64748B] mt-1.5 max-w-xs">
+          Glass Cutting · Tracks · Bearings · Mosquito Net · Bulk Sheets
         </p>
 
-        {/* Elegant Gold Progress Indicator */}
-        <div className="mt-6 w-36 h-1 rounded-full bg-stone-800 overflow-hidden relative border border-[#C89211]/30">
-          <div className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-[#C89211] via-[#FEF08A] to-[#C89211] w-full animate-[pulse_1.2s_ease-in-out_infinite]" />
+        {/* Clean Blue-to-Orange Progress Bar */}
+        <div className="mt-6 w-44 h-1.5 rounded-full bg-[#E2E8F0] overflow-hidden relative">
+          <div className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-[#0B5ED7] via-[#3B82F6] to-[#F97316] animate-pulse" />
         </div>
       </div>
     </div>

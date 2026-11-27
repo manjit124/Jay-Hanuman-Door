@@ -332,12 +332,12 @@ export const EntrancePhotoFitting: React.FC<EntrancePhotoFittingProps> = ({
 
         ctx.fillStyle = '#f59e0b';
         ctx.font = 'bold 20px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText(`JAI HANUMAN DOOR • ${door.name}`, 36, canvas.height - 52);
+        ctx.fillText(`WINDOWCUT PRO • ${door.name}`, 36, canvas.height - 52);
 
         ctx.fillStyle = '#d6d3d1';
         ctx.font = '13px monospace';
         ctx.fillText(
-          `${fittingState.woodType} • ${fittingState.widthInch}" × ${fittingState.heightInch}" • WhatsApp: +91 78874 12884`,
+          `${fittingState.woodType} • ${fittingState.widthInch}" × ${fittingState.heightInch}"`,
           36,
           canvas.height - 30
         );

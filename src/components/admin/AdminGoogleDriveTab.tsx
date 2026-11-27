@@ -39,6 +39,7 @@ import {
   BunnyStatusInfo,
   BunnyFileItem,
 } from '../../lib/api.ts';
+import { FEATURE_FLAGS, isStorageFolderDisabled } from '../../config/featureFlags.ts';
 
 type BunnyFolder =
   | 'products'
@@ -60,7 +61,7 @@ type BunnyFolder =
   | 'tracking'
   | 'general';
 
-const FOLDER_OPTIONS: { id: BunnyFolder; label: string }[] = [
+const ALL_FOLDER_OPTIONS: { id: BunnyFolder; label: string }[] = [
   { id: 'products', label: 'Door Designs' },
   { id: 'videos', label: 'Videos' },
   { id: 'models3d', label: '3D Models' },
@@ -80,6 +81,8 @@ const FOLDER_OPTIONS: { id: BunnyFolder; label: string }[] = [
   { id: 'catalog', label: 'Catalog PDFs' },
 ];
 
+const FOLDER_OPTIONS = ALL_FOLDER_OPTIONS.filter(folder => !isStorageFolderDisabled(folder.id));
+
 interface LegacyDriveStatus {
   configured: boolean;
   connected: boolean;
@@ -93,7 +96,13 @@ export const AdminGoogleDriveTab: React.FC = () => {
   // Primary Bunny.net Storage state
   const [bunnyStatus, setBunnyStatus] = useState<BunnyStatusInfo | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
-  const [activeFolder, setActiveFolder] = useState<BunnyFolder>('products');
+  const [activeFolder, setActiveFolder] = useState<BunnyFolder>(
+    FEATURE_FLAGS.doorCatalogue
+      ? 'products'
+      : FOLDER_OPTIONS.some(f => f.id === 'materials')
+      ? 'materials'
+      : (FOLDER_OPTIONS[0]?.id || 'materials')
+  );
   const [files, setFiles] = useState<BunnyFileItem[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
@@ -184,7 +193,9 @@ export const AdminGoogleDriveTab: React.FC = () => {
 
   useEffect(() => {
     loadBunnyStatus();
-    loadLegacyDriveStatus();
+    if (FEATURE_FLAGS.catalogueMediaImport) {
+      loadLegacyDriveStatus();
+    }
   }, []);
 
   useEffect(() => {
@@ -200,27 +211,55 @@ export const AdminGoogleDriveTab: React.FC = () => {
     setUploadError(null);
 
     try {
-      const result = await uploadFileWithProgress(
-        '/api/admin/bunny/upload',
+      const candidateEndpoints =
+        activeFolder === 'videos'
+          ? ['/api/admin/bunny/upload', '/api/admin/upload-video']
+          : activeFolder === 'models3d'
+          ? ['/api/admin/bunny/upload', '/api/admin/upload-model']
+          : ['/api/admin/bunny/upload', '/api/admin/upload', '/api/admin/upload-media'];
+
+      const fields = {
+        folder: activeFolder,
+        category: activeFolder,
+        mediaType:
+          activeFolder === 'videos'
+            ? 'video'
+            : activeFolder === 'models3d'
+            ? 'model3d'
+            : 'any',
+        description: description.trim() || `${activeFolder} upload`,
+      };
+
+      let result = await uploadFileWithProgress(
+        candidateEndpoints[0],
         fileToUpload,
         pct => setUploadProgress(pct),
         300000,
-        {
-          folder: activeFolder,
-          category: activeFolder,
-          mediaType:
-            activeFolder === 'videos'
-              ? 'video'
-              : activeFolder === 'models3d'
-              ? 'model3d'
-              : 'any',
-          description: description.trim() || `${activeFolder} upload`,
-        }
+        fields
       );
 
-      if (!result.ok || !result.data?.success) {
+      for (let i = 1; i < candidateEndpoints.length; i++) {
+        if (result.ok || (result.status !== 404 && result.errorCode !== 'ROUTE_NOT_DEPLOYED')) {
+          break;
+        }
+        result = await uploadFileWithProgress(
+          candidateEndpoints[i],
+          fileToUpload,
+          pct => setUploadProgress(pct),
+          300000,
+          fields
+        );
+      }
+
+      if (
+        !result.ok ||
+        !result.data?.success ||
+        result.data?.storageType !== 'bunny_storage' ||
+        result.data?.bunnyVerified === false ||
+        String(result.data?.url || '').startsWith('/uploads/')
+      ) {
         const prefix = result.errorCode ? `[${result.errorCode}] ` : '';
-        throw new Error(`${prefix}${result.error || 'Upload to Bunny Storage failed'}`);
+        throw new Error(`${prefix}${result.error || 'Upload to Bunny.net Storage failed or was not confirmed by Bunny.'}`);
       }
 
       setUploadProgress(100);
@@ -443,35 +482,37 @@ export const AdminGoogleDriveTab: React.FC = () => {
               <span>Upload into folder: /{activeFolder}/</span>
             </div>
 
-            <div className="inline-flex rounded-lg bg-white p-0.5 border border-stone-300">
-              <button
-                type="button"
-                onClick={() => setUploadSourceMode('device')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1 cursor-pointer ${
-                  uploadSourceMode === 'device'
-                    ? 'bg-[#C89211] text-white shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                <Upload className="w-3 h-3" />
-                <span>Upload From Device</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setUploadSourceMode('link')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1 cursor-pointer ${
-                  uploadSourceMode === 'link'
-                    ? 'bg-[#C89211] text-white shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                <HardDrive className="w-3 h-3" />
-                <span>Import From Link</span>
-              </button>
-            </div>
+            {FEATURE_FLAGS.catalogueMediaImport && (
+              <div className="inline-flex rounded-lg bg-white p-0.5 border border-stone-300">
+                <button
+                  type="button"
+                  onClick={() => setUploadSourceMode('device')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    uploadSourceMode === 'device'
+                      ? 'bg-[#C89211] text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>Upload From Device</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUploadSourceMode('link')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    uploadSourceMode === 'link'
+                      ? 'bg-[#C89211] text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <HardDrive className="w-3 h-3" />
+                  <span>Import From Link</span>
+                </button>
+              </div>
+            )}
           </div>
 
-          {uploadSourceMode === 'device' ? (
+          {(!FEATURE_FLAGS.catalogueMediaImport || uploadSourceMode === 'device') ? (
             <form onSubmit={handleDirectUpload} className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2 flex flex-wrap sm:flex-nowrap items-center gap-2">
@@ -480,9 +521,11 @@ export const AdminGoogleDriveTab: React.FC = () => {
                     accept={
                       activeFolder === 'videos'
                         ? 'video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov'
-                        : activeFolder === 'models3d'
+                        : activeFolder === 'models3d' && FEATURE_FLAGS.visualizer3dAr
                         ? '.glb,.gltf,model/gltf-binary,model/gltf+json'
-                        : 'image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,video/mp4,video/webm,.glb,.gltf'
+                        : FEATURE_FLAGS.visualizer3dAr
+                        ? 'image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,video/mp4,video/webm,.glb,.gltf'
+                        : 'image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,video/mp4,video/webm'
                     }
                     onChange={e => {
                       if (e.target.files && e.target.files[0]) {
@@ -871,7 +914,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
             </div>
           ) : files.length === 0 ? (
             <div className="py-8 text-center text-xs text-stone-500 border border-dashed border-stone-300 rounded-xl bg-stone-50">
-              No files stored in <strong>/{activeFolder}/</strong> yet. Upload your first photo, video, or 3D model above.
+              No files stored in <strong>/{activeFolder}/</strong> yet. Upload your first {FEATURE_FLAGS.visualizer3dAr ? 'photo, video, or 3D model' : 'photo or video'} above.
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -1038,6 +1081,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
       </div>
 
       {/* Legacy Google Drive OAuth Settings (Collapsed) */}
+      {FEATURE_FLAGS.catalogueMediaImport && (
       <details className="rounded-2xl bg-white border border-stone-200 p-4 text-xs">
         <summary className="font-bold text-stone-700 cursor-pointer flex items-center justify-between">
           <span className="flex items-center gap-2">
@@ -1096,6 +1140,7 @@ export const AdminGoogleDriveTab: React.FC = () => {
           </div>
         </form>
       </details>
+      )}
     </div>
   );
 };

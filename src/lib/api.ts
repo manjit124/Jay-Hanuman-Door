@@ -1,4 +1,5 @@
 import { Clipboard } from '@capacitor/clipboard';
+import { FEATURE_FLAGS } from '../config/featureFlags.ts';
 import {
   Door,
   Category,
@@ -283,16 +284,16 @@ export const DEFAULT_HARDWARE: HardwareItem[] = [
 ];
 
 export const DEFAULT_SETTINGS: BusinessSettings = {
-  businessName: 'Jai Hanuman Door',
-  tagline: 'Premium Handcrafted Wooden Doors & Custom Architectural Joinery',
-  logoUrl: '/assets/logo.png',
-  phone: '7887412884',
-  whatsappNumber: '7887412884',
-  email: 'shivshahidoors@gmail.com',
-  address: 'Plot No. 12, MIDC Industrial Area, Latur, Maharashtra 413531',
+  businessName: 'WindowCut Pro',
+  tagline: 'Sliding Window Fabrication Calculator',
+  logoUrl: '/assets/aistudio/file_00000000987c8211861f7f4e3ee30de1_a307444c.png',
+  phone: '',
+  whatsappNumber: '',
+  email: 'support@windowcutpro.com',
+  address: '',
   gstNumber: '27AABCU9603R1ZM',
   currencySymbol: '₹',
-  quotePrefix: 'JHD',
+  quotePrefix: 'WCP',
   additionalChargePercentage: 0,
   additionalChargeName: 'Taxes',
   terms: [
@@ -434,10 +435,16 @@ export function setCachedProductionApiUrl(url: string): void {
  */
 export function isCapacitorOrNative(): boolean {
   if (typeof window === 'undefined') return false;
-  const isCap = !!(window as any).Capacitor?.isNativePlatform?.() || !!(window as any).Capacitor;
-  const isLocalhostScheme = window.location.protocol === 'capacitor:' ||
-    (window.location.hostname === 'localhost' && (!window.location.port || window.location.port === '' || window.location.port === '80' || window.location.port === '443'));
-  return isCap || isLocalhostScheme;
+  const cap = (window as any).Capacitor;
+  const isCapNative =
+    typeof cap?.isNativePlatform === 'function'
+      ? Boolean(cap.isNativePlatform())
+      : typeof cap?.getPlatform === 'function'
+      ? cap.getPlatform() === 'android' || cap.getPlatform() === 'ios'
+      : false;
+  const isNativeProtocol =
+    window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
+  return isCapNative || isNativeProtocol;
 }
 
 /**
@@ -854,6 +861,36 @@ export function getAdminAuthHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Keep Customer session token strictly in memory (never localStorage); persistent reloads use HttpOnly cookie
+let inMemoryCustomerSessionToken: string | null = null;
+
+export function setCustomerMemoryToken(token: string | null): void {
+  inMemoryCustomerSessionToken = token;
+}
+
+export function getCustomerMemoryToken(): string | null {
+  return inMemoryCustomerSessionToken;
+}
+
+/**
+ * Builds reverse-proxy-safe customer authentication headers for protected calculation endpoints.
+ * Uses X-Customer-Token (plus HttpOnly cookie via credentials: 'include') rather than
+ * Authorization: Bearer so Google Cloud Run / AI Studio proxies never intercept the request.
+ */
+export function buildCustomerCalcHeaders(includeJson = true): Record<string, string> {
+  const headers: Record<string, string> = {
+    'X-Requested-With': 'XMLHttpRequest',
+    Accept: 'application/json',
+  };
+  if (includeJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (inMemoryCustomerSessionToken) {
+    headers['X-Customer-Token'] = inMemoryCustomerSessionToken;
+  }
+  return headers;
+}
+
 function authHeaders(): HeadersInit {
   const token = getAdminToken();
   return {
@@ -973,14 +1010,25 @@ export async function fetchCatalog(): Promise<{
     const contentType = res.headers.get('content-type') || '';
     if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
-      if (data && Array.isArray(data.doors) && data.doors.length > 0) {
+      const hasValidPayload = FEATURE_FLAGS.doorCatalogue
+        ? data && Array.isArray(data.doors) && data.doors.length > 0
+        : Boolean(data && data.settings);
+      if (hasValidPayload) {
+        const normalized = {
+          doors: FEATURE_FLAGS.doorCatalogue && Array.isArray(data.doors) ? data.doors : [],
+          categories: FEATURE_FLAGS.doorCatalogue && Array.isArray(data.categories) ? data.categories : [],
+          banners: FEATURE_FLAGS.homeBanners && Array.isArray(data.banners) ? data.banners : [],
+          articles: FEATURE_FLAGS.articlesBlog && Array.isArray(data.articles) ? data.articles : [],
+          teamMembers: Array.isArray(data.teamMembers) ? data.teamMembers : [],
+          settings: data.settings || DEFAULT_SETTINGS,
+        };
         try {
-          localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(data));
-          if (data.settings?.productionApiUrl) {
-            setCachedProductionApiUrl(data.settings.productionApiUrl);
+          localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(normalized));
+          if (normalized.settings?.productionApiUrl) {
+            setCachedProductionApiUrl(normalized.settings.productionApiUrl);
           }
         } catch {}
-        return data;
+        return normalized;
       }
     }
   } catch (err: any) {
@@ -990,20 +1038,29 @@ export async function fetchCatalog(): Promise<{
   // 2. Authoritative direct Firestore database fetch (Prioritized before local cache so Android APK always gets fresh admin updates)
   try {
     const fsData = await fetchDirectFirestoreData();
-    if (fsData && Array.isArray(fsData.doors) && fsData.doors.length > 0) {
-      const activeBanners = Array.isArray(fsData.banners)
-        ? fsData.banners.filter((b: any) => b.active !== false)
-        : DEFAULT_BANNERS;
+    const hasValidFsPayload = FEATURE_FLAGS.doorCatalogue
+      ? fsData && Array.isArray(fsData.doors) && fsData.doors.length > 0
+      : Boolean(fsData && fsData.settings);
+    if (hasValidFsPayload) {
+      const activeBanners = FEATURE_FLAGS.homeBanners
+        ? (Array.isArray(fsData.banners)
+            ? fsData.banners.filter((b: any) => b.active !== false)
+            : DEFAULT_BANNERS)
+        : [];
       const activeTeamMembers = Array.isArray(fsData.teamMembers)
         ? fsData.teamMembers
             .filter((m: any) => m.active !== false)
             .sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0))
         : [];
       const catalogData = {
-        doors: fsData.doors,
-        categories: Array.isArray(fsData.categories) && fsData.categories.length > 0 ? fsData.categories : DEFAULT_CATEGORIES,
+        doors: FEATURE_FLAGS.doorCatalogue && Array.isArray(fsData.doors) ? fsData.doors : [],
+        categories: FEATURE_FLAGS.doorCatalogue
+          ? (Array.isArray(fsData.categories) && fsData.categories.length > 0 ? fsData.categories : DEFAULT_CATEGORIES)
+          : [],
         banners: activeBanners,
-        articles: Array.isArray(fsData.articles) && fsData.articles.length > 0 ? fsData.articles : DEFAULT_ARTICLES,
+        articles: FEATURE_FLAGS.articlesBlog
+          ? (Array.isArray(fsData.articles) && fsData.articles.length > 0 ? fsData.articles : DEFAULT_ARTICLES)
+          : [],
         teamMembers: activeTeamMembers,
         settings: fsData.settings || DEFAULT_SETTINGS,
       };
@@ -1025,20 +1082,30 @@ export async function fetchCatalog(): Promise<{
     const cached = localStorage.getItem(CATALOG_CACHE_KEY);
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0) {
+      const hasValidCache = FEATURE_FLAGS.doorCatalogue
+        ? parsed && Array.isArray(parsed.doors) && parsed.doors.length > 0
+        : Boolean(parsed && parsed.settings);
+      if (hasValidCache) {
         console.info('Restored catalog data from client cache.');
-        return parsed;
+        return {
+          doors: FEATURE_FLAGS.doorCatalogue ? parsed.doors || [] : [],
+          categories: FEATURE_FLAGS.doorCatalogue ? parsed.categories || [] : [],
+          banners: FEATURE_FLAGS.homeBanners ? parsed.banners || [] : [],
+          articles: FEATURE_FLAGS.articlesBlog ? parsed.articles || [] : [],
+          teamMembers: Array.isArray(parsed.teamMembers) ? parsed.teamMembers : [],
+          settings: parsed.settings || DEFAULT_SETTINGS,
+        };
       }
     }
   } catch {}
 
   // 4. Guaranteed offline fallback dataset (Ensures zero blank screens)
-  console.info('Using built-in master catalog fallback.');
+  console.info('Using built-in master settings fallback.');
   return {
-    doors: DEFAULT_DOORS,
-    categories: DEFAULT_CATEGORIES,
-    banners: DEFAULT_BANNERS,
-    articles: DEFAULT_ARTICLES,
+    doors: FEATURE_FLAGS.doorCatalogue ? DEFAULT_DOORS : [],
+    categories: FEATURE_FLAGS.doorCatalogue ? DEFAULT_CATEGORIES : [],
+    banners: FEATURE_FLAGS.homeBanners ? DEFAULT_BANNERS : [],
+    articles: FEATURE_FLAGS.articlesBlog ? DEFAULT_ARTICLES : [],
     teamMembers: [],
     settings: DEFAULT_SETTINGS,
   };
@@ -1117,10 +1184,29 @@ export async function fetchCalculatorData(): Promise<{
 export async function calculatePrice(input: CalculationInput): Promise<CalculationResult> {
   const res = await fetchWithRetry('/api/calculate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: buildCustomerCalcHeaders(true),
     body: JSON.stringify(input),
   }, 2, 300);
-  if (!res.ok) throw new Error('Calculation failed');
+  if (!res.ok) {
+    const errPayload = await res.json().catch(() => ({}));
+    const err = new Error(
+      errPayload?.error ||
+        (res.status === 401
+          ? 'Please login with your mobile number to view your calculation results.'
+          : 'Calculation failed')
+    ) as Error & { status?: number; code?: string; errorCode?: string };
+    err.status = res.status;
+    err.errorCode = errPayload?.errorCode;
+    if (
+      res.status === 401 ||
+      errPayload?.errorCode === 'CUSTOMER_AUTH_REQUIRED' ||
+      errPayload?.errorCode === 'CUSTOMER_SESSION_EXPIRED'
+    ) {
+      err.code = 'CUSTOMER_AUTH_REQUIRED';
+    }
+    throw err;
+  }
   return res.json();
 }
 
@@ -1650,14 +1736,34 @@ export function uploadFileWithProgress(
       try {
         const parsed = JSON.parse(responseText);
         if (status >= 200 && status < 300 && parsed && parsed.url) {
+          const returnedUrl = String(parsed.url || '').trim();
+          const isLegacyLocalPath = returnedUrl.startsWith('/uploads/') || returnedUrl.includes('/uploads/');
+          const isBunnyConfirmed =
+            parsed.storageType === 'bunny_storage' &&
+            parsed.bunnyVerified !== false &&
+            !isLegacyLocalPath;
+
+          if (!isBunnyConfirmed) {
+            resolve({
+              ok: false,
+              status: 503,
+              errorCode: 'NON_BUNNY_STORAGE_REJECTED',
+              data: parsed,
+              error: `Upload rejected: server returned non-Bunny storage (${parsed.storageType || 'local_disk'}: "${returnedUrl}") instead of verified Bunny.net Storage. Deploy the latest Cloud Run revision with BUNNY_STORAGE_PASSWORD configured.`,
+            });
+            return;
+          }
           resolve({ ok: true, status, data: parsed });
         } else {
+          const isRouteMissing = status === 404;
           resolve({
             ok: false,
             status,
-            errorCode: parsed?.errorCode,
+            errorCode: parsed?.errorCode || (isRouteMissing ? 'ROUTE_NOT_DEPLOYED' : undefined),
             data: parsed,
-            error: parsed?.error || `Upload failed with HTTP ${status}`,
+            error: isRouteMissing
+              ? `Route "${endpoint}" not found on "${fullUrl}" (${parsed?.error || 'HTTP 404'})`
+              : parsed?.error || `Upload failed with HTTP ${status}`,
           });
         }
       } catch (err: any) {
@@ -1741,12 +1847,12 @@ export async function uploadImage(
 
   options.onProgress?.(18, 'uploading');
 
-  // 2. Upload photo securely through backend Express API -> Bunny.net Storage
+  // 2. Upload photo securely through backend Express API -> Bunny.net Storage ONLY (never fallback to legacy /api/upload)
   const filename = resolveSafeUploadFilename(optimization.file, `door_${targetCategory}`);
-  const hasAdminCategory = Boolean(options.category && options.category.trim());
-  const uploadEndpoint = getAdminToken() || hasAdminCategory ? '/api/admin/bunny/upload' : '/api/upload';
-  const uploadResult = await uploadFileWithProgress(
-    uploadEndpoint,
+  const candidateEndpoints = ['/api/admin/bunny/upload', '/api/admin/upload', '/api/admin/upload-image'];
+
+  let uploadResult = await uploadFileWithProgress(
+    candidateEndpoints[0],
     optimization.file,
     pct => options.onProgress?.(pct, 'uploading'),
     90000,
@@ -1757,6 +1863,24 @@ export async function uploadImage(
       description: options.description || `Admin ${targetCategory} photo upload: ${filename}`,
     }
   );
+
+  for (let i = 1; i < candidateEndpoints.length; i++) {
+    if (uploadResult.ok || (uploadResult.status !== 404 && uploadResult.errorCode !== 'ROUTE_NOT_DEPLOYED')) {
+      break;
+    }
+    uploadResult = await uploadFileWithProgress(
+      candidateEndpoints[i],
+      optimization.file,
+      pct => options.onProgress?.(pct, 'uploading'),
+      90000,
+      {
+        folder: targetCategory,
+        category: targetCategory,
+        mediaType: 'image',
+        description: options.description || `Admin ${targetCategory} photo upload: ${filename}`,
+      }
+    );
+  }
 
   if (!uploadResult.ok || !uploadResult.data?.url) {
     const codePrefix = uploadResult.errorCode ? `[${uploadResult.errorCode}] ` : '';
@@ -2111,12 +2235,28 @@ async function callDriveMediaEndpoint<T extends { success: boolean; error?: stri
   const targetUrl = resolveApiUrl(endpointPath);
   const candidateEndpoints = endpointPath.includes('/api/admin/drive-media/')
     ? mediaType === 'model3d'
-      ? [endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-model/'), endpointPath]
+      ? [
+          endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-model/'),
+          endpointPath,
+          endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive/'),
+        ]
       : mediaType === 'video'
-      ? [endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-video/'), endpointPath]
+      ? [
+          endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-video/'),
+          endpointPath,
+          endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive/'),
+        ]
       : mediaType === 'image'
-      ? [endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-image/'), endpointPath]
-      : [endpointPath, endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-image/')]
+      ? [
+          endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-image/'),
+          endpointPath,
+          endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive/'),
+        ]
+      : [
+          endpointPath,
+          endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive-image/'),
+          endpointPath.replace('/api/admin/drive-media/', '/api/admin/drive/'),
+        ]
     : [endpointPath];
 
   for (const ep of candidateEndpoints) {
@@ -2283,8 +2423,9 @@ export async function uploadVideo(
 
   onProgress?.(8);
   const filename = resolveSafeUploadFilename(file, 'product_video');
-  const uploadResult = await uploadFileWithProgress(
-    '/api/admin/bunny/upload',
+  const videoEndpoints = ['/api/admin/bunny/upload', '/api/admin/upload-video'];
+  let uploadResult = await uploadFileWithProgress(
+    videoEndpoints[0],
     file,
     onProgress,
     240000,
@@ -2295,6 +2436,24 @@ export async function uploadVideo(
       description: `Admin video upload: ${filename}`,
     }
   );
+
+  for (let i = 1; i < videoEndpoints.length; i++) {
+    if (uploadResult.ok || (uploadResult.status !== 404 && uploadResult.errorCode !== 'ROUTE_NOT_DEPLOYED')) {
+      break;
+    }
+    uploadResult = await uploadFileWithProgress(
+      videoEndpoints[i],
+      file,
+      onProgress,
+      240000,
+      {
+        folder: category || 'videos',
+        category: category || 'videos',
+        mediaType: 'video',
+        description: `Admin video upload: ${filename}`,
+      }
+    );
+  }
 
   if (!uploadResult.ok || !uploadResult.data?.url) {
     const codePrefix = uploadResult.errorCode ? `[${uploadResult.errorCode}] ` : '';
@@ -2334,13 +2493,27 @@ export async function upload3DModel(
   onProgress?.(10);
   const isModelExt = /\.(glb|gltf)$/i.test(file.name || '');
   const targetFolder = isModelExt ? 'models3d' : category || 'models3d';
-  const uploadResult = await uploadFileWithProgress(
-    '/api/admin/bunny/upload',
+  const modelEndpoints = ['/api/admin/bunny/upload', '/api/admin/upload-model'];
+  let uploadResult = await uploadFileWithProgress(
+    modelEndpoints[0],
     file,
     onProgress,
     180000,
     { folder: targetFolder, category: targetFolder, mediaType: isModelExt ? 'model3d' : 'image' }
   );
+
+  for (let i = 1; i < modelEndpoints.length; i++) {
+    if (uploadResult.ok || (uploadResult.status !== 404 && uploadResult.errorCode !== 'ROUTE_NOT_DEPLOYED')) {
+      break;
+    }
+    uploadResult = await uploadFileWithProgress(
+      modelEndpoints[i],
+      file,
+      onProgress,
+      180000,
+      { folder: targetFolder, category: targetFolder, mediaType: isModelExt ? 'model3d' : 'image' }
+    );
+  }
 
   if (!uploadResult.ok || !uploadResult.data?.url) {
     const codePrefix = uploadResult.errorCode ? `[${uploadResult.errorCode}] ` : '';
@@ -4056,15 +4229,16 @@ export async function detectWoodFromImage(
       if (data instanceof FormData) {
         response = await fetch(endpoint, {
           method: 'POST',
+          credentials: 'include',
+          headers: buildCustomerCalcHeaders(false),
           body: data,
           signal: combinedSignal,
         });
       } else {
         response = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          credentials: 'include',
+          headers: buildCustomerCalcHeaders(true),
           body: JSON.stringify(data),
           signal: combinedSignal,
         });
@@ -4081,10 +4255,12 @@ export async function detectWoodFromImage(
       const contentType = response.headers.get('content-type') || '';
       if (!response.ok) {
         let errMessage = 'Lakdi scan karne mein samasya aayi. Kripya punah prayas karein.';
+        let errCode: string | undefined;
         try {
           if (contentType.includes('application/json')) {
             const errJson = await response.json();
             errMessage = errJson.error || errJson.message || errMessage;
+            errCode = errJson.errorCode;
           } else if (response.status === 413) {
             errMessage = 'Photo size bohot bada hai. Kripya compressed ya normal camera photo use karein.';
           } else if (response.status === 502 || response.status === 503 || response.status === 504) {
@@ -4093,7 +4269,21 @@ export async function detectWoodFromImage(
         } catch {
           // ignore parsing error
         }
-        throw new Error(errMessage);
+        const err = new Error(
+          response.status === 401
+            ? errMessage || 'Please login with your mobile number to view your calculation results.'
+            : errMessage
+        ) as Error & { status?: number; code?: string; errorCode?: string };
+        err.status = response.status;
+        err.errorCode = errCode;
+        if (
+          response.status === 401 ||
+          errCode === 'CUSTOMER_AUTH_REQUIRED' ||
+          errCode === 'CUSTOMER_SESSION_EXPIRED'
+        ) {
+          err.code = 'CUSTOMER_AUTH_REQUIRED';
+        }
+        throw err;
       }
 
       if (!contentType.includes('application/json')) {
@@ -4112,6 +4302,10 @@ export async function detectWoodFromImage(
 
       if (err.name === 'AbortError') {
         throw new Error('Analysis request timed out (Server response delay). Kripya dobara Retry karein.');
+      }
+
+      if (err?.code === 'CUSTOMER_AUTH_REQUIRED' || err?.status === 401) {
+        throw err;
       }
 
       // If it's not a 404, don't repeat the identical request
@@ -4609,12 +4803,28 @@ export async function calculateChaukhatApi(data: {
 }): Promise<ChaukhatCalculationResult> {
   const res = await apiFetch('/api/chaukhat/calculate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: buildCustomerCalcHeaders(true),
     body: JSON.stringify(data),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to calculate Chaukhat price');
+    const errPayload = await res.json().catch(() => ({}));
+    const err = new Error(
+      errPayload?.error ||
+        (res.status === 401
+          ? 'Please login with your mobile number to view your calculation results.'
+          : 'Failed to calculate Chaukhat price')
+    ) as Error & { status?: number; code?: string; errorCode?: string };
+    err.status = res.status;
+    err.errorCode = errPayload?.errorCode;
+    if (
+      res.status === 401 ||
+      errPayload?.errorCode === 'CUSTOMER_AUTH_REQUIRED' ||
+      errPayload?.errorCode === 'CUSTOMER_SESSION_EXPIRED'
+    ) {
+      err.code = 'CUSTOMER_AUTH_REQUIRED';
+    }
+    throw err;
   }
   return await res.json();
 }

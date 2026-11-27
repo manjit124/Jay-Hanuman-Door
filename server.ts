@@ -93,6 +93,10 @@ import {
   type DriveSubfolderCategory,
 } from './server/googleDriveStorage.ts';
 import { analyzeDoorWood, type ImageInputPart } from './server/aiWoodDetector.ts';
+import { registerSlidingWindowRoutes } from './server/slidingWindowRoutes.ts';
+import { registerWindowSystemRoutes } from './server/windowSystemRoutes.ts';
+import { registerPaymentAndOtpRoutes, requireCustomerAuth } from './server/paymentAuthRoutes.ts';
+import { registerMonetizationRoutes } from './server/monetizationRoutes.ts';
 import { WOOD_SPECIES_PROFILES } from './server/woodAnatomyGuide.ts';
 import { runWoodBenchmarkEvaluation } from './server/woodBenchmark.ts';
 import { generateSitemapXml, generateRobotsTxt } from './server/sitemap.ts';
@@ -128,6 +132,11 @@ import {
   DEFAULT_PREFERENCES,
 } from './server/notifications.ts';
 import { initTrackingRoutes } from './server/trackingService.ts';
+import {
+  FEATURE_FLAGS,
+  getDisabledStorageFolders,
+  isStorageFolderDisabled,
+} from './src/config/featureFlags.ts';
 
 const app = express();
 const rawPort = process.env.PORT !== undefined ? String(process.env.PORT).trim() : '';
@@ -197,7 +206,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, x-admin-token, X-Admin-Token'
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, x-admin-token, X-Admin-Token, x-fabricator-token, X-Fabricator-Token, x-customer-token, X-Customer-Token, x-razorpay-signature, X-Razorpay-Signature, x-razorpay-event-id'
   );
   res.setHeader('Access-Control-Max-Age', '86400');
   res.setHeader('Permissions-Policy', 'camera=*, microphone=*');
@@ -333,8 +342,15 @@ app.head('/ready', (_req, res) => {
   return res.status(isDatabaseHydrated() ? 200 : 503).end();
 });
 
-// Increase request size limit for base64/images
-app.use(express.json({ limit: '50mb' }));
+// Increase request size limit for base64/images & preserve rawBody for Razorpay webhook HMAC verification
+app.use(
+  express.json({
+    limit: '50mb',
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Anti-stale cache protection for all API endpoints
@@ -342,6 +358,131 @@ app.use('/api', (_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
+  next();
+});
+
+// Public read-only feature flags status endpoint
+app.get('/api/feature-flags', (_req, res) => {
+  res.json({
+    success: true,
+    featureFlags: FEATURE_FLAGS,
+    disabledStorageFolders: getDisabledStorageFolders(),
+  });
+});
+
+// Centralized Feature-Flag Guard for temporarily suspended storage-heavy modules.
+// Returns HTTP 410 Gone JSON (proxy-safe, never rewritten to HTML) while preserving all DB records & storage files.
+app.use('/api', (req, res, next) => {
+  const fullPath = `/api${req.path || ''}`.toLowerCase();
+  const rejectDisabled = (feature: string, label: string) =>
+    res.status(410).setHeader('Content-Type', 'application/json; charset=utf-8').json({
+      success: false,
+      disabled: true,
+      errorCode: 'FEATURE_TEMPORARILY_DISABLED',
+      feature,
+      error: `${label} is temporarily disabled to reduce storage usage. Existing records and media remain preserved.`,
+    });
+
+  if (
+    !FEATURE_FLAGS.appMessages &&
+    (fullPath === '/api/notifications' ||
+      fullPath.startsWith('/api/notifications/') ||
+      fullPath === '/api/admin/notifications' ||
+      fullPath.startsWith('/api/admin/notifications/'))
+  ) {
+    return rejectDisabled('appMessages', 'App Messages & Push Notifications');
+  }
+
+  if (
+    !FEATURE_FLAGS.doorCatalogue &&
+    (fullPath === '/api/admin/doors' ||
+      fullPath.startsWith('/api/admin/doors/') ||
+      fullPath === '/api/admin/categories' ||
+      fullPath.startsWith('/api/admin/categories/'))
+  ) {
+    return rejectDisabled('doorCatalogue', 'Door Catalogue Management');
+  }
+
+  if (
+    !FEATURE_FLAGS.homeBanners &&
+    (fullPath === '/api/banners' ||
+      fullPath.startsWith('/api/banners/') ||
+      fullPath === '/api/admin/banners' ||
+      fullPath.startsWith('/api/admin/banners/'))
+  ) {
+    return rejectDisabled('homeBanners', 'Home Page & Promotional Banners');
+  }
+
+  if (
+    !FEATURE_FLAGS.articlesBlog &&
+    (fullPath === '/api/articles' ||
+      fullPath.startsWith('/api/articles/') ||
+      fullPath === '/api/admin/articles' ||
+      fullPath.startsWith('/api/admin/articles/') ||
+      fullPath === '/api/admin/article-categories' ||
+      fullPath.startsWith('/api/admin/article-categories/'))
+  ) {
+    return rejectDisabled('articlesBlog', 'Articles & Blog');
+  }
+
+  if (
+    !FEATURE_FLAGS.visualizer3dAr &&
+    (fullPath === '/api/admin/upload-model' ||
+      fullPath === '/api/visualizer' ||
+      fullPath.startsWith('/api/visualizer/') ||
+      fullPath.startsWith('/api/ai/visualize'))
+  ) {
+    return rejectDisabled('visualizer3dAr', '3D & AR Door Visualizer');
+  }
+
+  if (
+    !FEATURE_FLAGS.catalogueMediaImport &&
+    (fullPath.startsWith('/api/admin/drive-media/') ||
+      fullPath.startsWith('/api/admin/drive-image/') ||
+      fullPath.startsWith('/api/admin/drive-video/') ||
+      fullPath.startsWith('/api/admin/drive-model/') ||
+      fullPath === '/api/admin/drive/preview' ||
+      fullPath === '/api/admin/drive/import' ||
+      fullPath === '/api/admin/drive/test-upload' ||
+      fullPath === '/api/admin/storage/sync-pending' ||
+      fullPath === '/api/admin/r2/sync-pending')
+  ) {
+    return rejectDisabled('catalogueMediaImport', 'External Media Import & Background Storage Sync');
+  }
+
+  if (
+    !FEATURE_FLAGS.orderTracking &&
+    (fullPath === '/api/tracking' ||
+      fullPath.startsWith('/api/tracking/') ||
+      fullPath === '/api/admin/tracking' ||
+      fullPath.startsWith('/api/admin/tracking/'))
+  ) {
+    return rejectDisabled('orderTracking', 'Order Tracking & Live Manufacturing');
+  }
+
+  if (
+    !FEATURE_FLAGS.allIndiaDelivery &&
+    (fullPath === '/api/delivery' ||
+      fullPath.startsWith('/api/delivery/') ||
+      fullPath === '/api/admin/delivery' ||
+      fullPath.startsWith('/api/admin/delivery/') ||
+      fullPath.startsWith('/api/india-delivery') ||
+      fullPath.startsWith('/api/admin/india-delivery'))
+  ) {
+    return rejectDisabled('allIndiaDelivery', 'Door Delivery Across India');
+  }
+
+  if (
+    !FEATURE_FLAGS.ourStoryAndTeam &&
+    (fullPath === '/api/team-members' ||
+      fullPath.startsWith('/api/team-members/') ||
+      fullPath === '/api/admin/team-members' ||
+      fullPath.startsWith('/api/admin/team-members/') ||
+      fullPath === '/api/admin/team-members-reorder')
+  ) {
+    return rejectDisabled('ourStoryAndTeam', 'Our Story & Owner / Team Information');
+  }
+
   next();
 });
 
@@ -370,6 +511,9 @@ app.get('/api/bunny/media/*', async (req, res) => {
   const baseName = path.basename(cleanObjectPath).replace(/[^a-zA-Z0-9_.-]/g, '_');
   const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range : undefined;
   const localPath = path.join(UPLOAD_DIR, baseName);
+
+  res.removeHeader('Pragma');
+  res.removeHeader('Expires');
 
   // Fast path: serve from local cache if available and valid
   if (fs.existsSync(localPath)) {
@@ -565,41 +709,6 @@ app.get(['/uploads/*', '/api/uploads/*', '/api/media/*'], async (req, res, next)
   });
 });
 
-// Configure Multer for direct file uploads
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    try {
-      if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-      fs.accessSync(UPLOAD_DIR, fs.constants.W_OK);
-      return cb(null, UPLOAD_DIR);
-    } catch {
-      const tmpUploadDir = '/tmp/jai-hanuman-door/uploads';
-      try {
-        if (!fs.existsSync(tmpUploadDir)) fs.mkdirSync(tmpUploadDir, { recursive: true });
-      } catch {}
-      return cb(null, tmpUploadDir);
-    }
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.jpg';
-    const cleanName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e6);
-    cb(null, `${cleanName}-${uniqueSuffix}${ext}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are permitted'));
-    }
-  },
-});
-
 // Ephemeral in-memory multer for AI Wood Detector (privacy-first: zero disk storage)
 const memoryUpload = multer({
   storage: multer.memoryStorage(),
@@ -613,60 +722,10 @@ const memoryUpload = multer({
   },
 });
 
-// Multer configuration for 3D Models (.glb, .gltf) and high-res textures
-const modelUpload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
-  fileFilter: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const allowedExts = ['.glb', '.gltf', '.bin', '.jpg', '.jpeg', '.png', '.webp'];
-    const isModelMime =
-      file.mimetype === 'model/gltf-binary' ||
-      file.mimetype === 'model/gltf+json' ||
-      file.mimetype === 'application/octet-stream';
-    if (allowedExts.includes(ext) || file.mimetype.startsWith('image/') || isModelMime) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only 3D models (.glb, .gltf) and textures (.jpg, .png, .webp) are permitted'));
-    }
-  },
-});
-
-// Direct in-memory Multer for Bunny.net Storage API routes (up to 100 MB)
+// Direct in-memory Multer for all Bunny.net Storage API routes (up to 100 MB, zero temporary disk storage)
 const bunnyMemoryUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_VIDEO_UPLOAD_BYTES },
-});
-
-// Unified Multer configuration for Admin Media Uploads (Photos, Videos, 3D Models up to 100 MB)
-// Accepts application/octet-stream and extensionless Android WebView blobs; magic-byte detection validates content in handler.
-const driveMediaUpload = multer({
-  storage,
-  limits: { fileSize: MAX_VIDEO_UPLOAD_BYTES }, // 100 MB
-  fileFilter: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase();
-    const mime = (file.mimetype || '').toLowerCase().trim();
-    const allowedExts = [
-      '.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.avif', '.heic', '.heif', '.bmp',
-      '.mp4', '.webm', '.mov', '.m4v', '.3gp', '.mkv',
-      '.glb', '.gltf', '.bin', '.pdf',
-    ];
-    const isAllowedMime =
-      !mime ||
-      mime === 'application/octet-stream' ||
-      mime === 'binary/octet-stream' ||
-      mime.startsWith('image/') ||
-      mime.startsWith('video/') ||
-      mime === 'model/gltf-binary' ||
-      mime === 'model/gltf+json' ||
-      mime === 'application/pdf';
-
-    if (allowedExts.includes(ext) || isAllowedMime) {
-      cb(null, true);
-    } else {
-      cb(new Error(`Unsupported media file format (${mime || ext}). Supported: JPG, PNG, WebP, MP4, WebM, MOV, GLB.`));
-    }
-  },
 });
 
 // Admin auth token store (resilient across dev/container restarts)
@@ -751,14 +810,18 @@ const handleBunnySingleUpload = (
       });
     }
 
-    if (!isBunnyStorageConfigured()) {
-      const summary = getBunnyConfigSummary();
-      return res.status(503).json({
-        success: false,
-        errorCode: 'BUNNY_NOT_CONFIGURED',
-        missingVars: summary.missingVars,
-        error: `Bunny.net Storage environment variable(s) not configured on server: ${summary.missingVars.join(', ')}.`,
-      });
+    const preRequestedFolder = String(req.body?.folder || req.body?.category || defaultFolder || '').trim();
+    if (preRequestedFolder) {
+      const preNormalized = normalizeBunnyFolder(preRequestedFolder);
+      if (isStorageFolderDisabled(preNormalized)) {
+        return res.status(410).json({
+          success: false,
+          disabled: true,
+          errorCode: 'STORAGE_FOLDER_TEMPORARILY_DISABLED',
+          folder: preNormalized,
+          error: `Uploads to "${preNormalized}" are temporarily suspended while its module is disabled. Active modules continue using Bunny Storage.`,
+        });
+      }
     }
 
     const validation = validateBunnyUploadFile(
@@ -788,11 +851,48 @@ const handleBunnySingleUpload = (
       });
     }
 
+    if (!FEATURE_FLAGS.visualizer3dAr && validation.kind === 'model3d') {
+      return res.status(410).json({
+        success: false,
+        disabled: true,
+        errorCode: 'FEATURE_TEMPORARILY_DISABLED',
+        feature: 'visualizer3dAr',
+        error: '3D model uploads (.glb/.gltf) are temporarily disabled while 3D & AR Visualizer is suspended.',
+      });
+    }
+
     const fallbackFolder =
       defaultFolder ||
-      (validation.kind === 'video' ? 'videos' : validation.kind === 'model3d' ? 'models3d' : 'products');
+      (validation.kind === 'video'
+        ? 'videos'
+        : validation.kind === 'model3d'
+        ? 'models3d'
+        : FEATURE_FLAGS.doorCatalogue
+        ? 'products'
+        : 'general');
     const requestedFolder = String(req.body?.folder || req.body?.category || fallbackFolder).trim();
     const folder = normalizeBunnyFolder(requestedFolder);
+
+    if (isStorageFolderDisabled(folder)) {
+      return res.status(410).json({
+        success: false,
+        disabled: true,
+        errorCode: 'STORAGE_FOLDER_TEMPORARILY_DISABLED',
+        folder,
+        error: `Uploads to "${folder}" are temporarily suspended while its module is disabled. Active modules continue using Bunny Storage.`,
+      });
+    }
+
+    if (!isBunnyStorageConfigured()) {
+      const summary = getBunnyConfigSummary();
+      return res.status(424).json({
+        success: false,
+        errorCode: 'BUNNY_NOT_CONFIGURED',
+        missingVars: summary.missingVars,
+        error: `Bunny.net Storage environment variable(s) not configured on server: ${summary.missingVars.join(', ')}.`,
+      });
+    }
+
     const productId = typeof req.body?.productId === 'string' ? req.body.productId.trim() : undefined;
 
     const result = await saveMedia(
@@ -803,16 +903,22 @@ const handleBunnySingleUpload = (
       productId
     );
 
-    if (!result.success) {
+    if (!result.success || !result.bunnyVerified || !result.url) {
       return res.status(result.statusCode || 502).json({
         success: false,
+        bunnyVerified: false,
         errorCode: result.errorCode || 'BUNNY_UPLOAD_FAILED',
-        error: result.error || 'Failed to upload file to Bunny.net Storage.',
+        error: result.error || 'Failed to upload and verify file in Bunny.net Storage.',
       });
     }
 
+    const ext = path.extname(req.file.originalname || '').toLowerCase();
+    const is3DModel = validation.kind === 'model3d' || ['.glb', '.gltf'].includes(ext);
+
+    res.setHeader('Content-Type', 'application/json');
     return res.json({
       success: true,
+      bunnyVerified: true,
       url: result.url,
       downloadUrl: result.downloadUrl || result.url,
       proxyUrl: result.proxyUrl,
@@ -821,204 +927,130 @@ const handleBunnySingleUpload = (
       storagePath: result.storagePath,
       storageZone: result.storageZone,
       folder,
+      category: folder,
       name: result.metadata?.filename || req.file.originalname,
       filename: result.metadata?.filename || req.file.originalname,
+      originalName: req.file.originalname,
       mimeType: validation.mimeType,
       size: req.file.buffer.length,
       isVideo: validation.kind === 'video',
-      is3DModel: validation.kind === 'model3d',
+      is3DModel,
       storageType: 'bunny_storage',
       metadata: result.metadata,
     });
   });
 };
 
-// Public visualizer image upload endpoint (used by Entrance Photo Fitting cutout)
-app.post('/api/upload', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, errorCode: 'NO_FILE', error: 'No image file uploaded' });
-  }
-
-  const tempPath = req.file.path;
-  try {
-    const fileBuf = fs.readFileSync(tempPath);
-    const category = typeof req.body?.category === 'string' && req.body.category.trim() ? req.body.category.trim() : 'products';
-    const result = await saveMedia(req.file.filename, req.file.mimetype, fileBuf, category);
-
-    if (!result.success) {
-      const statusCode = result.statusCode || 502;
-      return res.status(statusCode).json({
+// Direct Bunny Storage batch upload handler (up to 10 files, zero disk storage)
+const handleBunnyBatchUpload = (req: express.Request, res: express.Response) => {
+  res.setHeader('Content-Type', 'application/json');
+  bunnyMemoryUpload.array('files', 10)(req, res, async (multerErr: any) => {
+    if (multerErr) {
+      const isLimit = multerErr?.code === 'LIMIT_FILE_SIZE';
+      return res.status(isLimit ? 413 : 400).json({
         success: false,
-        errorCode: result.errorCode || 'STORAGE_UPLOAD_FAILED',
-        error: result.error || 'Failed to durably persist uploaded image to Bunny.net Storage.',
-        storageType: result.storageType,
+        errorCode: isLimit ? 'FILE_TOO_LARGE' : 'UPLOAD_VALIDATION_ERROR',
+        error: multerErr?.message || 'Batch upload validation error.',
+      });
+    }
+
+    const files = (req.files as Express.Multer.File[]) || [];
+    if (files.length === 0) {
+      return res.status(400).json({ success: false, errorCode: 'NO_FILES', error: 'No files attached.' });
+    }
+
+    const folder = normalizeBunnyFolder(
+      String(req.body?.folder || req.body?.category || (FEATURE_FLAGS.doorCatalogue ? 'products' : 'general'))
+    );
+    if (isStorageFolderDisabled(folder)) {
+      return res.status(410).json({
+        success: false,
+        disabled: true,
+        errorCode: 'STORAGE_FOLDER_TEMPORARILY_DISABLED',
+        folder,
+        error: `Batch uploads to "${folder}" are temporarily suspended while its module is disabled.`,
+      });
+    }
+
+    if (!isBunnyStorageConfigured()) {
+      const summary = getBunnyConfigSummary();
+      return res.status(424).json({
+        success: false,
+        errorCode: 'BUNNY_NOT_CONFIGURED',
+        missingVars: summary.missingVars,
+        error: `Bunny.net Storage environment variable(s) not configured: ${summary.missingVars.join(', ')}.`,
+      });
+    }
+
+    const uploaded: any[] = [];
+    const errors: string[] = [];
+
+    for (const file of files) {
+      const resSave = await saveMedia(file.originalname, file.mimetype, file.buffer, folder);
+      if (resSave.success && resSave.bunnyVerified && resSave.url) {
+        uploaded.push({
+          url: resSave.url,
+          proxyUrl: resSave.proxyUrl,
+          ...(resSave.cdnUrl ? { cdnUrl: resSave.cdnUrl } : {}),
+          storagePath: resSave.storagePath,
+          filename: resSave.metadata?.filename || file.originalname,
+          size: file.buffer.length,
+          mimeType: file.mimetype,
+          storageType: 'bunny_storage',
+          bunnyVerified: true,
+        });
+      } else {
+        errors.push(`${file.originalname}: ${resSave.error || 'Upload failed'}`);
+      }
+    }
+
+    if (uploaded.length === 0) {
+      return res.status(502).json({
+        success: false,
+        errorCode: 'BATCH_UPLOAD_FAILED',
+        error: errors.join('; ') || 'All files failed Bunny Storage validation or upload.',
+        errors,
       });
     }
 
     return res.json({
       success: true,
-      url: result.url,
-      downloadUrl: result.downloadUrl || result.url,
-      proxyUrl: result.proxyUrl,
-      ...(result.cdnUrl ? { cdnUrl: result.cdnUrl } : {}),
-      filename: result.metadata?.filename || req.file.filename,
-      size: req.file.size,
-      storageType: result.storageType,
-      storageZone: result.storageZone,
-      firebaseBucket: result.firebaseBucket,
-      storagePath: result.storagePath,
-      metadata: result.metadata,
+      bunnyVerified: true,
+      storageType: 'bunny_storage',
+      folder,
+      urls: uploaded.map(u => u.url),
+      files: uploaded,
+      ...(errors.length > 0 ? { warnings: errors } : {}),
     });
-  } catch (err: any) {
-    console.error('⚠️ Upload failed:', err);
-    return res.status(500).json({ success: false, errorCode: 'UPLOAD_EXCEPTION', error: err.message || 'Image upload failed' });
-  } finally {
-    try {
-      if (tempPath && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    } catch {}
-  }
-});
+  });
+};
 
-// Upload multiple images endpoint
-app.post('/api/upload-multiple', upload.array('files', 10), async (req, res) => {
-  if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
-    return res.status(400).json({ success: false, errorCode: 'NO_FILES', error: 'No files uploaded' });
-  }
+// Image upload endpoint -> strictly uses Bunny.net Storage (defaults to 'general' when catalogue is disabled)
+app.post('/api/upload', (req, res) =>
+  handleBunnySingleUpload(req, res, 'image', FEATURE_FLAGS.doorCatalogue ? 'products' : 'general')
+);
 
-  const multerFiles = req.files as Express.Multer.File[];
-  const urls: string[] = [];
-  const errors: string[] = [];
-  const category = typeof req.body?.category === 'string' && req.body.category.trim() ? req.body.category.trim() : 'products';
+// Batch upload endpoint -> strictly uses Bunny.net Storage
+app.post('/api/upload-multiple', (req, res) => handleBunnyBatchUpload(req, res));
 
-  try {
-    for (const f of multerFiles) {
-      try {
-        const fileBuf = fs.readFileSync(f.path);
-        const resVal = await saveMedia(f.filename, f.mimetype, fileBuf, category);
-        if (resVal.success) {
-          urls.push(resVal.url);
-        } else {
-          errors.push(`${f.originalname}: ${resVal.error || 'Storage upload failed'}`);
-        }
-      } catch (err: any) {
-        console.warn(`Failed uploading ${f.filename}:`, err);
-        errors.push(`${f.originalname}: ${err.message || 'Upload exception'}`);
-      }
-    }
-  } finally {
-    for (const f of multerFiles) {
-      try {
-        if (f.path && fs.existsSync(f.path)) fs.unlinkSync(f.path);
-      } catch {}
-    }
-  }
-
-  if (urls.length === 0 && errors.length > 0) {
-    return res.status(502).json({
-      success: false,
-      errorCode: 'STORAGE_BATCH_UPLOAD_FAILED',
-      error: `Failed to durably store images: ${errors.join('; ')}`,
-      errors,
-    });
-  }
-
-  res.json({ success: true, urls, ...(errors.length > 0 ? { warnings: errors } : {}) });
-});
-
-// Admin: Authenticated Product Video upload routes (MP4, WebM, MOV up to 100 MB -> Bunny.net Storage)
+// Admin: Authenticated Video upload routes (MP4, WebM, MOV up to 100 MB -> Bunny.net Storage)
 app.post(
   ['/api/upload-video', '/api/admin/upload-video', '/api/admin/upload-product-video'],
   verifyAdminToken,
   (req, res) => handleBunnySingleUpload(req, res, 'video', 'videos')
 );
 
-// Admin: Authenticated Product Image & Media upload aliases -> Bunny.net Storage
+// Admin: Authenticated Media upload aliases -> Bunny.net Storage
 app.post(
   ['/api/admin/upload', '/api/admin/upload-product-image'],
   verifyAdminToken,
-  (req, res) => handleBunnySingleUpload(req, res, undefined, 'products')
+  (req, res) => handleBunnySingleUpload(req, res, undefined, FEATURE_FLAGS.doorCatalogue ? 'products' : 'general')
 );
 
-// Admin: Upload 3D Models (.glb, .gltf) and textures -> Bunny.net Storage primary
-app.post('/api/admin/upload-model', verifyAdminToken, (req, res) => {
-  modelUpload.single('file')(req, res, async (err) => {
-    if (err) {
-      return res.status(400).json({ success: false, errorCode: 'UPLOAD_VALIDATION_ERROR', error: err.message || '3D file upload failed' });
-    }
-    if (!req.file) {
-      return res.status(400).json({ success: false, errorCode: 'NO_FILE', error: 'No file uploaded' });
-    }
-
-    const ext = path.extname(req.file.originalname || '').toLowerCase();
-    const is3DModel = ['.glb', '.gltf'].includes(ext);
-    const mime = is3DModel ? (ext === '.gltf' ? 'model/gltf+json' : 'model/gltf-binary') : (req.file.mimetype || 'application/octet-stream');
-    const folder = is3DModel ? 'models3d' : normalizeBunnyFolder(String(req.body?.category || 'products'));
-
-    try {
-      const fileBuf = fs.readFileSync(req.file.path);
-
-      if (isBunnyStorageConfigured()) {
-        const result = await saveMedia(req.file.originalname || req.file.filename, mime, fileBuf, folder);
-        if (!result.success) {
-          return res.status(result.statusCode || 502).json({
-            success: false,
-            errorCode: result.errorCode || 'BUNNY_UPLOAD_FAILED',
-            error: result.error || 'Failed to persist 3D model/texture to Bunny.net Storage.',
-            storageType: result.storageType,
-          });
-        }
-        return res.json({
-          success: true,
-          url: result.url,
-          downloadUrl: result.downloadUrl || result.url,
-          proxyUrl: result.proxyUrl,
-          ...(result.cdnUrl ? { cdnUrl: result.cdnUrl } : {}),
-          fileId: result.storagePath,
-          storagePath: result.storagePath,
-          storageZone: result.storageZone,
-          filename: result.metadata?.filename || req.file.filename,
-          originalName: req.file.originalname,
-          size: req.file.size,
-          is3DModel,
-          storageType: result.storageType,
-        });
-      }
-
-      const result = await saveMedia(
-        req.file.filename,
-        mime,
-        fileBuf,
-        folder
-      );
-
-      if (!result.success) {
-        return res.status(502).json({
-          success: false,
-          error: result.error || 'Failed to persist 3D model/texture to cloud storage.',
-          storageType: result.storageType,
-        });
-      }
-
-      res.json({
-        success: true,
-        url: result.url,
-        filename: req.file.filename,
-        originalName: req.file.originalname,
-        size: req.file.size,
-        is3DModel,
-        storageType: result.storageType,
-      });
-    } catch (saveErr: any) {
-      res.status(500).json({ success: false, error: saveErr.message || '3D file save failed' });
-    } finally {
-      try {
-        if (req.file?.path && fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-        }
-      } catch {}
-    }
-  });
-});
+// Admin: Upload 3D Models (.glb, .gltf) and textures -> Bunny.net Storage exclusively
+app.post('/api/admin/upload-model', verifyAdminToken, (req, res) =>
+  handleBunnySingleUpload(req, res, undefined, 'models3d')
+);
 
 // =========================================================================
 // BUNNY.NET STORAGE SECURE ADMIN MANAGEMENT & UPLOAD APIs
@@ -1043,78 +1075,32 @@ app.post('/api/admin/bunny/upload', verifyAdminToken, (req, res) =>
 );
 
 // Admin: Batch upload up to 10 files to Bunny Storage
-app.post('/api/admin/bunny/upload-multiple', verifyAdminToken, (req, res) => {
-  bunnyMemoryUpload.array('files', 10)(req, res, async (multerErr: any) => {
-    if (multerErr) {
-      const isLimit = multerErr?.code === 'LIMIT_FILE_SIZE';
-      return res.status(isLimit ? 413 : 400).json({
-        success: false,
-        errorCode: isLimit ? 'FILE_TOO_LARGE' : 'UPLOAD_VALIDATION_ERROR',
-        error: multerErr?.message || 'Batch upload validation error.',
-      });
-    }
-
-    const files = (req.files as Express.Multer.File[]) || [];
-    if (files.length === 0) {
-      return res.status(400).json({ success: false, errorCode: 'NO_FILES', error: 'No files attached.' });
-    }
-
-    if (!isBunnyStorageConfigured()) {
-      const summary = getBunnyConfigSummary();
-      return res.status(503).json({
-        success: false,
-        errorCode: 'BUNNY_NOT_CONFIGURED',
-        missingVars: summary.missingVars,
-        error: `Bunny.net Storage environment variable(s) not configured: ${summary.missingVars.join(', ')}.`,
-      });
-    }
-
-    const folder = normalizeBunnyFolder(String(req.body?.folder || req.body?.category || 'products'));
-    const uploaded: any[] = [];
-    const errors: string[] = [];
-
-    for (const file of files) {
-      const resSave = await saveMedia(file.originalname, file.mimetype, file.buffer, folder);
-      if (resSave.success) {
-        uploaded.push({
-          url: resSave.url,
-          proxyUrl: resSave.proxyUrl,
-          ...(resSave.cdnUrl ? { cdnUrl: resSave.cdnUrl } : {}),
-          storagePath: resSave.storagePath,
-          filename: resSave.metadata?.filename || file.originalname,
-          size: file.buffer.length,
-          mimeType: file.mimetype,
-        });
-      } else {
-        errors.push(`${file.originalname}: ${resSave.error || 'Upload failed'}`);
-      }
-    }
-
-    if (uploaded.length === 0) {
-      return res.status(400).json({
-        success: false,
-        errorCode: 'BATCH_UPLOAD_FAILED',
-        error: errors.join('; ') || 'All files failed validation or upload.',
-        errors,
-      });
-    }
-
-    return res.json({
-      success: true,
-      folder,
-      urls: uploaded.map(u => u.url),
-      files: uploaded,
-      ...(errors.length > 0 ? { warnings: errors } : {}),
-    });
-  });
-});
+app.post('/api/admin/bunny/upload-multiple', verifyAdminToken, (req, res) =>
+  handleBunnyBatchUpload(req, res)
+);
 
 // Admin: List files stored in Bunny.net Storage folder (or all folders)
 app.get('/api/admin/bunny/files', verifyAdminToken, async (req, res) => {
   try {
+    const folderParam = String(
+      req.query.folder ||
+        req.query.category ||
+        (FEATURE_FLAGS.doorCatalogue ? 'products' : FEATURE_FLAGS.orderTracking ? 'tracking' : 'materials')
+    ).trim();
+    const normalizedFolder = normalizeBunnyFolder(folderParam);
+    if (folderParam !== 'all' && isStorageFolderDisabled(normalizedFolder)) {
+      return res.status(410).json({
+        success: false,
+        disabled: true,
+        errorCode: 'STORAGE_FOLDER_TEMPORARILY_DISABLED',
+        folder: normalizedFolder,
+        error: `Storage folder "${normalizedFolder}" is temporarily suspended while its module is disabled.`,
+      });
+    }
+
     if (!isBunnyStorageConfigured()) {
       const summary = getBunnyConfigSummary();
-      return res.status(503).json({
+      return res.status(424).json({
         success: false,
         errorCode: 'BUNNY_NOT_CONFIGURED',
         missingVars: summary.missingVars,
@@ -1122,7 +1108,6 @@ app.get('/api/admin/bunny/files', verifyAdminToken, async (req, res) => {
       });
     }
 
-    const folderParam = String(req.query.folder || req.query.category || 'products').trim();
     const files = await listBunnyStorageFiles(folderParam);
     return res.json({
       success: true,
@@ -1843,216 +1828,11 @@ app.post('/api/admin/drive/test-upload', verifyAdminToken, async (_req, res) => 
   }
 });
 
-// 5. Admin: Direct Media Upload into Owner's Google Drive with durable Cloud Storage fallback (Photos, Videos, 3D Models, Android content:// blobs)
+// 5. Admin: Direct Media Upload -> Bunny.net Storage exclusively
 app.post(
   ['/api/admin/drive/upload', '/api/admin/upload-image', '/api/admin/upload-media'],
   verifyAdminToken,
-  (req, res) => {
-    driveMediaUpload.single('file')(req, res, async (multerErr: any) => {
-      if (multerErr) {
-        const isLimit = multerErr?.code === 'LIMIT_FILE_SIZE';
-        return res.status(isLimit ? 413 : 400).json({
-          success: false,
-          errorCode: isLimit ? 'FILE_TOO_LARGE' : 'UPLOAD_VALIDATION_ERROR',
-          error: isLimit
-            ? 'Media file exceeds the 100 MB upload limit.'
-            : multerErr?.message || 'Invalid media upload request.',
-        });
-      }
-
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          errorCode: 'NO_FILE',
-          error: 'No media file attached. Select a photo, video, or 3D model first.',
-        });
-      }
-
-      const tempPath = req.file.path;
-      try {
-        const fileBuf = fs.readFileSync(tempPath);
-        if (fileBuf.length === 0) {
-          return res.status(400).json({
-            success: false,
-            errorCode: 'EMPTY_FILE',
-            error: 'Selected file is empty (0 bytes). Please choose a valid photo or video.',
-          });
-        }
-
-        const detectedMime = detectMimeType(fileBuf);
-        const rawMime = String(req.file.mimetype || '').split(';')[0].trim().toLowerCase();
-        const effectiveMime =
-          detectedMime !== 'application/octet-stream'
-            ? detectedMime
-            : rawMime && rawMime !== 'application/octet-stream' && rawMime !== 'binary/octet-stream'
-            ? rawMime
-            : 'application/octet-stream';
-
-        const extFromName = path.extname(req.file.originalname || '').toLowerCase();
-        const allowedExts = [
-          '.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.avif', '.heic', '.heif', '.bmp',
-          '.mp4', '.webm', '.mov', '.m4v', '.3gp', '.mkv', '.glb', '.gltf', '.pdf',
-        ];
-        const isSupportedContent =
-          effectiveMime.startsWith('image/') ||
-          effectiveMime.startsWith('video/') ||
-          effectiveMime === 'model/gltf-binary' ||
-          effectiveMime === 'model/gltf+json' ||
-          effectiveMime === 'application/pdf' ||
-          allowedExts.includes(extFromName);
-
-        if (!isSupportedContent) {
-          return res.status(400).json({
-            success: false,
-            errorCode: 'UNSUPPORTED_MEDIA_TYPE',
-            error: `Unsupported file format (${rawMime || 'unknown'}). Upload JPG, PNG, WebP, MP4, WebM, MOV, or GLB files.`,
-          });
-        }
-
-        const requestedMediaType = String(req.body?.mediaType || '').toLowerCase();
-        const inferredIsVideo =
-          effectiveMime.startsWith('video/') ||
-          requestedMediaType === 'video' ||
-          ['.mp4', '.webm', '.mov', '.m4v', '.3gp', '.mkv'].includes(extFromName);
-        const is3D = extFromName === '.glb' || extFromName === '.gltf' || effectiveMime.includes('gltf');
-        const category = normalizeBunnyFolder(
-          String(req.body?.category || (inferredIsVideo ? 'videos' : is3D ? 'models3d' : 'products'))
-        );
-
-        const ext =
-          extFromName && allowedExts.includes(extFromName)
-            ? extFromName
-            : getExtensionForMimeType(effectiveMime);
-        const rawBase = path.basename(req.file.originalname || '', extFromName).replace(/[^a-zA-Z0-9_-]/g, '_');
-        const stem = rawBase && rawBase !== 'blob' && rawBase !== '_' ? rawBase : `jhd_${category}_${Date.now()}`;
-        const preservedFilename = `${stem}${ext !== '.bin' ? ext : inferredIsVideo ? '.mp4' : '.jpg'}`;
-        const description = String(req.body?.description || '').trim() || `Admin upload for ${category}`;
-        const requireDriveOnly = String(req.body?.requireDriveOnly || '').toLowerCase() === 'true';
-
-        // Primary Cloud Storage: Bunny.net Edge Storage (unless explicit Drive-only upload was requested)
-        if (isBunnyStorageConfigured() && !requireDriveOnly) {
-          const saveRes = await saveMedia(preservedFilename, effectiveMime, fileBuf, category);
-          if (!saveRes.success) {
-            return res.status(saveRes.statusCode || 502).json({
-              success: false,
-              errorCode: saveRes.errorCode || 'BUNNY_UPLOAD_FAILED',
-              error: saveRes.error || 'Failed to save uploaded media to Bunny.net Storage.',
-              storageType: 'bunny_storage',
-            });
-          }
-
-          return res.json({
-            success: true,
-            url: saveRes.url,
-            downloadUrl: saveRes.downloadUrl || saveRes.url,
-            proxyUrl: saveRes.proxyUrl,
-            ...(saveRes.cdnUrl ? { cdnUrl: saveRes.cdnUrl } : {}),
-            fileId: saveRes.storagePath,
-            name: saveRes.metadata?.filename || preservedFilename,
-            filename: saveRes.metadata?.filename || preservedFilename,
-            mimeType: saveRes.metadata?.mimeType || effectiveMime,
-            size: fileBuf.length,
-            category,
-            isVideo: inferredIsVideo,
-            is3DModel: is3D,
-            storageType: 'bunny_storage',
-            storageZone: saveRes.storageZone,
-            storagePath: saveRes.storagePath,
-            metadata: saveRes.metadata,
-          });
-        }
-
-        if (hasServerDriveOAuthCredentials()) {
-          try {
-            const driveCategory = normalizeDriveCategory(category);
-            const uploaded = await uploadMediaToOwnerDrive(
-              fileBuf,
-              preservedFilename,
-              effectiveMime,
-              driveCategory,
-              description
-            );
-
-            return res.json({
-              success: true,
-              url: uploaded.url,
-              fileId: uploaded.fileId,
-              name: uploaded.name,
-              filename: uploaded.name,
-              mimeType: uploaded.mimeType,
-              size: uploaded.size,
-              category: uploaded.category,
-              isVideo: uploaded.mimeType.startsWith('video/') || inferredIsVideo,
-              is3DModel: is3D,
-              webViewLink: uploaded.webViewLink,
-              storageType: 'google_drive',
-            });
-          } catch (driveErr: any) {
-            const msg = String(driveErr?.message || 'Upload to owner Google Drive failed');
-            if (requireDriveOnly) {
-              const isMissingToken = msg.includes('Missing refresh token') || msg.includes('credentials incomplete');
-              const isAuthRejected = msg.includes('invalid_grant') || msg.includes('(401)') || msg.includes('(403)');
-              return res.status(isMissingToken ? 412 : isAuthRejected ? 502 : 500).json({
-                success: false,
-                errorCode: isMissingToken ? 'DRIVE_NOT_CONNECTED' : isAuthRejected ? 'DRIVE_AUTH_FAILED' : 'DRIVE_UPLOAD_FAILED',
-                error: msg,
-              });
-            }
-            console.warn('⚠️ [Admin Upload] Falling back to cloud storage:', msg);
-          }
-        } else if (requireDriveOnly) {
-          return res.status(412).json({
-            success: false,
-            errorCode: 'DRIVE_NOT_CONNECTED',
-            error:
-              'Google Drive OAuth is not connected on the backend server. Configure Bunny.net Storage or connect Google Drive OAuth.',
-          });
-        }
-
-        // Durable fallback: Save to Firebase Storage / Firestore Cloud Storage so Android & Web device uploads always succeed
-        const saveRes = await saveMedia(preservedFilename, effectiveMime, fileBuf, category);
-        if (!saveRes.success) {
-          return res.status(saveRes.statusCode || 502).json({
-            success: false,
-            errorCode: saveRes.errorCode || 'STORAGE_WRITE_FAILED',
-            error: saveRes.error || 'Failed to save uploaded media to cloud storage.',
-            storageType: saveRes.storageType,
-          });
-        }
-
-        return res.json({
-          success: true,
-          url: saveRes.url,
-          downloadUrl: saveRes.downloadUrl || saveRes.url,
-          name: preservedFilename,
-          filename: preservedFilename,
-          mimeType: effectiveMime,
-          size: fileBuf.length,
-          category,
-          isVideo: inferredIsVideo,
-          is3DModel: is3D,
-          storageType: saveRes.storageType,
-          firebaseBucket: saveRes.firebaseBucket,
-          storagePath: saveRes.storagePath,
-          metadata: saveRes.metadata,
-        });
-      } catch (err: any) {
-        const msg = String(err?.message || 'Media upload failed');
-        console.error('⚠️ [Drive Admin Upload Error]:', msg);
-        return res.status(500).json({
-          success: false,
-          errorCode: 'UPLOAD_FAILED',
-          error: msg,
-        });
-      } finally {
-        try {
-          if (tempPath && fs.existsSync(tempPath)) {
-            fs.unlinkSync(tempPath);
-          }
-        } catch {}
-      }
-    });
-  }
+  (req, res) => handleBunnySingleUpload(req, res)
 );
 
 // 6. Admin: List Media Files from Specific Category in Owner's Google Drive
@@ -2219,7 +1999,8 @@ const multipartOrJson = (req: express.Request, res: express.Response, next: expr
 };
 
 // Mount Wood Detection on /api/wood-analysis, /api/ai/detect-wood, /api/wood-detector, and aliases
-app.post(['/api/wood-analysis', '/api/ai/detect-wood', '/api/ai/detect-wood-species', '/api/detect-wood', '/api/wood-detector', '/api/gemini/wood-detector', '/api/ai/wood-detector'], multipartOrJson, woodAnalysisHandler);
+// Enforce authenticated customer session on the server before invoking AI Wood Detector
+app.post(['/api/wood-analysis', '/api/ai/detect-wood', '/api/ai/detect-wood-species', '/api/detect-wood', '/api/wood-detector', '/api/gemini/wood-detector', '/api/ai/wood-detector'], requireCustomerAuth, multipartOrJson, woodAnalysisHandler);
 
 // Health check endpoints for wood detector
 app.get(['/api/wood-analysis', '/api/ai/detect-wood', '/api/ai/detect-wood-species', '/api/detect-wood', '/api/wood-detector', '/api/gemini/wood-detector', '/api/ai/wood-detector'], (_req, res) => {
@@ -2513,13 +2294,48 @@ app.all(['/api/video/*', '/api/video-visualizer/*', '/api/ai/video-*'], (_req, r
 
 app.get('/api/catalog', (_req, res) => {
   const db = getDb();
-  const activeDoors = db.doors.filter(d => d.active);
-  const activeCategories = db.categories;
-  const activeBanners = db.banners.filter(b => b.active).sort((a, b) => a.order - b.order);
-  const publishedArticles = db.articles.filter(a => a.published);
-  const activeTeamMembers = (db.teamMembers || [])
-    .filter(m => m.active)
-    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  const activeDoors = FEATURE_FLAGS.doorCatalogue ? db.doors.filter(d => d.active) : [];
+  const activeCategories = FEATURE_FLAGS.doorCatalogue ? db.categories : [];
+  const activeBanners = FEATURE_FLAGS.homeBanners
+    ? db.banners.filter(b => b.active).sort((a, b) => a.order - b.order)
+    : [];
+  const publishedArticles = FEATURE_FLAGS.articlesBlog ? db.articles.filter(a => a.published) : [];
+  const activeTeamMembers = FEATURE_FLAGS.ourStoryAndTeam
+    ? (db.teamMembers || [])
+        .filter(m => m.active)
+        .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+    : [];
+
+  const publicLegal = db.settings.legalSettings
+    ? {
+        ...db.settings.legalSettings,
+        socialLinks: db.settings.legalSettings.socialLinks
+          ? {
+              ...db.settings.legalSettings.socialLinks,
+              whatsapp: '',
+              googleBusiness: '',
+            }
+          : undefined,
+      }
+    : undefined;
+
+  const publicSettings = {
+    businessName: db.settings.businessName,
+    tagline: db.settings.tagline,
+    logoUrl: db.settings.logoUrl,
+    phone: '',
+    whatsappNumber: '',
+    email: db.settings.email,
+    address: '',
+    gstNumber: db.settings.gstNumber,
+    currencySymbol: db.settings.currencySymbol,
+    terms: db.settings.terms,
+    disclaimer: db.settings.disclaimer,
+    googleMapsUrl: '',
+    contentProtection: db.settings.contentProtection,
+    legalSettings: publicLegal,
+    storySettings: db.settings.storySettings,
+  };
 
   res.json({
     doors: activeDoors,
@@ -2527,35 +2343,39 @@ app.get('/api/catalog', (_req, res) => {
     banners: activeBanners,
     articles: publishedArticles,
     teamMembers: activeTeamMembers,
-    settings: {
-      businessName: db.settings.businessName,
-      tagline: db.settings.tagline,
-      logoUrl: db.settings.logoUrl,
-      phone: db.settings.phone,
-      whatsappNumber: db.settings.whatsappNumber,
-      email: db.settings.email,
-      address: db.settings.address,
-      gstNumber: db.settings.gstNumber,
-      currencySymbol: db.settings.currencySymbol,
-      terms: db.settings.terms,
-      disclaimer: db.settings.disclaimer,
-      googleMapsUrl: db.settings.googleMapsUrl || db.settings.legalSettings?.socialLinks?.googleBusiness || 'https://maps.app.goo.gl/n2xV9vhz5tpVumc6A?g_st=ac',
-      contentProtection: db.settings.contentProtection,
-      legalSettings: db.settings.legalSettings,
-      storySettings: db.settings.storySettings,
-    },
+    featureFlags: FEATURE_FLAGS,
+    settings: publicSettings,
   });
 });
 
 // Public Calculator Config Data
 app.get('/api/calculator-data', (_req, res) => {
   const db = getDb();
+  const publicSettings = {
+    ...db.settings,
+    phone: '',
+    whatsappNumber: '',
+    address: '',
+    googleMapsUrl: '',
+    legalSettings: db.settings.legalSettings
+      ? {
+          ...db.settings.legalSettings,
+          socialLinks: db.settings.legalSettings.socialLinks
+            ? {
+                ...db.settings.legalSettings.socialLinks,
+                whatsapp: '',
+                googleBusiness: '',
+              }
+            : undefined,
+        }
+      : undefined,
+  };
   res.json({
     materials: db.materials.filter(m => m.active),
     finishes: db.finishes.filter(f => f.active),
     frames: db.frames.filter(fr => fr.active),
     hardware: db.hardware.filter(h => h.active),
-    settings: db.settings,
+    settings: publicSettings,
   });
 });
 
@@ -2700,8 +2520,8 @@ export function performCalculation(input: CalculationInput): CalculationResult {
   };
 }
 
-// Price calculation endpoint
-app.post('/api/calculate', (req, res) => {
+// Price calculation endpoint (protected: requires verified customer OTP session)
+app.post('/api/calculate', requireCustomerAuth, (req, res) => {
   try {
     const input: CalculationInput = req.body;
     const result = performCalculation(input);
@@ -2728,23 +2548,22 @@ app.get('/api/chaukhat/config', (_req, res) => {
   });
 });
 
-// Chaukhat Price Calculation endpoint
-app.post('/api/chaukhat/calculate', (req, res) => {
-  try {
-    const db = getDb();
-    const {
-      woodTypeId,
-      sectionSizeId,
-      customWidthInch,
-      customDepthInch,
-      heightFt,
-      widthFt,
-      designId,
-      productId,
-    } = req.body;
+// Shared server-side Chaukhat Price Calculation helper (reused by API & Razorpay order verification)
+function performChaukhatCalculation(input: Record<string, any>): ChaukhatCalculationResult {
+  const db = getDb();
+  const {
+    woodTypeId,
+    sectionSizeId,
+    customWidthInch,
+    customDepthInch,
+    heightFt,
+    widthFt,
+    designId,
+    productId,
+  } = input || {};
 
-    const woodTypes = db.chaukhatWoodTypes || DEFAULT_CHAUKHAT_WOOD_TYPES;
-    const wood = woodTypes.find(w => w.id === woodTypeId) || woodTypes[0] || DEFAULT_CHAUKHAT_WOOD_TYPES[0];
+  const woodTypes = db.chaukhatWoodTypes || DEFAULT_CHAUKHAT_WOOD_TYPES;
+  const wood = woodTypes.find(w => w.id === woodTypeId) || woodTypes[0] || DEFAULT_CHAUKHAT_WOOD_TYPES[0];
 
     const sectionSizes = db.chaukhatSectionSizes || DEFAULT_CHAUKHAT_SECTION_SIZES;
     let secWidth = 5;
@@ -2868,6 +2687,13 @@ app.post('/api/chaukhat/calculate', (req, res) => {
       timestamp: new Date().toISOString(),
     };
 
+    return result;
+}
+
+// Chaukhat Price Calculation endpoint (protected: requires verified customer OTP session)
+app.post('/api/chaukhat/calculate', requireCustomerAuth, (req, res) => {
+  try {
+    const result = performChaukhatCalculation(req.body || {});
     res.json(result);
   } catch (err) {
     console.error('Chaukhat calculation error:', err);
@@ -3090,7 +2916,13 @@ app.post('/api/quotes', (req, res) => {
     res.status(201).json({
       success: true,
       quotation: newQuote,
-      settings: db.settings,
+      settings: {
+        ...db.settings,
+        phone: '',
+        whatsappNumber: '',
+        address: '',
+        googleMapsUrl: '',
+      },
     });
   } catch (err) {
     console.error('Error creating quotation:', err);
@@ -3105,7 +2937,16 @@ app.get('/api/quotes/:id', (req, res) => {
   if (!quote) {
     return res.status(404).json({ error: 'Quotation not found' });
   }
-  res.json({ quotation: quote, settings: db.settings });
+  res.json({
+    quotation: quote,
+    settings: {
+      ...db.settings,
+      phone: '',
+      whatsappNumber: '',
+      address: '',
+      googleMapsUrl: '',
+    },
+  });
 });
 
 // Admin Auth: Login
@@ -3219,7 +3060,7 @@ app.post('/api/auth/login', (req, res) => {
     user: {
       role: 'admin',
       email: inputEmail || configuredEmail || 'shivshahidoors@gmail.com',
-      name: db.settings?.businessName || 'Jai Hanuman Door',
+      name: db.settings?.businessName || 'WindowCut Pro',
     },
   });
 });
@@ -3255,24 +3096,27 @@ app.get('/api/auth/verify', (req, res) => {
   res.json({ authenticated: isValidAdminToken(token) });
 });
 
-// Admin: Get all database data
+// Admin: Get active database data (suspended collections remain preserved in DB/backups)
 app.get('/api/admin/all-data', verifyAdminToken, (_req, res) => {
   const db = getDb();
   res.json({
-    doors: db.doors,
-    categories: db.categories,
+    doors: FEATURE_FLAGS.doorCatalogue ? db.doors : [],
+    categories: FEATURE_FLAGS.doorCatalogue ? db.categories : [],
     materials: db.materials,
     finishes: db.finishes,
     frames: db.frames,
     hardware: db.hardware,
-    banners: db.banners,
-    articles: db.articles,
+    banners: FEATURE_FLAGS.homeBanners ? db.banners : [],
+    articles: FEATURE_FLAGS.articlesBlog ? db.articles : [],
     quotes: db.quotes,
     settings: db.settings,
-    teamMembers: (db.teamMembers || []).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)),
-    trackingOrders: db.trackingOrders || [],
-    deliveryStates: getDeliveryStates(),
-    deliveryStories: getDeliveryStories(false),
+    teamMembers: FEATURE_FLAGS.ourStoryAndTeam
+      ? (db.teamMembers || []).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+      : [],
+    trackingOrders: FEATURE_FLAGS.orderTracking ? db.trackingOrders || [] : [],
+    deliveryStates: FEATURE_FLAGS.allIndiaDelivery ? getDeliveryStates() : [],
+    deliveryStories: FEATURE_FLAGS.allIndiaDelivery ? getDeliveryStories(false) : [],
+    featureFlags: FEATURE_FLAGS,
   });
 });
 
@@ -3369,43 +3213,18 @@ app.delete('/api/admin/delivery/stories/:id', verifyAdminToken, async (req, res)
       return res.status(400).json({ error: 'Delivery story ID is required' });
     }
 
-    const db = getDb();
-    const targetStory = (db.deliveryStories || []).find(s => String(s.id || '').trim() === id);
-    const candidateMediaUrls = Array.from(
-      new Set(
-        [
-          targetStory?.doorThumbnail,
-          targetStory?.doorPhotoUrl,
-          targetStory?.deliveryPhoto,
-          targetStory?.deliveryPhotoUrl,
-          ...(Array.isArray((targetStory as any)?.images) ? (targetStory as any).images : []),
-        ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
-      )
-    );
-
     const deleted = deleteDeliveryStory(id);
     if (!deleted) {
       return res.status(404).json({ error: `Delivery story "${id}" not found` });
     }
 
-    // Safely clean up dedicated uploaded images if no longer referenced elsewhere
-    const cleanupWarnings: string[] = [];
     const updatedDb = getDb();
-    for (const mediaUrl of candidateMediaUrls) {
-      if (!isMediaUrlReferencedInDb(updatedDb, mediaUrl)) {
-        const cleanRes = await deleteMediaFile(mediaUrl);
-        if (cleanRes.warning) {
-          cleanupWarnings.push(cleanRes.warning);
-        }
-      }
-    }
 
     res.json({
       success: true,
       deleted: id,
       remaining: (updatedDb.deliveryStories || []).length,
       message: 'Delivery story deleted successfully',
-      ...(cleanupWarnings.length > 0 ? { cleanupWarning: cleanupWarnings.join('; ') } : {}),
     });
   } catch (err: any) {
     console.error('Error deleting delivery story:', err);
@@ -3485,15 +3304,6 @@ app.put('/api/admin/doors/:id', verifyAdminToken, async (req, res) => {
     const idx = db.doors.findIndex(d => d.id === req.params.id);
     if (idx === -1) return res.status(404).json({ success: false, error: 'Door not found' });
 
-    const oldDoor = db.doors[idx];
-    const oldImages = Array.isArray(oldDoor.images) ? oldDoor.images : (oldDoor.image ? [oldDoor.image] : []);
-    const oldMedia = [
-      ...oldImages,
-      oldDoor.transparentPngUrl,
-      oldDoor.videoUrl,
-      oldDoor.model3d?.modelUrl,
-    ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0);
-
     const updatedAt = new Date().toISOString();
     const sanitizedBody = { ...req.body };
     if (Array.isArray(sanitizedBody.images)) {
@@ -3510,30 +3320,7 @@ app.put('/api/admin/doors/:id', verifyAdminToken, async (req, res) => {
     db.doors[idx] = { ...db.doors[idx], ...sanitizedBody, id: db.doors[idx].id, updatedAt };
     saveDb(db, { entity: 'door', action: 'update', targetId: req.params.id });
 
-    // Safely clean up removed media assets from Cloudflare R2 if no longer referenced anywhere in DB
-    const updatedDb = getDb();
-    const newDoor = updatedDb.doors[idx];
-    const newImages = Array.isArray(newDoor.images) ? newDoor.images : (newDoor.image ? [newDoor.image] : []);
-    const newMedia = new Set(
-      [
-        ...newImages,
-        newDoor.transparentPngUrl,
-        newDoor.videoUrl,
-        newDoor.model3d?.modelUrl,
-      ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
-    );
-
-    const removedMedia = oldMedia.filter(m => !newMedia.has(m));
-    const cleanupWarnings: string[] = [];
-    for (const mediaUrl of removedMedia) {
-      if (!isMediaUrlReferencedInDb(updatedDb, mediaUrl)) {
-        const cleanRes = await deleteMediaFile(mediaUrl);
-        if (cleanRes.warning) {
-          cleanupWarnings.push(cleanRes.warning);
-        }
-      }
-    }
-
+    // Uploaded media files remain permanently stored in Bunny Storage / cloud cache and are never auto-deleted on door edits.
     res.setHeader('Content-Type', 'application/json');
     res.json({
       ...db.doors[idx],
@@ -3541,7 +3328,6 @@ app.put('/api/admin/doors/:id', verifyAdminToken, async (req, res) => {
       updated: true,
       id: db.doors[idx].id,
       updatedAt,
-      ...(cleanupWarnings.length > 0 ? { cleanupWarning: cleanupWarnings.join('; ') } : {}),
     });
   } catch (err: any) {
     console.error('Error updating door design:', err);
@@ -3552,72 +3338,20 @@ app.put('/api/admin/doors/:id', verifyAdminToken, async (req, res) => {
 app.delete('/api/admin/doors/:id', verifyAdminToken, async (req, res) => {
   try {
     const db = getDb();
-    const targetDoor = db.doors.find(d => d.id === req.params.id);
-    const candidateMediaUrls = Array.from(
-      new Set(
-        [
-          targetDoor?.image,
-          ...(Array.isArray(targetDoor?.images) ? targetDoor!.images : []),
-          targetDoor?.transparentPngUrl,
-          targetDoor?.videoUrl,
-          targetDoor?.model3d?.modelUrl,
-        ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
-      )
-    );
-
     db.doors = db.doors.filter(d => d.id !== req.params.id);
     saveDb(db, { entity: 'door', action: 'delete', targetId: req.params.id });
 
-    const updatedDb = getDb();
-    const cleanupWarnings: string[] = [];
-    for (const mediaUrl of candidateMediaUrls) {
-      if (!isMediaUrlReferencedInDb(updatedDb, mediaUrl)) {
-        const cleanRes = await deleteMediaFile(mediaUrl);
-        if (cleanRes.warning) {
-          cleanupWarnings.push(cleanRes.warning);
-        }
-      }
-    }
-
+    // Uploaded media files remain permanently stored in Bunny Storage / cloud cache and are only deleted via explicit admin media deletion.
     res.setHeader('Content-Type', 'application/json');
     res.json({
       success: true,
       updated: true,
       id: req.params.id,
       message: 'Door design deleted',
-      ...(cleanupWarnings.length > 0 ? { cleanupWarning: cleanupWarnings.join('; ') } : {}),
     });
   } catch (err: any) {
     console.error('Error deleting door design:', err);
     res.status(500).json({ success: false, error: err.message || 'Failed to delete door design' });
-  }
-});
-
-// Admin: Explicit Media Asset Delete Route
-app.post('/api/admin/media/delete', verifyAdminToken, async (req, res) => {
-  try {
-    const { url } = req.body || {};
-    if (!url || typeof url !== 'string') {
-      return res.status(400).json({ success: false, error: 'Media URL is required' });
-    }
-
-    const db = getDb();
-    if (isMediaUrlReferencedInDb(db, url)) {
-      return res.status(409).json({
-        success: false,
-        referenced: true,
-        error: 'Media asset is currently referenced elsewhere in the database. Remove database references first.',
-      });
-    }
-
-    const cleanRes = await deleteMediaFile(url);
-    res.json({
-      success: cleanRes.deleted,
-      deleted: cleanRes.deleted,
-      warning: cleanRes.warning,
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err?.message || 'Failed to delete media file' });
   }
 });
 
@@ -4051,7 +3785,6 @@ app.delete('/api/admin/banners/:id', verifyAdminToken, async (req, res) => {
       return res.status(404).json({ error: `Banner "${idToDelete}" not found` });
     }
 
-    const dedicatedImageUrl = bannerToDelete.image;
     const beforeCount = db.banners.length;
     db.banners = db.banners.filter(b => String(b.id || '').trim() !== idToDelete);
     const deletedCount = beforeCount - db.banners.length;
@@ -4064,21 +3797,12 @@ app.delete('/api/admin/banners/:id', verifyAdminToken, async (req, res) => {
       details: `Deleted banner ${idToDelete}`,
     });
 
-    // Clean up dedicated uploaded banner image if not shared/referenced anywhere else
-    let cleanupWarning: string | undefined;
-    if (dedicatedImageUrl && !isMediaUrlReferencedInDb(db, dedicatedImageUrl)) {
-      const cleanRes = await deleteMediaFile(dedicatedImageUrl);
-      if (cleanRes.warning) {
-        cleanupWarning = cleanRes.warning;
-      }
-    }
-
+    // Uploaded banner images remain permanently stored unless explicitly deleted by admin
     res.json({
       success: true,
       deleted: idToDelete,
       count: deletedCount,
       remaining: db.banners.length,
-      ...(cleanupWarning ? { cleanupWarning } : {}),
     });
   } catch (err: any) {
     console.error('Error deleting banner:', err);
@@ -5697,6 +5421,22 @@ app.get(['/sitemap.xml', '/sitemap.xml/', '/sitemap'], handleSitemapRequest);
 app.get(['/robots.txt', '/robots.txt/'], handleRobotsRequest);
 app.get(['/app-ads.txt', '/app-ads.txt/'], handleAppAdsTxtRequest);
 
+// Register Sliding Window Fabrication Calculator & AI Notebook Scanner API routes
+// synchronously at top level alongside all other /api/* routes (well before Vite/SPA fallback)
+registerSlidingWindowRoutes(app, isValidAdminToken);
+registerWindowSystemRoutes(app, { verifyAdminToken });
+registerPaymentAndOtpRoutes(app, {
+  verifyAdminToken,
+  isValidAdminToken,
+  calculators: {
+    performCalculation,
+    performChaukhatCalculation,
+  },
+});
+registerMonetizationRoutes(app, {
+  verifyAdminToken,
+});
+
 // ---------------- SERVER BOOTSTRAP ----------------
 
 function findDistDirectory(): string | null {
@@ -5767,8 +5507,8 @@ async function startServer() {
   const isProduction = isCjsBundle || (process.env.NODE_ENV === 'production' && !isDevCommand);
 
   // Dedicated API 404 handler - MUST execute before Vite dev middlewares or SPA fallback!
-  app.all('/api/*', (req, res) => {
-    res.status(404).setHeader('Content-Type', 'application/json').json({
+  app.all(['/api', '/api/*'], (req, res) => {
+    res.status(404).setHeader('Content-Type', 'application/json; charset=utf-8').json({
       success: false,
       error: 'API endpoint not found',
       path: req.originalUrl,
@@ -5877,17 +5617,25 @@ async function startServer() {
           console.error('⚠️ [Database Init] Could not hydrate cloud database at boot:', dbErr);
         });
 
-      try {
-        syncUploadedImages();
-        console.log('🛡️ Production data persistence verified & image storage synchronized');
-      } catch (syncErr) {
-        console.warn('⚠️ Image storage sync warning (non-fatal):', syncErr);
+      if (FEATURE_FLAGS.bootImageSync) {
+        try {
+          syncUploadedImages();
+          console.log('🛡️ Production data persistence verified & image storage synchronized');
+        } catch (syncErr) {
+          console.warn('⚠️ Image storage sync warning (non-fatal):', syncErr);
+        }
+      } else {
+        console.log('⏸️ [Storage Governance] Boot legacy image sync paused (FEATURE_FLAGS.bootImageSync = false)');
       }
 
-      try {
-        startScheduledNotificationWorker();
-      } catch (workerErr) {
-        console.warn('⚠️ Scheduled notification worker error (non-fatal):', workerErr);
+      if (FEATURE_FLAGS.appMessages) {
+        try {
+          startScheduledNotificationWorker();
+        } catch (workerErr) {
+          console.warn('⚠️ Scheduled notification worker error (non-fatal):', workerErr);
+        }
+      } else {
+        console.log('⏸️ [Storage Governance] Push notification scheduler paused (FEATURE_FLAGS.appMessages = false)');
       }
     });
   });

@@ -174,7 +174,7 @@ export async function setupPushNotifications(
       if (event.data && event.data.type === 'NOTIFICATION_DEEP_LINK') {
         const payload = event.data.data || {};
         notifyForegroundListeners({
-          title: payload.title || 'Jai Hanuman Door',
+          title: payload.title || 'WindowCut Pro',
           message: payload.body || payload.message || 'New update available',
           category: payload.category,
           image: payload.image,

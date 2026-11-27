@@ -27,9 +27,11 @@ import {
   CreditCard,
   Play,
   Video,
+  Lock,
 } from 'lucide-react';
 import { adMobService } from '../lib/admob/admobService.ts';
-import { AIWoodAnalysisResult, BusinessSettings } from '../types.ts';
+import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
+import { AIWoodAnalysisResult, BusinessSettings, CustomerAccount } from '../types.ts';
 import {
   detectWoodFromImage,
   fetchWoodSpeciesGuide,
@@ -37,7 +39,6 @@ import {
   getCustomApiBaseUrl,
   setCustomApiBaseUrl,
 } from '../lib/api.ts';
-import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 import {
   getUserCredits,
   hasEnoughCreditsForScan,
@@ -55,6 +56,10 @@ interface AIWoodDetectorProps {
   onNavigateToCatalog?: () => void;
   onNavigateToCalculator?: () => void;
   onNavigateToContact?: () => void;
+  onPayOnlineCreditPack?: (pack: CreditPack) => Promise<void>;
+  payingPackId?: string | null;
+  currentCustomer?: CustomerAccount | null;
+  onRequireCalculationLogin?: (resumeAction: () => void | Promise<void>) => void;
 }
 
 // Structured slots for high-accuracy multi-image wood identification
@@ -70,6 +75,10 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
   onNavigateToCatalog,
   onNavigateToCalculator,
   onNavigateToContact,
+  onPayOnlineCreditPack,
+  payingPackId,
+  currentCustomer,
+  onRequireCalculationLogin,
 }) => {
   // Multi-image slots state
   const [slots, setSlots] = useState<WoodScanSlots>({
@@ -78,6 +87,10 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
     unpolishedEdge: null,
     endGrain: null,
   });
+  const slotsRef = useRef<WoodScanSlots>(slots);
+  useEffect(() => {
+    slotsRef.current = slots;
+  }, [slots]);
 
   // Credit balance & monetization state (Phase 5)
   const [credits, setCredits] = useState<number>(() => getUserCredits());
@@ -91,6 +104,20 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
 
   const [watchingRewardedAd, setWatchingRewardedAd] = useState<boolean>(false);
   const [analyzing, setAnalyzing] = useState<boolean>(false);
+  const [isPremiumAdFree, setIsPremiumAdFree] = useState<boolean>(() =>
+    adMobService.isPremiumActive()
+  );
+
+  useEffect(() => {
+    setIsPremiumAdFree(adMobService.isPremiumActive());
+    return adMobService.subscribeEntitlementChange(isPremium => {
+      setIsPremiumAdFree(Boolean(isPremium));
+    });
+  }, []);
+
+  useEffect(() => {
+    adMobService.preloadInterstitial(settings?.adSettings);
+  }, [settings?.adSettings]);
 
   // AdMob Safe Context: Suppress full-screen interstitial/app-open ads while active scan is occurring
   useEffect(() => {
@@ -99,6 +126,13 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
   const [scanStepIndex, setScanStepIndex] = useState<number>(0);
   const [result, setResult] = useState<AIWoodAnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Immediately clear displayed AI wood analysis results upon customer logout
+  useEffect(() => {
+    if (!currentCustomer) {
+      setResult(null);
+    }
+  }, [currentCustomer]);
   const [showComparisonGuide, setShowComparisonGuide] = useState<boolean>(false);
   const [selectedGuideSpecies, setSelectedGuideSpecies] = useState<string>('Sagwan (Teak)');
   const [guideProfiles, setGuideProfiles] = useState<Record<string, any>>({});
@@ -218,18 +252,23 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
 
   const hasAnyPhoto = Boolean(slots.fullDoor || slots.grainCloseup || slots.unpolishedEdge || slots.endGrain);
 
-  // Trigger analysis
-  const handleStartAnalysis = async () => {
-    if (analyzing) return;
-
-    if (!hasAnyPhoto) {
+  // Execute protected server-side AI wood detection (uses slotsRef so post-OTP auto-resume preserves uploaded photos)
+  const executeWoodAnalysis = async () => {
+    const currentSlots = slotsRef.current;
+    const anyUploaded = Boolean(
+      currentSlots.fullDoor ||
+        currentSlots.grainCloseup ||
+        currentSlots.unpolishedEdge ||
+        currentSlots.endGrain
+    );
+    if (!anyUploaded) {
       setError('Kripya kam se kam ek darwaze ya lakdi ki photo upload karein.');
       return;
     }
 
     // Phase 5: Monetization credit check (3 credits per scan)
     if (!hasEnoughCreditsForScan()) {
-      setError(`AI Wood Scan ke liye kam se kam ${SCAN_COST_CREDITS} credits ki zaroorat hai. Aapke paas abhi ${credits} credits hain. Kripya recharge karein.`);
+      setError(`AI Wood Scan ke liye kam se kam ${SCAN_COST_CREDITS} credits ki zaroorat hai. Aapke paas abhi ${getUserCredits()} credits hain. Kripya recharge karein.`);
       setShowCreditModal(true);
       return;
     }
@@ -244,13 +283,18 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
 
     try {
       const activeSlots: { fullDoor?: string; grainCloseup?: string; unpolishedEdge?: string; endGrain?: string } = {};
-      if (slots.fullDoor) activeSlots.fullDoor = slots.fullDoor;
-      if (slots.grainCloseup) activeSlots.grainCloseup = slots.grainCloseup;
-      if (slots.unpolishedEdge) activeSlots.unpolishedEdge = slots.unpolishedEdge;
-      if (slots.endGrain) activeSlots.endGrain = slots.endGrain;
+      if (currentSlots.fullDoor) activeSlots.fullDoor = currentSlots.fullDoor;
+      if (currentSlots.grainCloseup) activeSlots.grainCloseup = currentSlots.grainCloseup;
+      if (currentSlots.unpolishedEdge) activeSlots.unpolishedEdge = currentSlots.unpolishedEdge;
+      if (currentSlots.endGrain) activeSlots.endGrain = currentSlots.endGrain;
 
       // Primary fallback image for backward compatibility
-      const primaryImg = slots.fullDoor || slots.grainCloseup || slots.unpolishedEdge || slots.endGrain || '';
+      const primaryImg =
+        currentSlots.fullDoor ||
+        currentSlots.grainCloseup ||
+        currentSlots.unpolishedEdge ||
+        currentSlots.endGrain ||
+        '';
 
       const analysisResult = await detectWoodFromImage({
         image: primaryImg,
@@ -265,12 +309,29 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
       deductCreditsForScan(scanTxId);
       setCredits(getUserCredits());
 
+      // Release active-scan suppression immediately so post-result interstitial can run cleanly
+      adMobService.setCameraOrScanActive(false);
+
       setTimeout(() => {
         const el = document.getElementById('wood-analysis-result');
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
+
+      // Show frequency-capped interstitial AFTER successful detection results are rendered (never during capture/processing)
+      setTimeout(() => {
+        adMobService
+          .showPlacementInterstitial('ai_wood_detector', () => {}, settings?.adSettings)
+          .catch(() => {});
+      }, 650);
     } catch (err: any) {
       clearInterval(interval);
+      if (err?.code === 'CUSTOMER_AUTH_REQUIRED' || err?.status === 401) {
+        setResult(null);
+        if (onRequireCalculationLogin) {
+          onRequireCalculationLogin(() => executeWoodAnalysis());
+          return;
+        }
+      }
       setError(
         err.message ||
           'Lakdi pehchanne mein samasya aayi. Kripya thodi der baad ya kisi doosri saaf photo ke sath prayas karein.'
@@ -278,6 +339,24 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  // Trigger analysis (enforces mandatory mobile OTP login before displaying results)
+  const handleStartAnalysis = async () => {
+    if (analyzing) return;
+
+    if (!hasAnyPhoto) {
+      setError('Kripya kam se kam ek darwaze ya lakdi ki photo upload karein.');
+      return;
+    }
+
+    if (!currentCustomer && onRequireCalculationLogin) {
+      setError(null);
+      onRequireCalculationLogin(() => executeWoodAnalysis());
+      return;
+    }
+
+    await executeWoodAnalysis();
   };
 
   // Reset all slots
@@ -293,13 +372,7 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Resolved WhatsApp Link
-  const expertNumber = settings?.whatsappNumber || '7887412884';
-  const expertMessage =
-    result?.likely_wood_type && !result.likely_wood_type.toLowerCase().includes('could not')
-      ? `Namaste Jai Hanuman Door, maine AI Wood Detector se apne darwaze ki photo scan ki hai. Result: "${result.likely_wood_type}" (Confidence: ${result.confidence_level}). Kripya lakdi ki sahi pehchan aur quotation dene mein madad karein.`
-      : 'Namaste Jai Hanuman Door, maine AI Wood Detector se apne darwaze ki lakdi analyze ki hai. Kripya iski pehchan aur quotation mein madad karein.';
-  const whatsappUrl = getWhatsAppUrl(expertNumber, expertMessage);
+  // All wood detector purchases & support run via Razorpay and in-app support desk
 
   return (
     <div className="min-h-screen bg-white text-[#1A1A1A] py-4 sm:py-10 pb-24 sm:pb-12 px-3 sm:px-6 lg:px-8">
@@ -708,12 +781,17 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
               </button>
 
               <button
+                id="btn-analyze-wood"
                 type="button"
                 onClick={handleStartAnalysis}
                 disabled={analyzing || !hasAnyPhoto}
                 className="py-3 px-6 rounded-xl bg-[#C89211] hover:bg-[#b07d08] text-white font-bold text-xs sm:text-base flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 flex-1 sm:flex-none disabled:opacity-50 cursor-pointer"
               >
-                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                {!currentCustomer ? (
+                  <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                ) : (
+                  <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                )}
                 <span>{analyzing ? 'Scanning Grain & Pores...' : `Analyze Wood (${SCAN_COST_CREDITS} Credits)`}</span>
               </button>
             </div>
@@ -757,15 +835,6 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                     <Sliders className="w-3.5 h-3.5 text-amber-400" />
                     <span>{showServerConfig ? 'Server Settings Chhipayein' : 'Server Connection Settings'}</span>
                   </button>
-                  <a
-                    href={whatsappUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors"
-                  >
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    <span>WhatsApp Expert Se Madad Lein</span>
-                  </a>
                 </div>
 
                 {/* Inline Server Connection Settings Drawer */}
@@ -816,8 +885,8 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
           )}
         </div>
 
-        {/* COMPREHENSIVE HONEST RESULT DISPLAY */}
-        {result && (
+        {/* COMPREHENSIVE HONEST RESULT DISPLAY (Strictly requires authenticated customer) */}
+        {currentCustomer && result && (
           <div
             id="wood-analysis-result"
             className="bg-white border border-[#E5E5E5] rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-fade-in relative overflow-hidden"
@@ -1052,17 +1121,6 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                   </button>
                 )}
               </div>
-
-              {/* Primary WhatsApp Expert CTA */}
-              <a
-                href={whatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full sm:w-auto py-3 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>Jai Hanuman Sawmill Expert Se Baat Karein</span>
-              </a>
             </div>
 
           </div>
@@ -1103,7 +1161,8 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                 </p>
               </div>
 
-              {/* Optional Rewarded Ad & Rewarded Interstitial for Free Credits (Formats 3 & 4) */}
+              {/* Optional Rewarded Ad & Rewarded Interstitial for Free Credits — completely hidden for Premium users */}
+              {!isPremiumAdFree && adMobService.isRewardedPromptAllowed('ai_wood_detector', settings?.adSettings) && (
               <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800">
@@ -1183,13 +1242,11 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                   </button>
                 </div>
               </div>
+              )}
 
               {/* Credit Packs Grid (One-Time Purchases Only) */}
               <div className="space-y-3">
                 {CREDIT_PACKS.map(pack => {
-                  const buyMsg = `Namaste Jai Hanuman Door, mujhe AI Wood Scan recharge pack kharidna hai: ${pack.name} - ₹${pack.price} (${pack.credits} Credits). Kripya UPI payment QR code share karein.`;
-                  const packWhatsAppUrl = getWhatsAppUrl(expertNumber, buyMsg);
-
                   return (
                     <div
                       key={pack.id}
@@ -1231,33 +1288,25 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
                       </div>
 
                       <div className="mt-3.5 pt-3 border-t border-[#E5E5E5] flex flex-wrap items-center gap-2">
-                        {/* WhatsApp / UPI Purchase */}
-                        <a
-                          href={packWhatsAppUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 min-w-[140px] py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5" />
-                          <span>Pay ₹{pack.price} via UPI</span>
-                        </a>
-
-                        {/* Instant Activation for direct testing & verification */}
+                        {/* Verified Razorpay Online Payment */}
                         <button
+                          id={`btn-razorpay-${pack.id}`}
                           type="button"
-                          onClick={() => {
-                            const txToken = `pack_${pack.id}_${Date.now()}`;
-                            const newTotal = addPurchasedCredits(pack.credits, txToken);
-                            setCredits(newTotal);
-                            setPurchasedPackToast(`+${pack.credits} Credits safaltapoorvak add ho gaye!`);
-                            setTimeout(() => setPurchasedPackToast(null), 3500);
-                            setShowCreditModal(false);
-                            setError(null);
+                          disabled={Boolean(payingPackId)}
+                          onClick={async () => {
+                            if (onPayOnlineCreditPack) {
+                              setShowCreditModal(false);
+                              await onPayOnlineCreditPack(pack);
+                            }
                           }}
-                          className="py-2 px-3 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                          className="flex-1 min-w-[165px] py-2.5 px-3.5 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-60"
                         >
-                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Instant Add ({pack.credits} Cr)</span>
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>
+                            {payingPackId === pack.id
+                              ? 'Opening Razorpay...'
+                              : `Pay ₹${pack.price} Online`}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -1292,6 +1341,9 @@ export const AIWoodDetector: React.FC<AIWoodDetectorProps> = ({
             </div>
           </div>
         )}
+
+        {/* Adaptive Banner Ad (automatically hidden for Ad-Free Premium subscribers) */}
+        <AdMobBannerSlot placement="ai_wood_detector" settings={settings} />
 
       </div>
     </div>

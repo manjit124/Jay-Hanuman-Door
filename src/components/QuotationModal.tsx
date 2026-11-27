@@ -15,11 +15,21 @@ import {
   Loader2,
   Cloud,
   ExternalLink,
+  CreditCard,
 } from 'lucide-react';
-import { CalculationResult, BusinessSettings, Door, Quotation } from '../types.ts';
+import {
+  CalculationResult,
+  BusinessSettings,
+  Door,
+  Quotation,
+  CustomerAccount,
+  DoorMaterial,
+  PolishFinish,
+  ChaukhatFrame,
+  HardwareItem,
+} from '../types.ts';
 import { createQuotation } from '../lib/api.ts';
 import { generateQuotationPDF, createQuotationPDFBlob } from '../lib/pdfGenerator.ts';
-import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 import { uploadBlobToDrive } from '../lib/googleDriveService.ts';
 
 interface QuotationModalProps {
@@ -27,6 +37,13 @@ interface QuotationModalProps {
   door?: Door | null;
   settings: BusinessSettings;
   onClose: () => void;
+  currentCustomer?: CustomerAccount | null;
+  materials?: DoorMaterial[];
+  finishes?: PolishFinish[];
+  frames?: ChaukhatFrame[];
+  hardware?: HardwareItem[];
+  onPayOnlineQuote?: (quote: Quotation) => Promise<void>;
+  isPayingOnline?: boolean;
 }
 
 export const QuotationModal: React.FC<QuotationModalProps> = ({
@@ -34,9 +51,16 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
   door,
   settings,
   onClose,
+  currentCustomer,
+  materials = [],
+  finishes = [],
+  frames = [],
+  hardware = [],
+  onPayOnlineQuote,
+  isPayingOnline = false,
 }) => {
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerName, setCustomerName] = useState(currentCustomer?.name || '');
+  const [customerPhone, setCustomerPhone] = useState(currentCustomer?.mobile || '');
   const [customerCity, setCustomerCity] = useState('');
   const [savedQuote, setSavedQuote] = useState<Quotation | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -52,6 +76,11 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
     setErrorMsg('');
     setIsSaving(true);
 
+    const matchedMaterial = materials.find(m => m.name === calculation.materialName);
+    const matchedFinish = finishes.find(f => f.name === calculation.finishName);
+    const matchedFrame = frames.find(f => f.name === calculation.frameName);
+    const matchedHardware = hardware.find(h => h.name === calculation.hardwareName);
+
     try {
       const res = await createQuotation({
         customerName: customerName.trim(),
@@ -62,10 +91,10 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
         doorImage: door?.images?.[0],
         widthInch: calculation.widthInch,
         heightInch: calculation.heightInch,
-        materialId: '',
-        finishId: '',
-        frameId: '',
-        hardwareId: '',
+        materialId: matchedMaterial?.id || '',
+        finishId: matchedFinish?.id || '',
+        frameId: matchedFrame?.id || '',
+        hardwareId: matchedHardware?.id || '',
         hardwareQty: calculation.hardwareQty,
       });
 
@@ -114,7 +143,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
         blob,
         filename,
         'application/pdf',
-        'Jai Hanuman Door Quotes',
+        'WindowCut Pro Quotes',
         `Official quotation ${savedQuote.quoteNumber} for ${savedQuote.customerName} (${savedQuote.doorName})`
       );
 
@@ -130,28 +159,11 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
     }
   };
 
-  const handleWhatsApp = () => {
-    if (!savedQuote) return;
-    const isMatIncluded = savedQuote.materialIncludedInDoorPrice;
-    const msg = `Hello ${settings.businessName},
 
-Here is my Quotation: *${savedQuote.quoteNumber}*
-Name: ${savedQuote.customerName} (${savedQuote.customerPhone})
-Door: ${savedQuote.doorName}
-Size: ${savedQuote.widthInch}" × ${savedQuote.heightInch}" (${savedQuote.sqFt.toFixed(2)} sq.ft)
-Door Shutter: ₹${savedQuote.doorCost.toLocaleString('en-IN')}
-Material: ${savedQuote.materialName} (${isMatIncluded ? 'Included in Door Shutter' : `₹${savedQuote.materialCost.toLocaleString('en-IN')}`})
-${savedQuote.finishCost > 0 ? `Polish: ${savedQuote.finishName} (₹${savedQuote.finishCost.toLocaleString('en-IN')})\n` : ''}${savedQuote.frameCost > 0 ? `Frame: ${savedQuote.frameName} (₹${savedQuote.frameCost.toLocaleString('en-IN')})\n` : ''}${savedQuote.hardwareCost > 0 ? `Hardware: ${savedQuote.hardwareName} (₹${savedQuote.hardwareCost.toLocaleString('en-IN')})\n` : ''}*Estimated Total: ₹${savedQuote.total.toLocaleString('en-IN')}*
-
-Please confirm availability and dispatch timeline.`;
-
-    const url = getWhatsAppUrl(settings?.whatsappNumber, msg);
-    window.open(url, '_blank');
-  };
 
   const handleShare = async () => {
     if (!savedQuote) return;
-    const bName = settings?.businessName || 'Jai Hanuman Door';
+    const bName = settings?.businessName || 'WindowCut Pro';
     const shareText = `Quotation ${savedQuote.quoteNumber} from ${bName}\nDoor: ${savedQuote.doorName}\nEstimated Total: ₹${savedQuote.total.toLocaleString('en-IN')}`;
     if (navigator.share) {
       try {
@@ -258,7 +270,7 @@ Please confirm availability and dispatch timeline.`;
                       id="quote-customer-phone"
                       type="tel"
                       required
-                      placeholder="e.g. 98220 12345"
+                      placeholder="Enter your 10-digit mobile number"
                       value={customerPhone}
                       onChange={e => setCustomerPhone(e.target.value)}
                       className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] text-[#1A1A1A] placeholder:text-[#666666] text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/30 focus:bg-white"
@@ -275,7 +287,7 @@ Please confirm availability and dispatch timeline.`;
                     <input
                       id="quote-customer-city"
                       type="text"
-                      placeholder="e.g. Pune, Mumbai, Nashik, Nagpur"
+                      placeholder="Enter your city"
                       value={customerCity}
                       onChange={e => setCustomerCity(e.target.value)}
                       className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] text-[#1A1A1A] placeholder:text-[#666666] text-sm focus:outline-none focus:ring-2 focus:ring-[#C89211]/30 focus:bg-white"
@@ -316,17 +328,12 @@ Please confirm availability and dispatch timeline.`;
                 {/* Header Section */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-stone-200 gap-3">
                   <div>
-                    <h2 className="font-serif text-2xl font-black text-stone-900">
-                      {settings.businessName || 'Jai Hanuman Door'}
+                    <h2 className="text-2xl font-black text-[#0A2540]">
+                      {settings.businessName || 'WindowCut Pro'}
                     </h2>
-                    <p className="text-xs text-stone-500 mt-0.5">
-                      {settings.tagline || 'Master Craftsmen in Handcrafted Sagwan & Teak Wood Doors'}
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {settings.tagline || 'Sliding Window Fabrication Calculator'}
                     </p>
-                    {settings.address && (
-                      <p className="text-[11px] text-stone-500 mt-1 max-w-sm">
-                        {settings.address}
-                      </p>
-                    )}
                   </div>
                   <div className="text-left sm:text-right">
                     <span className="px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-900 font-mono font-bold text-xs">
@@ -511,13 +518,36 @@ Please confirm availability and dispatch timeline.`;
 
               </div>
 
+              {/* Verified Online Payment CTA (Razorpay) */}
+              {onPayOnlineQuote && !savedQuote.id.startsWith('quote-local-') && savedQuote.total > 0 && (
+                <button
+                  id="btn-pay-quotation-online"
+                  type="button"
+                  disabled={isPayingOnline}
+                  onClick={() => onPayOnlineQuote(savedQuote)}
+                  className="w-full py-3.5 px-4 rounded-xl bg-[#1A1A1A] hover:bg-black text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.99] cursor-pointer disabled:opacity-60"
+                >
+                  {isPayingOnline ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-[#E6B33A]" />
+                      <span>Preparing Razorpay Checkout...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="w-4 h-4 text-[#E6B33A]" />
+                      <span>Pay Online ₹{savedQuote.total.toLocaleString('en-IN')} (Razorpay)</span>
+                    </>
+                  )}
+                </button>
+              )}
+
               {/* Action Buttons (Section 11) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <button
                   id="btn-download-pdf"
                   type="button"
                   onClick={handleDownloadPDF}
-                  className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#C89211] to-[#b07d08] hover:opacity-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-[#0B5ED7] hover:bg-[#084BB3] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
                 >
                   <Download className="w-4 h-4 text-white" />
                   <span>Download PDF</span>
@@ -528,38 +558,28 @@ Please confirm availability and dispatch timeline.`;
                   type="button"
                   onClick={handleSaveToGoogleDrive}
                   disabled={isDriveSaving}
-                  className="py-2.5 px-3 rounded-xl bg-[#0C0A09] hover:bg-stone-800 text-amber-400 font-semibold text-xs flex items-center justify-center gap-1.5 border border-[#C89211]/40 shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                  className="py-2.5 px-3 rounded-xl bg-[#0A2540] hover:bg-[#06182B] text-white font-semibold text-xs flex items-center justify-center gap-1.5 border border-[#0A2540] shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-50"
                 >
                   {isDriveSaving ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                      <Loader2 className="w-4 h-4 animate-spin text-[#F97316]" />
                       <span>Saving to Drive...</span>
                     </>
                   ) : (
                     <>
-                      <Cloud className="w-4 h-4 text-amber-400" />
+                      <Cloud className="w-4 h-4 text-[#F97316]" />
                       <span>Save to Drive</span>
                     </>
                   )}
                 </button>
 
                 <button
-                  id="btn-send-whatsapp-quotation"
-                  type="button"
-                  onClick={handleWhatsApp}
-                  className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                >
-                  <MessageCircle className="w-4 h-4 text-white" />
-                  <span>WhatsApp</span>
-                </button>
-
-                <button
                   id="btn-share-quotation-modal"
                   type="button"
                   onClick={handleShare}
-                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#F8F8F6] text-[#1A1A1A] font-semibold text-xs flex items-center justify-center gap-1.5 border border-[#E5E5E5] shadow-sm transition-colors cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#F8FAFC] text-[#0A2540] font-semibold text-xs flex items-center justify-center gap-1.5 border border-[#CBD5E1] shadow-sm transition-colors cursor-pointer"
                 >
-                  <Share2 className="w-4 h-4 text-[#666666]" />
+                  <Share2 className="w-4 h-4 text-[#0B5ED7]" />
                   <span>Share Quote</span>
                 </button>
               </div>
@@ -568,7 +588,7 @@ Please confirm availability and dispatch timeline.`;
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900 animate-in fade-in duration-200">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Saved to your Google Drive in folder <strong>Jai Hanuman Door Quotes</strong></span>
+                    <span>Saved to your Google Drive in folder <strong>WindowCut Pro Quotes</strong></span>
                   </div>
                   <a
                     href={driveSuccessLink.url}

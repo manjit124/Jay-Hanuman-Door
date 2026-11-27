@@ -28,7 +28,7 @@ declare global {
 export const DEFAULT_CONTENT_PROTECTION: ContentProtectionSettings = {
   enableImageProtection: true,
   enableWatermark: true,
-  watermarkText: 'Jai Hanuman Door',
+  watermarkText: 'WindowCut Pro',
   watermarkOpacity: 0.22,
   watermarkPattern: 'diagonal',
   enableAndroidFlagSecure: true,
@@ -131,7 +131,7 @@ export function useContentProtection(
         e.preventDefault();
         e.stopPropagation();
         if (onNotice) {
-          onNotice('Image download is protected by Jai Hanuman Door copyright.');
+          onNotice('Image download is protected by WindowCut Pro copyright.');
         }
       }
     };

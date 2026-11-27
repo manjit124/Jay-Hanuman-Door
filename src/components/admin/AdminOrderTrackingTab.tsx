@@ -70,7 +70,7 @@ interface AdminOrderTrackingTabProps {
 export const AdminOrderTrackingTab: React.FC<AdminOrderTrackingTabProps> = ({
   quotes = [],
   enquiries = [],
-  officialWhatsApp = '7887412884',
+  officialWhatsApp = '',
 }) => {
   const [orders, setOrders] = useState<TrackingOrder[]>([]);
   const [loading, setLoading] = useState(false);
@@ -804,7 +804,7 @@ Pune, Maharashtra`;
                     type="text"
                     value={createForm.customerPhone}
                     onChange={e => setCreateForm({ ...createForm, customerPhone: e.target.value })}
-                    placeholder="e.g. +91 98220 12345"
+                    placeholder="Enter customer mobile number"
                     className="w-full p-2.5 bg-[#F8F8F6] border border-[#E5E5E5] rounded-lg text-[#1A1A1A]"
                   />
                 </div>

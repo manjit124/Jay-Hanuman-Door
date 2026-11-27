@@ -15,7 +15,7 @@ import {
   AdMobRewardInterstitialItem,
   AdmobConsentStatus,
 } from '@capacitor-community/admob';
-import { AdMobSettings } from '../../types.ts';
+import { AdMobSettings, PremiumEntitlementSummary } from '../../types.ts';
 import { getActiveAdMobSettings } from './admobConfig.ts';
 import { addPurchasedCredits } from '../creditManager.ts';
 
@@ -75,6 +75,92 @@ class AdMobService {
   private isAdminPanelOpen = false;
   private isAdminSessionActive = false;
 
+  // Authoritative Server-Verified Premium Ad-Free Entitlement State
+  private premiumAdFree = false;
+  private premiumExpiryTimeMillis: number | null = null;
+  private entitlementListeners = new Set<(isPremium: boolean) => void>();
+  private interstitialRetryCount = 0;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedTs = Number(sessionStorage.getItem('jhd_last_interstitial_ts') || '0');
+        if (Number.isFinite(storedTs) && storedTs > 0) {
+          this.lastInterstitialShownTime = storedTs;
+        }
+      } catch {}
+    }
+  }
+
+  public setPremiumEntitlement(entitlement: PremiumEntitlementSummary | null | undefined): void {
+    const expiry =
+      typeof entitlement?.expiryTimeMillis === 'number' &&
+      Number.isFinite(entitlement.expiryTimeMillis) &&
+      entitlement.expiryTimeMillis > 0
+        ? entitlement.expiryTimeMillis
+        : null;
+    // STRICT SECURITY RULE:
+    // Premium ad removal activates ONLY for backend-verified Google Play subscriptions
+    // with subscriptionPlan === 'premium', active/cancelled status, and a real future expiry timestamp.
+    // Login status, registration, role, or null expiry NEVER grant Premium.
+    const isEntitledNow = Boolean(
+      entitlement?.subscriptionPlan === 'premium' &&
+      entitlement?.isPremium === true &&
+      entitlement?.adsRemoved === true &&
+      (entitlement?.status === 'active' || entitlement?.status === 'cancelled') &&
+      entitlement?.source === 'google_play_billing' &&
+      expiry !== null &&
+      expiry > Date.now()
+    );
+    const changed = this.premiumAdFree !== isEntitledNow || this.premiumExpiryTimeMillis !== expiry;
+    this.premiumAdFree = isEntitledNow;
+    this.premiumExpiryTimeMillis = isEntitledNow ? expiry : null;
+
+    if (isEntitledNow) {
+      this.hideAdaptiveBanner();
+    }
+
+    if (changed) {
+      this.entitlementListeners.forEach(listener => {
+        try {
+          listener(isEntitledNow);
+        } catch {}
+      });
+    }
+  }
+
+  public isPremiumActive(): boolean {
+    if (!this.premiumAdFree) return false;
+    if (this.premiumExpiryTimeMillis === null || this.premiumExpiryTimeMillis <= Date.now()) {
+      // Entitlement expired or missing expiry; immediately restore Free Plan ad eligibility
+      this.premiumAdFree = false;
+      this.premiumExpiryTimeMillis = null;
+      this.entitlementListeners.forEach(listener => {
+        try {
+          listener(false);
+        } catch {}
+      });
+      return false;
+    }
+    return true;
+  }
+
+  public subscribeEntitlementChange(listener: (isPremium: boolean) => void): () => void {
+    this.entitlementListeners.add(listener);
+    return () => {
+      this.entitlementListeners.delete(listener);
+    };
+  }
+
+  private recordInterstitialTimestamp(ts: number): void {
+    this.lastInterstitialShownTime = ts;
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem('jhd_last_interstitial_ts', String(ts));
+      } catch {}
+    }
+  }
+
   public setAdminPanelActive(active: boolean): void {
     this.isAdminPanelOpen = active;
     if (typeof window !== 'undefined') {
@@ -97,14 +183,14 @@ class AdMobService {
 
   /**
    * Reliable Admin Restriction Check:
-   * Returns true if user is currently on an Admin Panel screen, login screen,
-   * admin dashboard, product editor, image upload screen, or active admin route/session.
-   * Strictly suppresses all AdMob preloads, requests, impressions, and displays.
+   * Returns true ONLY while the user is actively viewing an Admin Panel screen or /admin route.
+   * Strictly suppresses AdMob on Admin screens WITHOUT suppressing ads on regular customer screens
+   * for Free users who may have opened the Admin Panel earlier in the same browser.
    */
   public isAdminActive(): boolean {
     if (typeof window === 'undefined') return false;
 
-    // 1. Explicit JS state flags
+    // 1. Explicit Admin Panel open flag
     if (this.isAdminPanelOpen || (window as any).__JHD_ADMIN_PANEL_OPEN__ === true) {
       return true;
     }
@@ -118,7 +204,7 @@ class AdMobService {
       }
     } catch {}
 
-    // 3. DOM & Class Markers
+    // 3. DOM & Class Markers (only present while Admin Panel is mounted)
     try {
       if (
         document.body?.classList.contains('admin-panel-open') ||
@@ -126,16 +212,6 @@ class AdMobService {
         document.querySelector('#admin-panel-container')
       ) {
         return true;
-      }
-    } catch {}
-
-    // 4. Authenticated Admin Session on Admin Views
-    try {
-      const token = localStorage.getItem('shivshahi_admin_token') || localStorage.getItem('jhd_admin_token');
-      if (token && token.trim().length > 0) {
-        if (this.isAdminSessionActive || (window as any).__JHD_ADMIN_SESSION_ACTIVE__ === true) {
-          return true;
-        }
       }
     } catch {}
 
@@ -179,10 +255,22 @@ class AdMobService {
    * Checks whether a specific banner placement is enabled in configuration.
    */
   public isPlacementEnabled(
-    placement: 'home' | 'catalog' | 'calculator' | 'chaukhat' | 'guide' | 'articles' | 'tracking' | 'detail' | 'visualizer' | 'saved',
+    placement:
+      | 'home'
+      | 'catalog'
+      | 'calculator'
+      | 'sliding_window'
+      | 'ai_wood_detector'
+      | 'chaukhat'
+      | 'guide'
+      | 'articles'
+      | 'tracking'
+      | 'detail'
+      | 'visualizer'
+      | 'saved',
     customSettings?: AdMobSettings
   ): boolean {
-    if (this.isAdminActive()) return false;
+    if (this.isAdminActive() || this.isPremiumActive()) return false;
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableBanners) return false;
 
@@ -193,6 +281,10 @@ class AdMobService {
         return config.bannerCatalog !== false;
       case 'calculator':
         return config.bannerCalculator !== false;
+      case 'sliding_window':
+        return config.bannerSlidingWindow !== false;
+      case 'ai_wood_detector':
+        return config.bannerWoodDetector !== false;
       case 'chaukhat':
         return config.bannerChaukhat !== false;
       case 'detail':
@@ -209,6 +301,19 @@ class AdMobService {
       default:
         return true;
     }
+  }
+
+  public isRewardedPromptAllowed(
+    placement: 'ai_wood_detector' | 'visualizer' = 'ai_wood_detector',
+    customSettings?: AdMobSettings
+  ): boolean {
+    if (this.isAdminActive() || this.isPremiumActive()) return false;
+    const config = getActiveAdMobSettings(customSettings);
+    if (!config.enabled || !config.enableRewardedAds) return false;
+    if (placement === 'ai_wood_detector') {
+      return config.rewardedWoodDetector !== false;
+    }
+    return config.enableVisualizerRewardedBonus !== false;
   }
 
   // --- Monitored Analytics Tracking (Policy Compliant, Zero Artificial Inflation) ---
@@ -275,15 +380,13 @@ class AdMobService {
    */
   public async initialize(customSettings?: AdMobSettings): Promise<void> {
     if (this.isInitialized || this.isInitializing) return;
-    if (this.isAdminActive()) {
-      console.log('🛡️ [AdMob Restriction] Admin screen/session active. Suppressing Mobile Ads SDK initialization.');
+    if (this.isAdminActive() || this.isPremiumActive()) {
       return;
     }
     this.isInitializing = true;
 
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled) {
-      console.log('ℹ️ [AdMob] Ads are disabled in settings.');
       this.isInitializing = false;
       return;
     }
@@ -358,11 +461,10 @@ class AdMobService {
       });
 
       AdMob.addListener(InterstitialAdPluginEvents.Dismissed, () => {
-        console.log('🚪 [AdMob] Interstitial dismissed.');
         this.isInterstitialLoaded = false;
         this.isFullScreenAdActive = false;
-        this.lastInterstitialShownTime = Date.now();
-        if (!this.isAdminActive()) {
+        this.recordInterstitialTimestamp(Date.now());
+        if (!this.isAdminActive() && !this.isPremiumActive()) {
           setTimeout(() => this.preloadInterstitial(), 3000);
         }
       });
@@ -370,7 +472,7 @@ class AdMobService {
       AdMob.addListener(InterstitialAdPluginEvents.FailedToShow, () => {
         this.isInterstitialLoaded = false;
         this.isFullScreenAdActive = false;
-        this.lastInterstitialShownTime = Date.now();
+        this.recordInterstitialTimestamp(Date.now());
       });
 
       // --- Rewarded Video Listeners ---
@@ -442,7 +544,7 @@ class AdMobService {
     customSettings?: AdMobSettings,
     margin = 72
   ): Promise<void> {
-    if (this.isAdminActive()) {
+    if (this.isAdminActive() || this.isPremiumActive()) {
       this.hideAdaptiveBanner();
       return;
     }
@@ -489,7 +591,7 @@ class AdMobService {
   // FORMAT 2: INTERSTITIAL AD (Natural breaks e.g. after quotation estimate)
   // ==========================================================================
   public async preloadInterstitial(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
-    if (!bypassAdminRestriction && this.isAdminActive()) return false;
+    if (!bypassAdminRestriction && (this.isAdminActive() || this.isPremiumActive())) return false;
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableInterstitials) return false;
     if (this.isInterstitialLoaded || this.isInterstitialLoading) return this.isInterstitialLoaded;
@@ -508,20 +610,66 @@ class AdMobService {
       await AdMob.prepareInterstitial(options);
       this.isInterstitialLoaded = true;
       this.isInterstitialLoading = false;
+      this.interstitialRetryCount = 0;
+      this.trackEvent('load_success', 'interstitial');
       return true;
     } catch (err: any) {
       console.warn('⚠️ [AdMob Interstitial] Preload error:', err?.message || err);
       this.isInterstitialLoaded = false;
       this.isInterstitialLoading = false;
+      this.trackEvent('load_fail', 'interstitial');
+      // Controlled exponential retry (max 3 attempts) without impacting UI
+      if (this.interstitialRetryCount < 3 && !this.isPremiumActive() && !this.isAdminActive()) {
+        this.interstitialRetryCount++;
+        const backoffMs = Math.min(30_000, 4000 * Math.pow(2, this.interstitialRetryCount - 1));
+        setTimeout(() => {
+          this.preloadInterstitial(customSettings, bypassAdminRestriction).catch(() => {});
+        }, backoffMs);
+      }
       return false;
     }
+  }
+
+  public isPlacementInterstitialEnabled(
+    placement: 'sliding_window' | 'ai_wood_detector' | 'door_calculator',
+    customSettings?: AdMobSettings
+  ): boolean {
+    if (this.isAdminActive() || this.isPremiumActive()) return false;
+    const config = getActiveAdMobSettings(customSettings);
+    if (!config.enabled || !config.enableInterstitials) return false;
+    if (placement === 'sliding_window') return config.interstitialSlidingWindow !== false;
+    if (placement === 'ai_wood_detector') return config.interstitialWoodDetector !== false;
+    if (placement === 'door_calculator') return config.interstitialCalculator !== false;
+    return true;
+  }
+
+  public async showPlacementInterstitial(
+    placement: 'sliding_window' | 'ai_wood_detector' | 'door_calculator',
+    onDone: () => void = () => {},
+    customSettings?: AdMobSettings
+  ): Promise<{ shown: boolean; reason?: string }> {
+    if (this.isPremiumActive()) {
+      onDone();
+      return { shown: false, reason: 'premium_ad_free' };
+    }
+    if (!this.isPlacementInterstitialEnabled(placement, customSettings)) {
+      onDone();
+      return { shown: false, reason: 'placement_disabled' };
+    }
+    const beforeCount = this.sessionInterstitialCount;
+    await this.showQuotationInterstitial(onDone, customSettings, 3200, false, placement);
+    return {
+      shown: this.sessionInterstitialCount > beforeCount,
+      reason: this.sessionInterstitialCount > beforeCount ? 'shown' : 'frequency_capped_or_unavailable',
+    };
   }
 
   public async showQuotationInterstitial(
     onDone: () => void,
     customSettings?: AdMobSettings,
     safetyTimeoutMs = 3500,
-    bypassAdminRestriction = false
+    bypassAdminRestriction = false,
+    placementLabel = 'quotation'
   ): Promise<void> {
     let completed = false;
     const safeComplete = () => {
@@ -532,7 +680,7 @@ class AdMobService {
       }
     };
 
-    if (!bypassAdminRestriction && this.isAdminActive()) {
+    if (!bypassAdminRestriction && (this.isAdminActive() || this.isPremiumActive())) {
       safeComplete();
       return;
     }
@@ -550,17 +698,15 @@ class AdMobService {
 
     // Session frequency capping (e.g. max 4 per session)
     const maxPerSession = config.maxInterstitialsPerSession || 4;
-    if (this.sessionInterstitialCount >= maxPerSession) {
-      console.log(`⏱️ [AdMob Interstitial] Session limit (${maxPerSession}) reached; skipping.`);
+    if (!bypassAdminRestriction && this.sessionInterstitialCount >= maxPerSession) {
       safeComplete();
       return;
     }
 
-    // Frequency capping: Minimum interval between impressions
+    // Global frequency capping: default 180 seconds (3 minutes) across all screens
     const now = Date.now();
-    const minIntervalMs = (config.interstitialMinIntervalSeconds || 45) * 1000;
-    if (now - this.lastInterstitialShownTime < minIntervalMs) {
-      console.log('⏱️ [AdMob Interstitial] Frequency interval cooldown active; skipping.');
+    const minIntervalMs = (config.interstitialMinIntervalSeconds || 180) * 1000;
+    if (!bypassAdminRestriction && this.lastInterstitialShownTime > 0 && now - this.lastInterstitialShownTime < minIntervalMs) {
       safeComplete();
       return;
     }
@@ -574,9 +720,9 @@ class AdMobService {
 
     if (!this.isNative()) {
       clearTimeout(timeoutHandle);
-      this.lastInterstitialShownTime = now;
+      this.recordInterstitialTimestamp(now);
       this.sessionInterstitialCount++;
-      this.trackEvent('impression', 'interstitial', 'web_preview');
+      this.trackEvent('impression', 'interstitial', `web_${placementLabel}`);
       safeComplete();
       return;
     }
@@ -604,16 +750,16 @@ class AdMobService {
 
       dismissHandle = await AdMob.addListener(InterstitialAdPluginEvents.Dismissed, () => {
         cleanup();
-        this.lastInterstitialShownTime = Date.now();
+        this.recordInterstitialTimestamp(Date.now());
         this.sessionInterstitialCount++;
         this.isInterstitialLoaded = false;
-        this.trackEvent('impression', 'interstitial', 'native');
+        this.trackEvent('impression', 'interstitial', `native_${placementLabel}`);
         safeComplete();
       });
 
       failHandle = await AdMob.addListener(InterstitialAdPluginEvents.FailedToShow, () => {
         cleanup();
-        this.lastInterstitialShownTime = Date.now();
+        this.recordInterstitialTimestamp(Date.now());
         this.isInterstitialLoaded = false;
         this.trackEvent('load_fail', 'interstitial');
         safeComplete();
@@ -641,7 +787,12 @@ class AdMobService {
     onDone: () => void,
     customSettings?: AdMobSettings
   ): Promise<void> {
-    if (this.isAdminActive() || fromView.toLowerCase().includes('admin') || toView.toLowerCase().includes('admin')) {
+    if (
+      this.isAdminActive() ||
+      this.isPremiumActive() ||
+      fromView.toLowerCase().includes('admin') ||
+      toView.toLowerCase().includes('admin')
+    ) {
       onDone();
       return;
     }
@@ -697,7 +848,7 @@ class AdMobService {
   // FORMAT 3: REWARDED VIDEO AD (+3 AI Wood Scan Credits upon verified completion)
   // ==========================================================================
   public async preloadRewarded(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
-    if (!bypassAdminRestriction && this.isAdminActive()) return false;
+    if (!bypassAdminRestriction && (this.isAdminActive() || this.isPremiumActive())) return false;
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableRewardedAds) return false;
     if (this.isRewardedLoaded || this.isRewardedLoading) return this.isRewardedLoaded;
@@ -738,7 +889,7 @@ class AdMobService {
     customSettings?: AdMobSettings,
     bypassAdminRestriction = false
   ): Promise<{ shown: boolean; rewarded: boolean }> {
-    if (!bypassAdminRestriction && this.isAdminActive()) {
+    if (!bypassAdminRestriction && (this.isAdminActive() || this.isPremiumActive())) {
       return { shown: false, rewarded: false };
     }
 
@@ -827,7 +978,7 @@ class AdMobService {
   // FORMAT 4: REWARDED INTERSTITIAL AD (Clear opt-in disclosure + verified reward)
   // ==========================================================================
   public async preloadRewardedInterstitial(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
-    if (!bypassAdminRestriction && this.isAdminActive()) return false;
+    if (!bypassAdminRestriction && (this.isAdminActive() || this.isPremiumActive())) return false;
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableRewardedInterstitialAds) return false;
     if (this.isRewardedInterstitialLoaded || this.isRewardedInterstitialLoading) {
@@ -863,7 +1014,7 @@ class AdMobService {
     customSettings?: AdMobSettings,
     bypassAdminRestriction = false
   ): Promise<{ shown: boolean; rewarded: boolean }> {
-    if (!bypassAdminRestriction && this.isAdminActive()) {
+    if (!bypassAdminRestriction && (this.isAdminActive() || this.isPremiumActive())) {
       return { shown: false, rewarded: false };
     }
 
@@ -949,7 +1100,7 @@ class AdMobService {
   // FORMAT 6: APP OPEN AD (Foreground return & cold start with 4h freshness)
   // ==========================================================================
   public async preloadAppOpen(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
-    if (!bypassAdminRestriction && this.isAdminActive()) return false;
+    if (!bypassAdminRestriction && (this.isAdminActive() || this.isPremiumActive())) return false;
     const config = getActiveAdMobSettings(customSettings);
     if (!config.enabled || !config.enableAppOpenAds) return false;
     if (this.isAppOpenLoaded || this.isAppOpenLoading) {
@@ -983,7 +1134,7 @@ class AdMobService {
   }
 
   public async showAppOpenAd(customSettings?: AdMobSettings, bypassAdminRestriction = false): Promise<boolean> {
-    if (!bypassAdminRestriction && this.isAdminActive()) {
+    if (!bypassAdminRestriction && (this.isAdminActive() || this.isPremiumActive())) {
       return false;
     }
 
@@ -1074,6 +1225,7 @@ class AdMobService {
   public getStatus() {
     return {
       isAdminActive: this.isAdminActive(),
+      isPremiumActive: this.isPremiumActive(),
       isAdminPanelOpen: this.isAdminPanelOpen,
       isAdminSessionActive: this.isAdminSessionActive,
       isInitialized: this.isInitialized,

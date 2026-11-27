@@ -711,7 +711,7 @@ export async function verifyAdminCredentialsViaFirestore(
       user: {
         role: 'admin',
         email: inputEmail || 'shivshahidoors@gmail.com',
-        name: dbData?.settings?.businessName || 'Jai Hanuman Door',
+        name: dbData?.settings?.businessName || 'WindowCut Pro',
       },
     };
   } catch (err: any) {

@@ -15,7 +15,6 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import { TeamMember, BusinessSettings } from '../types.ts';
-import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 import { resolveImageUrl, isGoogleDriveEmbedUrl } from '../lib/api.ts';
 
 interface TeamMemberDetailModalProps {
@@ -38,11 +37,6 @@ export const TeamMemberDetailModal: React.FC<TeamMemberDetailModalProps> = ({
   }, [onClose]);
 
   if (!member) return null;
-
-  const whatsappUrl = getWhatsAppUrl(
-    settings?.whatsappNumber || settings?.phone || '7887412884',
-    `Hello ${settings?.businessName || 'Jai Hanuman Door'}! I viewed the profile of ${member.name} (${member.designation}) and would like to discuss door requirements.`
-  );
 
   return (
     <div
@@ -303,25 +297,22 @@ export const TeamMemberDetailModal: React.FC<TeamMemberDetailModalProps> = ({
             </div>
 
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              <a
-                href={whatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>WhatsApp Team</span>
-              </a>
-
-              {settings?.phone && (
+              {settings?.email && (
                 <a
-                  href={`tel:${settings.phone}`}
-                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-[#C89211] hover:bg-amber-600 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
+                  href={`mailto:${settings.email}`}
+                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-[#0B5ED7] hover:bg-[#084298] text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
                 >
-                  <Phone className="w-4 h-4" />
-                  <span>Call Workshop</span>
+                  <Mail className="w-4 h-4" />
+                  <span>Email Support</span>
                 </a>
               )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#0A2540] font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <span>Close</span>
+              </button>
             </div>
           </div>
         </div>

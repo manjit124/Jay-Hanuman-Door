@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   TreePine,
   Ruler,
@@ -17,6 +17,9 @@ import {
   Info,
   Check,
   Award,
+  CreditCard,
+  Lock,
+  AlertCircle,
 } from 'lucide-react';
 import { AdMobBannerSlot } from './admob/AdMobBannerSlot.tsx';
 import {
@@ -29,6 +32,7 @@ import {
   BusinessSettings,
   CalculationResult,
   Door,
+  CustomerAccount,
 } from '../types.ts';
 import {
   DEFAULT_CHAUKHAT_WOOD_TYPES,
@@ -37,9 +41,8 @@ import {
   DEFAULT_CHAUKHAT_DESIGNS,
   DEFAULT_CHAUKHAT_PRODUCT,
 } from '../data/chaukhatDefaults.ts';
-import { fetchChaukhatConfig, resolveImageUrl } from '../lib/api.ts';
+import { calculateChaukhatApi, fetchChaukhatConfig, resolveImageUrl } from '../lib/api.ts';
 import { generateChaukhatQuotationPDF, generateCombinedQuotationPDF } from '../lib/pdfGenerator.ts';
-import { getWhatsAppUrl, formatWhatsAppDisplay } from '../lib/contactUtils.ts';
 
 interface ChaukhatCalculatorProps {
   settings: BusinessSettings;
@@ -47,6 +50,19 @@ interface ChaukhatCalculatorProps {
   activeDoor?: Door | null;
   onSwitchToDoorCalculator: () => void;
   onUpdateCombinedChaukhat?: (result: ChaukhatCalculationResult | null) => void;
+  currentCustomer?: CustomerAccount | null;
+  onRequireCalculationLogin?: (resumeAction: () => void | Promise<void>) => void;
+  onPayOnlineChaukhat?: (chaukhatInput: {
+    woodTypeId: string;
+    sectionSizeId: string;
+    customWidthInch?: number;
+    customDepthInch?: number;
+    heightFt: number;
+    widthFt: number;
+    designId: 'plain' | 'diamond' | 'hand_carved';
+    productId?: string;
+  }) => Promise<void>;
+  isPayingOnline?: boolean;
 }
 
 export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
@@ -55,6 +71,10 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
   activeDoor,
   onSwitchToDoorCalculator,
   onUpdateCombinedChaukhat,
+  currentCustomer,
+  onRequireCalculationLogin,
+  onPayOnlineChaukhat,
+  isPayingOnline = false,
 }) => {
   // Configuration data loaded from backend (or fallback defaults)
   const [woodTypes, setWoodTypes] = useState<ChaukhatWoodType[]>(DEFAULT_CHAUKHAT_WOOD_TYPES);
@@ -80,8 +100,8 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
 
   // Preview & Modal States
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [customerName, setCustomerName] = useState<string>('');
-  const [customerPhone, setCustomerPhone] = useState<string>('');
+  const [customerName, setCustomerName] = useState<string>(currentCustomer?.name || '');
+  const [customerPhone, setCustomerPhone] = useState<string>(currentCustomer?.mobile || '');
   const [showQuotationModal, setShowQuotationModal] = useState<boolean>(false);
   const [addedToCombined, setAddedToCombined] = useState<boolean>(false);
   const [showCombinedModal, setShowCombinedModal] = useState<boolean>(false);
@@ -158,129 +178,148 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
     return Math.round(cf * 100) / 100;
   }, [runningLengthFt, activeSection]);
 
-  // Calculate Price for any design option
-  const computePriceForDesign = (designId: 'plain' | 'diamond' | 'hand_carved') => {
-    const pricingMethod = activeProduct.pricingMethod || 'running_foot';
-    let materialCost = 0;
-    let carvingCharge = 0;
+  // Selected design card metadata
+  const selectedDesignCard = useMemo(
+    () => DEFAULT_CHAUKHAT_DESIGNS.find(d => d.id === selectedDesignId) || DEFAULT_CHAUKHAT_DESIGNS[0],
+    [selectedDesignId]
+  );
 
-    const baseRatePerRft = selectedWood.baseRatePerRft || activeProduct.baseMaterialRate || 450;
-    const baseRatePerCuFt = selectedWood.baseRatePerCuFt || 3600;
+  // Server-authoritative Chaukhat calculation result (strictly gated behind verified customer login)
+  const [serverCalculationResult, setServerCalculationResult] = useState<ChaukhatCalculationResult | null>(null);
+  const [isCalculatingPrice, setIsCalculatingPrice] = useState<boolean>(false);
+  const [calcError, setCalcError] = useState<string | null>(null);
 
-    // Cross-sectional factor (baseline is standard 5" × 4" = 20 sq.in)
-    const standardSectionArea = 20;
-    const currentSectionArea = activeSection.widthInch * activeSection.depthInch;
-    const sectionFactor = currentSectionArea / standardSectionArea;
+  const calculationResult: ChaukhatCalculationResult | null = currentCustomer ? serverCalculationResult : null;
 
-    if (pricingMethod === 'running_foot') {
-      const adjustedRate = Math.round(baseRatePerRft * Math.max(0.7, Math.min(2.5, sectionFactor)));
-      materialCost = Math.round(runningLengthFt * adjustedRate);
+  // Keep latest Chaukhat inputs in a ref for post-OTP auto-calculation
+  const chaukhatInputsRef = useRef({
+    woodTypeId: selectedWoodId,
+    sectionSizeId: selectedSectionId,
+    customWidthInch,
+    customDepthInch,
+    heightFt: frameHeightFt,
+    widthFt: frameWidthFt,
+    designId: selectedDesignId,
+    productId: activeProduct?.id,
+  });
 
-      if (designId === 'diamond') {
-        const rate = activeProduct.diamondCarvingCharge || 120;
-        carvingCharge = Math.round(runningLengthFt * rate);
-      } else if (designId === 'hand_carved') {
-        const rate = activeProduct.handCarvedCharge || 280;
-        carvingCharge = Math.round(runningLengthFt * rate);
-      } else {
-        carvingCharge = activeProduct.plainCarvingCharge || 0;
-      }
-    } else if (pricingMethod === 'cubic_foot') {
-      materialCost = Math.round(cubicFeet * baseRatePerCuFt);
-      if (designId === 'diamond') {
-        carvingCharge = Math.round(runningLengthFt * (activeProduct.diamondCarvingCharge || 120));
-      } else if (designId === 'hand_carved') {
-        carvingCharge = Math.round(runningLengthFt * (activeProduct.handCarvedCharge || 280));
-      } else {
-        carvingCharge = 0;
-      }
-    } else {
-      // Fixed price
-      materialCost = activeProduct.fixedPrice || 8500;
-      if (designId === 'diamond') {
-        carvingCharge = activeProduct.diamondCarvingCharge || 1800;
-      } else if (designId === 'hand_carved') {
-        carvingCharge = activeProduct.handCarvedCharge || 3500;
-      } else {
-        carvingCharge = 0;
-      }
-    }
-
-    const subtotal = materialCost + carvingCharge;
-    const taxPercent = Number(settings?.additionalChargePercentage) || 0;
-    const additionalCharges = Math.round((subtotal * taxPercent) / 100);
-    const total = subtotal + additionalCharges;
-
-    return {
-      materialCost,
-      carvingCharge,
-      subtotal,
-      additionalCharges,
-      total,
-    };
-  };
-
-  // Full calculation result for currently selected design
-  const calculationResult: ChaukhatCalculationResult = useMemo(() => {
-    const priceData = computePriceForDesign(selectedDesignId);
-    const designCard = DEFAULT_CHAUKHAT_DESIGNS.find(d => d.id === selectedDesignId) || DEFAULT_CHAUKHAT_DESIGNS[0];
-
-    const designImage = selectedDesignId === 'diamond'
-      ? (activeProduct.diamondImage || designCard.image)
-      : selectedDesignId === 'hand_carved'
-      ? (activeProduct.handCarvedImage || designCard.image)
-      : (activeProduct.plainImage || designCard.image);
-
-    return {
-      id: `chk-calc-${Date.now()}`,
-      woodType: selectedWood.name,
-      woodRatePerRft: selectedWood.baseRatePerRft,
-      sectionSizeName: activeSection.name,
-      sectionWidthInch: activeSection.widthInch,
-      sectionDepthInch: activeSection.depthInch,
-      isCustomSection: selectedSectionId === 'custom',
+  useEffect(() => {
+    chaukhatInputsRef.current = {
+      woodTypeId: selectedWoodId,
+      sectionSizeId: selectedSectionId,
+      customWidthInch,
+      customDepthInch,
       heightFt: frameHeightFt,
       widthFt: frameWidthFt,
-      heightInch: Math.round(frameHeightFt * 12),
-      widthInch: Math.round(frameWidthFt * 12),
-      isCustomDimensions,
-      runningLengthFt,
-      cubicFeet,
-      selectedDesignId,
-      selectedDesignName: designCard.name,
-      selectedDesignImage: designImage,
-      pricingMethod: activeProduct.pricingMethod || 'running_foot',
-      materialCost: priceData.materialCost,
-      designCarvingCharge: priceData.carvingCharge,
-      subtotal: priceData.subtotal,
-      additionalCharges: priceData.additionalCharges,
-      totalPrice: priceData.total,
-      currency: 'INR',
-      isEstimate: true,
-      timestamp: new Date().toISOString(),
+      designId: selectedDesignId,
+      productId: activeProduct?.id,
     };
   }, [
-    selectedDesignId,
-    selectedWood,
-    activeSection,
+    selectedWoodId,
+    selectedSectionId,
+    customWidthInch,
+    customDepthInch,
     frameHeightFt,
     frameWidthFt,
-    isCustomDimensions,
-    runningLengthFt,
-    cubicFeet,
-    activeProduct,
-    settings,
+    selectedDesignId,
+    activeProduct?.id,
+  ]);
+
+  // Clear calculation results immediately upon logout
+  useEffect(() => {
+    if (!currentCustomer) {
+      setServerCalculationResult(null);
+      setCalcError(null);
+      setAddedToCombined(false);
+      setShowQuotationModal(false);
+      setShowCombinedModal(false);
+      if (onUpdateCombinedChaukhat) {
+        onUpdateCombinedChaukhat(null);
+      }
+    }
+  }, [currentCustomer]);
+
+  const runServerChaukhatCalculation = async (scrollToResult = false) => {
+    const snap = chaukhatInputsRef.current;
+    setIsCalculatingPrice(true);
+    setCalcError(null);
+    try {
+      const res = await calculateChaukhatApi({
+        woodTypeId: snap.woodTypeId,
+        sectionSizeId: snap.sectionSizeId,
+        customWidthInch: snap.sectionSizeId === 'custom' ? snap.customWidthInch : undefined,
+        customDepthInch: snap.sectionSizeId === 'custom' ? snap.customDepthInch : undefined,
+        heightFt: snap.heightFt,
+        widthFt: snap.widthFt,
+        designId: snap.designId,
+        productId: snap.productId,
+      });
+      setServerCalculationResult(res);
+      if (scrollToResult) {
+        window.setTimeout(() => {
+          document.getElementById('chaukhat-calculation-result-card')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+          });
+        }, 100);
+      }
+    } catch (err: any) {
+      if (err?.code === 'CUSTOMER_AUTH_REQUIRED' || err?.status === 401) {
+        setServerCalculationResult(null);
+        if (onRequireCalculationLogin) {
+          onRequireCalculationLogin(() => runServerChaukhatCalculation(true));
+        } else {
+          setCalcError('Please login with your mobile number to view your calculation results.');
+        }
+        return;
+      }
+      setCalcError(err?.message || 'Failed to calculate Chaukhat price. Please try again.');
+    } finally {
+      setIsCalculatingPrice(false);
+    }
+  };
+
+  const handleCalculateChaukhatPrice = () => {
+    if (!currentCustomer) {
+      if (onRequireCalculationLogin) {
+        onRequireCalculationLogin(() => runServerChaukhatCalculation(true));
+      } else {
+        setCalcError('Please login with your mobile number to view your calculation results.');
+      }
+      return;
+    }
+    runServerChaukhatCalculation(true);
+  };
+
+  // For already logged-in customers who already calculated once, keep result live on option adjustments
+  useEffect(() => {
+    if (!currentCustomer || !serverCalculationResult) return;
+    const timer = window.setTimeout(() => {
+      runServerChaukhatCalculation(false);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [
+    currentCustomer?.id,
+    selectedWoodId,
+    selectedSectionId,
+    customWidthInch,
+    customDepthInch,
+    frameHeightFt,
+    frameWidthFt,
+    selectedDesignId,
+    activeProduct?.id,
   ]);
 
   // Keep parent combined quotation updated if customer opted into combined quotation
   useEffect(() => {
-    if (addedToCombined && onUpdateCombinedChaukhat) {
+    if (addedToCombined && calculationResult && onUpdateCombinedChaukhat) {
       onUpdateCombinedChaukhat(calculationResult);
     }
   }, [calculationResult, addedToCombined, onUpdateCombinedChaukhat]);
 
-  // Combined Quotation Math
+  // Combined Quotation Math (only computed when authenticated result exists)
   const combinedQuotation = useMemo(() => {
+    if (!calculationResult) return null;
     const doorCost = activeDoorCalculation?.total || 0;
     const chaukhatCost = calculationResult.totalPrice || 0;
     const combinedSubtotal = (activeDoorCalculation?.subtotal || 0) + calculationResult.subtotal;
@@ -311,64 +350,11 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
     setIsCustomDimensions(false);
     setSelectedDesignId('plain');
     setAddedToCombined(false);
+    setServerCalculationResult(null);
+    setCalcError(null);
     if (onUpdateCombinedChaukhat) {
       onUpdateCombinedChaukhat(null);
     }
-  };
-
-  // WhatsApp Enquiry Trigger
-  const handleWhatsAppEnquiry = () => {
-    const phone = settings.whatsappNumber || '7887412884';
-    const lines = [
-      `*New Chaukhat (Door Frame) Enquiry — Jai Hanuman Door*`,
-      ``,
-      `• *Selected Design:* ${calculationResult.selectedDesignName}`,
-      `• *Timber Wood:* ${calculationResult.woodType}`,
-      `• *Section Size (Cross-section):* ${calculationResult.sectionSizeName}`,
-      `• *Overall Frame Opening:* ${calculationResult.heightFt} ft × ${calculationResult.widthFt} ft (${calculationResult.heightInch}" × ${calculationResult.widthInch}")`,
-      `• *Running Length (2H + W):* ${calculationResult.runningLengthFt} Running Feet`,
-      `• *Wood Timber Material Cost:* ₹${calculationResult.materialCost.toLocaleString('en-IN')}`,
-      `• *Carving / Design Charge:* ₹${calculationResult.designCarvingCharge.toLocaleString('en-IN')}`,
-      `• *Estimated Total Price:* ₹${calculationResult.totalPrice.toLocaleString('en-IN')}`,
-      ``,
-      addedToCombined && activeDoorCalculation
-        ? `*Included in Combined Quotation:* Door (${activeDoorCalculation.doorName}) + Chaukhat = ₹${combinedQuotation.combinedTotal.toLocaleString('en-IN')}`
-        : `*Pricing Basis:* Length-based calculation (estimate subject to site measurements)`,
-      ``,
-      `Please confirm timber availability and dispatch schedule.`,
-    ];
-
-    const url = getWhatsAppUrl(phone, lines.join('\n'));
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
-  // Combined WhatsApp Enquiry
-  const handleCombinedWhatsAppEnquiry = () => {
-    const phone = settings.whatsappNumber || '7887412884';
-    const lines = [
-      `*Complete Door + Chaukhat Combined Quotation Enquiry — Jai Hanuman Door*`,
-      ``,
-      `1️⃣ *Door Shutter Details:*`,
-      `• Design: ${activeDoorCalculation?.doorName || 'Selected Design'}`,
-      `• Wood: ${activeDoorCalculation?.materialName}`,
-      `• Dimensions: ${activeDoorCalculation?.widthInch}" × ${activeDoorCalculation?.heightInch}" (${activeDoorCalculation?.sqFt.toFixed(2)} sq.ft)`,
-      `• Door Price: ₹${(activeDoorCalculation?.total || 0).toLocaleString('en-IN')}`,
-      ``,
-      `2️⃣ *Chaukhat (Door Frame) Details:*`,
-      `• Design: ${calculationResult.selectedDesignName}`,
-      `• Wood: ${calculationResult.woodType}`,
-      `• Section Profile: ${calculationResult.sectionSizeName}`,
-      `• Frame Size: ${calculationResult.heightFt} ft × ${calculationResult.widthFt} ft (${calculationResult.runningLengthFt} Rft)`,
-      `• Chaukhat Price: ₹${calculationResult.totalPrice.toLocaleString('en-IN')}`,
-      ``,
-      `💰 *COMBINED TOTAL:* ₹${combinedQuotation.combinedTotal.toLocaleString('en-IN')}`,
-      `*(Zero double counting — each component itemized exactly once)*`,
-      ``,
-      `Please provide formal workshop confirmation and production timeline.`,
-    ];
-
-    const url = getWhatsAppUrl(phone, lines.join('\n'));
-    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -406,8 +392,8 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
         </div>
       </div>
 
-      {/* Combined Quotation Notice Banner if Door is Active */}
-      {activeDoorCalculation && (
+      {/* Combined Quotation Notice Banner if Door is Active & Customer Logged In */}
+      {activeDoorCalculation && calculationResult && (
         <div className="bg-gradient-to-r from-amber-900/90 via-stone-900 to-amber-950 text-white border-b border-amber-500/30 py-2.5 px-4">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2">
@@ -634,7 +620,7 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
                   </div>
                 </div>
                 <span className="text-xs text-[#C89211] font-bold">
-                  {frameHeightFt} ft × {frameWidthFt} ft ({calculationResult.runningLengthFt} Rft)
+                  {frameHeightFt} ft × {frameWidthFt} ft ({runningLengthFt} Rft)
                 </span>
               </div>
 
@@ -642,7 +628,7 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
               <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/80 mb-4 flex items-start gap-2.5 text-xs text-amber-900">
                 <Info className="w-4 h-4 text-[#C89211] shrink-0 mt-0.5" />
                 <p>
-                  <strong>Perimeter vs Section:</strong> Frame opening dimensions (e.g. 7 ft × 4 ft) determine total running feet <code>(2 × Height + Width = {calculationResult.runningLengthFt} Rft)</code>. Wood cross-section (e.g. {activeSection.name}) determines the solid volume of timber per running foot.
+                  <strong>Perimeter vs Section:</strong> Frame opening dimensions (e.g. 7 ft × 4 ft) determine total running feet <code>(2 × Height + Width = {runningLengthFt} Rft)</code>. Wood cross-section (e.g. {activeSection.name}) determines the solid volume of timber per running foot.
                 </p>
               </div>
 
@@ -755,7 +741,6 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {DEFAULT_CHAUKHAT_DESIGNS.map(design => {
                   const isSelected = selectedDesignId === design.id;
-                  const priceQuote = computePriceForDesign(design.id);
                   const rawImg = design.id === 'diamond'
                     ? (activeProduct.diamondImage || design.image)
                     : design.id === 'hand_carved'
@@ -816,20 +801,24 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
                         </div>
                       </div>
 
-                      {/* Design Price Footer */}
+                      {/* Design Rate Footer (No Calculated Total Leaked to Guests) */}
                       <div className="p-4 pt-3 border-t border-stone-100 bg-stone-50/60 mt-2">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-stone-500">Calculated Estimate</span>
-                          <span className="font-mono font-bold text-sm text-stone-900">
-                            ₹{priceQuote.total.toLocaleString('en-IN')}
+                          <span className="text-stone-500">Craftsmanship Rate</span>
+                          <span className="font-mono font-bold text-xs text-stone-900">
+                            {design.id === 'plain'
+                              ? 'Included'
+                              : design.id === 'diamond'
+                              ? `+₹${activeProduct.diamondCarvingCharge || 120}/Rft`
+                              : `+₹${activeProduct.handCarvedCharge || 280}/Rft`}
                           </span>
                         </div>
                         <div className="text-[10px] text-stone-400 text-right mt-0.5">
                           {design.id === 'plain'
                             ? 'Shutter rebate profile included'
                             : design.id === 'diamond'
-                            ? `+₹${activeProduct.diamondCarvingCharge || 120}/Rft carving`
-                            : `+₹${activeProduct.handCarvedCharge || 280}/Rft hand-carving`}
+                            ? 'CNC & artisan diamond detailing'
+                            : 'Deep traditional hand-carving'}
                         </div>
                       </div>
                     </div>
@@ -844,7 +833,10 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
           <div className="lg:col-span-5 sticky top-28 space-y-4">
             
             {/* PRICE BREAKDOWN CARD */}
-            <div className="bg-white rounded-3xl border border-stone-200/90 shadow-lg p-6 space-y-5">
+            <div
+              id="chaukhat-calculation-result-card"
+              className="bg-white rounded-3xl border border-stone-200/90 shadow-lg p-6 space-y-5"
+            >
               <div className="border-b border-stone-100 pb-4">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-semibold border border-emerald-200 mb-2">
                   <ShieldCheck className="w-3 h-3 text-emerald-600" />
@@ -854,7 +846,7 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
                   Chaukhat Price Breakdown
                 </h3>
                 <p className="text-xs text-stone-500">
-                  Instant length-based workshop estimate with zero double counting
+                  Length-based workshop estimate with zero double counting
                 </p>
               </div>
 
@@ -862,156 +854,232 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
               <div className="space-y-2 text-xs bg-stone-50 p-4 rounded-2xl border border-stone-200/60">
                 <div className="flex justify-between py-1 border-b border-stone-200/50">
                   <span className="text-stone-500">Wood Timber:</span>
-                  <span className="font-semibold text-stone-900">{calculationResult.woodType}</span>
+                  <span className="font-semibold text-stone-900">{selectedWood.name}</span>
                 </div>
 
                 <div className="flex justify-between py-1 border-b border-stone-200/50">
                   <span className="text-stone-500">Section Dimensions:</span>
-                  <span className="font-semibold text-stone-900">{calculationResult.sectionSizeName}</span>
+                  <span className="font-semibold text-stone-900">{activeSection.name}</span>
                 </div>
 
                 <div className="flex justify-between py-1 border-b border-stone-200/50">
                   <span className="text-stone-500">Overall Frame Opening:</span>
                   <span className="font-semibold text-stone-900">
-                    {calculationResult.heightFt} ft × {calculationResult.widthFt} ft ({calculationResult.heightInch}" × {calculationResult.widthInch}")
+                    {frameHeightFt} ft × {frameWidthFt} ft ({Math.round(frameHeightFt * 12)}" × {Math.round(frameWidthFt * 12)}")
                   </span>
                 </div>
 
                 <div className="flex justify-between py-1 border-b border-stone-200/50">
                   <span className="text-stone-500">Selected Design:</span>
-                  <span className="font-semibold text-[#A0700B]">{calculationResult.selectedDesignName}</span>
+                  <span className="font-semibold text-[#A0700B]">{selectedDesignCard.name}</span>
                 </div>
 
                 <div className="flex justify-between py-1">
                   <span className="text-stone-500">Total Running Length (2H + W):</span>
                   <span className="font-mono font-bold text-stone-900">
-                    {calculationResult.runningLengthFt} Running Feet
+                    {runningLengthFt} Running Feet
                   </span>
                 </div>
               </div>
 
-              {/* Itemized Cost Lines */}
-              <div className="space-y-2.5 text-xs pt-1">
-                <div className="flex justify-between items-center text-stone-700">
-                  <div>
-                    <span className="font-medium">Solid Timber Material Cost</span>
-                    <span className="text-[10px] text-stone-400 block font-normal">
-                      {calculationResult.runningLengthFt} Rft seasoned {calculationResult.woodType}
-                    </span>
-                  </div>
-                  <span className="font-mono font-bold text-stone-900 text-sm">
-                    ₹{calculationResult.materialCost.toLocaleString('en-IN')}
-                  </span>
+              {calcError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{calcError}</span>
                 </div>
+              )}
 
-                <div className="flex justify-between items-center text-stone-700">
-                  <div>
-                    <span className="font-medium">Design / Carving Craftsmanship</span>
-                    <span className="text-[10px] text-stone-400 block font-normal">
-                      {calculationResult.selectedDesignId === 'plain'
-                        ? 'Standard clean rebate profile (Included)'
-                        : `${calculationResult.selectedDesignName} detailing`}
-                    </span>
+              {!calculationResult ? (
+                <div className="space-y-3 pt-1">
+                  <div className="p-4 rounded-2xl bg-[#FAF8F4] border border-stone-200 text-center space-y-2">
+                    <div className="w-9 h-9 rounded-xl bg-[#FFF7E3] border border-[#C89211]/30 flex items-center justify-center mx-auto">
+                      <Lock className="w-4 h-4 text-[#C89211]" />
+                    </div>
+                    <div className="text-xs font-bold text-stone-900">
+                      {currentCustomer ? 'Ready for Workshop Calculation' : 'Login Required to View Price'}
+                    </div>
+                    <p className="text-[11px] text-stone-500 leading-relaxed">
+                      {currentCustomer
+                        ? 'Click Calculate below to fetch your exact workshop estimate from our live pricing engine.'
+                        : 'Your selected wood, section size, frame opening, and design are ready. Click Calculate to login with your mobile number and view the price breakdown.'}
+                    </p>
                   </div>
-                  <span className="font-mono font-bold text-stone-900 text-sm">
-                    {calculationResult.designCarvingCharge > 0
-                      ? `₹${calculationResult.designCarvingCharge.toLocaleString('en-IN')}`
-                      : <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px] font-sans">Included (₹0)</span>}
-                  </span>
-                </div>
-
-                {calculationResult.additionalCharges > 0 && (
-                  <div className="flex justify-between items-center text-stone-700">
-                    <span className="font-medium">{settings?.additionalChargeName || 'Taxes & Levies'}</span>
-                    <span className="font-mono font-bold text-stone-900">
-                      ₹{calculationResult.additionalCharges.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Final Estimated Total Box */}
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-stone-900 to-[#2A2318] text-white space-y-1 shadow-md">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-stone-300 uppercase tracking-wider font-semibold">
-                    Estimated Chaukhat Price
-                  </span>
-                  <span className="text-[10px] bg-[#C89211] text-white px-2 py-0.5 rounded font-bold uppercase">
-                    Workshop Direct
-                  </span>
-                </div>
-                <div className="flex items-baseline justify-between pt-1">
-                  <div className="font-mono text-3xl font-bold text-white tracking-tight">
-                    ₹{calculationResult.totalPrice.toLocaleString('en-IN')}
-                  </div>
-                  <span className="text-[10px] text-stone-400 font-sans">
-                    GST & Seasoning Included
-                  </span>
-                </div>
-                <p className="text-[10px] text-amber-200/80 pt-1 italic">
-                  * Price shown is an estimate. Masonry site measurements and wall plaster variations may modify final running length.
-                </p>
-              </div>
-
-              {/* ACTION BUTTONS */}
-              <div className="space-y-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowQuotationModal(true)}
-                  className="w-full py-3.5 px-4 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Get Chaukhat Quotation PDF</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleWhatsAppEnquiry}
-                  className="w-full py-3 px-4 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold text-sm shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  <span>Enquire on WhatsApp</span>
-                </button>
-
-                {/* Add Chaukhat to Combined Quotation Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddedToCombined(true);
-                    if (onUpdateCombinedChaukhat) {
-                      onUpdateCombinedChaukhat(calculationResult);
-                    }
-                    setShowCombinedModal(true);
-                  }}
-                  className={`w-full py-3 px-4 rounded-xl border text-sm font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                    addedToCombined
-                      ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
-                      : 'border-stone-800 bg-white hover:bg-stone-50 text-stone-900'
-                  }`}
-                >
-                  <PlusCircle className="w-4 h-4 text-[#C89211]" />
-                  <span>{addedToCombined ? '✓ Chaukhat Added to Combined Quotation' : 'Add Chaukhat to Combined Quotation'}</span>
-                </button>
-
-                <div className="flex items-center justify-between pt-2">
-                  <button
-                    type="button"
-                    onClick={handleResetSelection}
-                    className="text-xs text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer transition-colors"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Reset Selection</span>
-                  </button>
 
                   <button
+                    id="btn-calculate-chaukhat-price"
                     type="button"
-                    onClick={onSwitchToDoorCalculator}
-                    className="text-xs text-[#C89211] hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                    disabled={isCalculatingPrice}
+                    onClick={handleCalculateChaukhatPrice}
+                    className="w-full py-3.5 px-4 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                   >
-                    <span>Calculate Door Only →</span>
+                    <Calculator className="w-4 h-4" />
+                    <span>{isCalculatingPrice ? 'Calculating Chaukhat Price...' : 'Calculate Chaukhat Price'}</span>
                   </button>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <button
+                      type="button"
+                      onClick={handleResetSelection}
+                      className="text-xs text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset Selection</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={onSwitchToDoorCalculator}
+                      className="text-xs text-[#C89211] hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>Calculate Door Only →</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <>
+                  {/* Itemized Cost Lines */}
+                  <div className="space-y-2.5 text-xs pt-1">
+                    <div className="flex justify-between items-center text-stone-700">
+                      <div>
+                        <span className="font-medium">Solid Timber Material Cost</span>
+                        <span className="text-[10px] text-stone-400 block font-normal">
+                          {calculationResult.runningLengthFt} Rft seasoned {calculationResult.woodType}
+                        </span>
+                      </div>
+                      <span className="font-mono font-bold text-stone-900 text-sm">
+                        ₹{calculationResult.materialCost.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-stone-700">
+                      <div>
+                        <span className="font-medium">Design / Carving Craftsmanship</span>
+                        <span className="text-[10px] text-stone-400 block font-normal">
+                          {calculationResult.selectedDesignId === 'plain'
+                            ? 'Standard clean rebate profile (Included)'
+                            : `${calculationResult.selectedDesignName} detailing`}
+                        </span>
+                      </div>
+                      <span className="font-mono font-bold text-stone-900 text-sm">
+                        {calculationResult.designCarvingCharge > 0
+                          ? `₹${calculationResult.designCarvingCharge.toLocaleString('en-IN')}`
+                          : <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px] font-sans">Included (₹0)</span>}
+                      </span>
+                    </div>
+
+                    {calculationResult.additionalCharges > 0 && (
+                      <div className="flex justify-between items-center text-stone-700">
+                        <span className="font-medium">{settings?.additionalChargeName || 'Taxes & Levies'}</span>
+                        <span className="font-mono font-bold text-stone-900">
+                          ₹{calculationResult.additionalCharges.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Final Estimated Total Box */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-stone-900 to-[#2A2318] text-white space-y-1 shadow-md">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-stone-300 uppercase tracking-wider font-semibold">
+                        Estimated Chaukhat Price
+                      </span>
+                      <span className="text-[10px] bg-[#C89211] text-white px-2 py-0.5 rounded font-bold uppercase">
+                        Workshop Direct
+                      </span>
+                    </div>
+                    <div className="flex items-baseline justify-between pt-1">
+                      <div className="font-mono text-3xl font-bold text-white tracking-tight">
+                        ₹{calculationResult.totalPrice.toLocaleString('en-IN')}
+                      </div>
+                      <span className="text-[10px] text-stone-400 font-sans">
+                        GST &amp; Seasoning Included
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-amber-200/80 pt-1 italic">
+                      * Price shown is an estimate. Masonry site measurements and wall plaster variations may modify final running length.
+                    </p>
+                  </div>
+
+                  {/* ACTION BUTTONS */}
+                  <div className="space-y-2.5 pt-2">
+                    {onPayOnlineChaukhat && calculationResult.totalPrice > 0 && (
+                      <button
+                        id="btn-pay-chaukhat-online"
+                        type="button"
+                        disabled={isPayingOnline}
+                        onClick={() =>
+                          onPayOnlineChaukhat({
+                            woodTypeId: selectedWoodId,
+                            sectionSizeId: selectedSectionId,
+                            customWidthInch: selectedSectionId === 'custom' ? customWidthInch : undefined,
+                            customDepthInch: selectedSectionId === 'custom' ? customDepthInch : undefined,
+                            heightFt: frameHeightFt,
+                            widthFt: frameWidthFt,
+                            designId: selectedDesignId,
+                            productId: products[0]?.id,
+                          })
+                        }
+                        className="w-full py-3.5 px-4 rounded-xl bg-[#1A1A1A] hover:bg-black text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                      >
+                        <CreditCard className="w-4 h-4 text-[#E6B33A]" />
+                        <span>
+                          {isPayingOnline
+                            ? 'Opening Razorpay Checkout...'
+                            : `Pay Online ₹${calculationResult.totalPrice.toLocaleString('en-IN')} (Razorpay)`}
+                        </span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setShowQuotationModal(true)}
+                      className="w-full py-3.5 px-4 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Get Chaukhat Quotation PDF</span>
+                    </button>
+
+                    {/* Add Chaukhat to Combined Quotation Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddedToCombined(true);
+                        if (onUpdateCombinedChaukhat) {
+                          onUpdateCombinedChaukhat(calculationResult);
+                        }
+                        setShowCombinedModal(true);
+                      }}
+                      className={`w-full py-3 px-4 rounded-xl border text-sm font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        addedToCombined
+                          ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
+                          : 'border-stone-800 bg-white hover:bg-stone-50 text-stone-900'
+                      }`}
+                    >
+                      <PlusCircle className="w-4 h-4 text-[#C89211]" />
+                      <span>{addedToCombined ? '✓ Chaukhat Added to Combined Quotation' : 'Add Chaukhat to Combined Quotation'}</span>
+                    </button>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <button
+                        type="button"
+                        onClick={handleResetSelection}
+                        className="text-xs text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer transition-colors"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Reset Selection</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={onSwitchToDoorCalculator}
+                        className="text-xs text-[#C89211] hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>Calculate Door Only →</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
 
             </div>
 
@@ -1069,7 +1137,7 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
       )}
 
       {/* CHAUKHAT STANDALONE QUOTATION PDF DOWNLOAD MODAL */}
-      {showQuotationModal && (
+      {showQuotationModal && calculationResult && (
         <div
           className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setShowQuotationModal(false)}
@@ -1112,7 +1180,7 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
                   type="tel"
                   value={customerPhone}
                   onChange={e => setCustomerPhone(e.target.value)}
-                  placeholder="e.g. 98220 12345"
+                  placeholder="Enter your mobile number"
                   className="w-full px-3 py-2 rounded-xl border border-stone-300 text-stone-900 focus:outline-none focus:border-[#C89211]"
                 />
               </div>
@@ -1158,7 +1226,7 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
       )}
 
       {/* COMBINED DOOR + CHAUKHAT QUOTATION MODAL */}
-      {showCombinedModal && (
+      {showCombinedModal && calculationResult && combinedQuotation && (
         <div
           className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setShowCombinedModal(false)}
@@ -1290,26 +1358,17 @@ export const ChaukhatCalculator: React.FC<ChaukhatCalculatorProps> = ({
             </div>
 
             {/* Combined Modal Action Buttons */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+            <div className="pt-2">
               <button
                 type="button"
                 onClick={() => {
                   generateCombinedQuotationPDF(combinedQuotation, settings, customerName, customerPhone);
                   setShowCombinedModal(false);
                 }}
-                className="py-3 px-4 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
+                className="w-full py-3 px-4 rounded-xl bg-[#C89211] hover:bg-[#A0700B] text-white font-bold text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>Download Combined PDF</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCombinedWhatsAppEnquiry}
-                className="py-3 px-4 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>Enquire Combined on WhatsApp</span>
               </button>
             </div>
           </div>

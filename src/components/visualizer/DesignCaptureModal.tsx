@@ -11,7 +11,6 @@ import {
   Lock,
 } from 'lucide-react';
 import { Door, CustomDoorFittingState } from '../../types.ts';
-import { getWhatsAppUrl } from '../../lib/contactUtils.ts';
 
 interface DesignCaptureModalProps {
   isOpen: boolean;
@@ -31,25 +30,11 @@ export const DesignCaptureModal: React.FC<DesignCaptureModalProps> = ({
   fittingState,
   estimatedPrice,
   capturedImageUrl,
-  officialWhatsApp = '7887412884',
   onOpenQuotation,
 }) => {
   if (!isOpen || !capturedImageUrl) return null;
 
   const sqFt = Math.round(((fittingState.widthInch * fittingState.heightInch) / 144) * 100) / 100;
-
-  // WhatsApp Enquiry Text (Direct specification inquiry, no download reference)
-  const whatsappText = `Hello Jai Hanuman Door,
-I customized "${door.name}" (Catalogue ID: ${door.id}) in your 3D & AR Fitting Studio:
-- Design Category: ${door.category}
-- Wood Species: ${fittingState.woodType}
-- Dimensions: ${fittingState.widthInch}" × ${fittingState.heightInch}" (${sqFt} sq.ft)
-- Thickness: ${fittingState.thicknessInch}"
-- Estimated Price: ₹${estimatedPrice.toLocaleString('en-IN')}
-
-Please review these specifications and provide an official factory quotation with delivery schedule and site measurement assistance.`;
-
-  const whatsappUrl = getWhatsAppUrl(officialWhatsApp, whatsappText);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
@@ -153,7 +138,6 @@ Please review these specifications and provide an official factory quotation wit
 
           {/* Action CTAs (Collapsed cleanly without blank space) */}
           <div className="space-y-2.5 pt-1">
-            {/* Primary Action: Get Official Quotation */}
             <button
               onClick={() => {
                 onClose();
@@ -164,17 +148,6 @@ Please review these specifications and provide an official factory quotation wit
               <FileText className="w-4 h-4" />
               <span>Get Official Quotation for This Design →</span>
             </button>
-
-            {/* Direct WhatsApp Consultation */}
-            <a
-              href={whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
-            >
-              <MessageCircle className="w-4 h-4 fill-white" />
-              <span>Send Specifications on WhatsApp (+91 {officialWhatsApp})</span>
-            </a>
           </div>
 
         </div>

@@ -145,8 +145,12 @@ export const PromotionalBannerCarousel: React.FC<PromotionalBannerCarouselProps>
       destination.startsWith('http://') ||
       destination.startsWith('https://') ||
       destination.startsWith('//') ||
-      destination.startsWith('tel:') ||
       destination.startsWith('mailto:');
+
+    if (destination.startsWith('tel:')) {
+      onBannerAction('contact');
+      return;
+    }
 
     if (isExternal) {
       if (banner.openInNewTab !== false) {
@@ -158,12 +162,7 @@ export const PromotionalBannerCarousel: React.FC<PromotionalBannerCarouselProps>
     }
 
     if (destination === 'whatsapp') {
-      window.open(
-        'https://wa.me/917887412884?text=' +
-          encodeURIComponent('Hello Jai Hanuman Door, I am inquiring about your promotional door offer.'),
-        '_blank',
-        'noopener,noreferrer'
-      );
+      onBannerAction('contact');
       return;
     }
 

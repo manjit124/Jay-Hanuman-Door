@@ -62,12 +62,12 @@ export const DEFAULT_ADMOB_SETTINGS: AdMobSettings = {
   enableCatalogNativeAds: true,
   enableAppOpenAds: true,
   catalogNativeAdFrequency: 6, // Show a native ad after every 6 door products
-  interstitialMinIntervalSeconds: 45, // Minimum 45 seconds between full-screen interstitials
+  interstitialMinIntervalSeconds: 180, // Global frequency cap: 1 interstitial every 3 minutes
   appOpenMinIntervalSeconds: 180, // Minimum 180 seconds between App Open ads
   // Centralized Smart Frequency & Session Management
   maxInterstitialsPerSession: 4, // Max 4 interstitials per user session
   maxAppOpenPerSession: 2, // Max 2 App Open ads per user session
-  enableNavTransitionInterstitials: true, // Show interstitial during natural section navigation
+  enableNavTransitionInterstitials: false, // Prefer post-calculation natural breaks over random nav transitions
   navTransitionMinViews: 4, // After visiting 4 screens
   enableArticlesNativeAds: true, // Native sponsored ad in articles / guides
   articlesNativeAdFrequency: 3, // After every 3 articles
@@ -76,12 +76,19 @@ export const DEFAULT_ADMOB_SETTINGS: AdMobSettings = {
   bannerHome: true,
   bannerCatalog: true,
   bannerCalculator: true,
+  bannerSlidingWindow: true,
+  bannerWoodDetector: true,
   bannerChaukhat: true,
   bannerDetail: true,
   bannerVisualizer: true,
   bannerArticles: true,
   bannerTracking: true,
   bannerSaved: true,
+  // Granular placement interstitial & rewarded toggles
+  interstitialSlidingWindow: true,
+  interstitialWoodDetector: true,
+  interstitialCalculator: true,
+  rewardedWoodDetector: true,
 };
 
 const ADMOB_LOCAL_STORAGE_KEY = 'jai_admob_settings_v2';
@@ -143,12 +150,12 @@ export function getActiveAdMobSettings(customSettings?: AdMobSettings): AdMobSet
     enableCatalogNativeAds: customSettings?.enableCatalogNativeAds ?? localOverride.enableCatalogNativeAds ?? true,
     enableAppOpenAds: customSettings?.enableAppOpenAds ?? localOverride.enableAppOpenAds ?? true,
     catalogNativeAdFrequency: customSettings?.catalogNativeAdFrequency ?? localOverride.catalogNativeAdFrequency ?? 6,
-    interstitialMinIntervalSeconds: customSettings?.interstitialMinIntervalSeconds ?? localOverride.interstitialMinIntervalSeconds ?? 45,
+    interstitialMinIntervalSeconds: customSettings?.interstitialMinIntervalSeconds ?? localOverride.interstitialMinIntervalSeconds ?? 180,
     appOpenMinIntervalSeconds: customSettings?.appOpenMinIntervalSeconds ?? localOverride.appOpenMinIntervalSeconds ?? 180,
     // Centralized Smart Frequency & Session Management
     maxInterstitialsPerSession: customSettings?.maxInterstitialsPerSession ?? localOverride.maxInterstitialsPerSession ?? 4,
     maxAppOpenPerSession: customSettings?.maxAppOpenPerSession ?? localOverride.maxAppOpenPerSession ?? 2,
-    enableNavTransitionInterstitials: customSettings?.enableNavTransitionInterstitials ?? localOverride.enableNavTransitionInterstitials ?? true,
+    enableNavTransitionInterstitials: customSettings?.enableNavTransitionInterstitials ?? localOverride.enableNavTransitionInterstitials ?? false,
     navTransitionMinViews: customSettings?.navTransitionMinViews ?? localOverride.navTransitionMinViews ?? 4,
     enableArticlesNativeAds: customSettings?.enableArticlesNativeAds ?? localOverride.enableArticlesNativeAds ?? true,
     articlesNativeAdFrequency: customSettings?.articlesNativeAdFrequency ?? localOverride.articlesNativeAdFrequency ?? 3,
@@ -157,12 +164,19 @@ export function getActiveAdMobSettings(customSettings?: AdMobSettings): AdMobSet
     bannerHome: customSettings?.bannerHome ?? localOverride.bannerHome ?? true,
     bannerCatalog: customSettings?.bannerCatalog ?? localOverride.bannerCatalog ?? true,
     bannerCalculator: customSettings?.bannerCalculator ?? localOverride.bannerCalculator ?? true,
+    bannerSlidingWindow: customSettings?.bannerSlidingWindow ?? localOverride.bannerSlidingWindow ?? true,
+    bannerWoodDetector: customSettings?.bannerWoodDetector ?? localOverride.bannerWoodDetector ?? true,
     bannerChaukhat: customSettings?.bannerChaukhat ?? localOverride.bannerChaukhat ?? true,
     bannerDetail: customSettings?.bannerDetail ?? localOverride.bannerDetail ?? true,
     bannerVisualizer: customSettings?.bannerVisualizer ?? localOverride.bannerVisualizer ?? true,
     bannerArticles: customSettings?.bannerArticles ?? localOverride.bannerArticles ?? true,
     bannerTracking: customSettings?.bannerTracking ?? localOverride.bannerTracking ?? true,
     bannerSaved: customSettings?.bannerSaved ?? localOverride.bannerSaved ?? true,
+    // Granular placement interstitial & rewarded toggles
+    interstitialSlidingWindow: customSettings?.interstitialSlidingWindow ?? localOverride.interstitialSlidingWindow ?? true,
+    interstitialWoodDetector: customSettings?.interstitialWoodDetector ?? localOverride.interstitialWoodDetector ?? true,
+    interstitialCalculator: customSettings?.interstitialCalculator ?? localOverride.interstitialCalculator ?? true,
+    rewardedWoodDetector: customSettings?.rewardedWoodDetector ?? localOverride.rewardedWoodDetector ?? true,
   };
 }
 

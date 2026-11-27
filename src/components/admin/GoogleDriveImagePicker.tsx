@@ -35,6 +35,7 @@ import {
   type DriveMediaPreviewResult,
   type DriveMediaImportResult,
 } from '../../lib/api.ts';
+import { FEATURE_FLAGS } from '../../config/featureFlags.ts';
 
 export interface GoogleDriveImagePickerProps {
   label?: string;
@@ -94,7 +95,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
   onFileSelect,
   allowMultiple = false,
   onAddMultiple,
-  category = 'products',
+  category = FEATURE_FLAGS.doorCatalogue ? 'products' : 'general',
   mediaType = 'image',
   allowVideo = false,
   deviceUploadButtonText,
@@ -185,7 +186,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       setUploadProgress(10);
       try {
         const res = await uploadVideo(file, pct => setUploadProgress(pct), 'videos');
-        if (res?.url) {
+        if (res?.url && res.storageType === 'bunny_storage' && !res.url.startsWith('/uploads/')) {
           lastFailedFileRef.current = null;
           setCanRetryUpload(false);
           setLastImportedMeta({
@@ -199,14 +200,10 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
             mimeType: res.mimeType || inferred.mimeType || 'video/mp4',
             isVideo: true,
           });
-          const storageLabel =
-            res.storageType === 'bunny_storage'
-              ? 'Bunny Cloud Storage (videos folder)'
-              : `Cloud Storage (${res.storageType || 'bunny'})`;
-          setSuccessMessage(`Video uploaded and saved permanently to ${storageLabel}!`);
-          if (onToast) onToast('Video saved to Bunny Cloud Storage!');
+          setSuccessMessage('Video uploaded and verified in Bunny.net Storage (videos folder)!');
+          if (onToast) onToast('Video saved to Bunny.net Storage!');
         } else {
-          throw new Error('Upload server did not return a valid video URL.');
+          throw new Error('Bunny.net Storage did not confirm a permanent video URL.');
         }
       } catch (err: any) {
         const msg = err?.message || 'Device video upload failed. Please retry or check your connection.';
@@ -233,7 +230,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       setUploadProgress(15);
       try {
         const res = await upload3DModel(file, pct => setUploadProgress(pct), 'models3d');
-        if (res?.url) {
+        if (res?.url && res.storageType === 'bunny_storage' && !res.url.startsWith('/uploads/')) {
           lastFailedFileRef.current = null;
           setCanRetryUpload(false);
           setLastImportedMeta({
@@ -247,10 +244,10 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
             mimeType: inferred.mimeType || 'model/gltf-binary',
             is3DModel: true,
           });
-          setSuccessMessage('3D model (.glb/.gltf) uploaded to Bunny Cloud Storage!');
-          if (onToast) onToast('3D model saved to Bunny Cloud Storage!');
+          setSuccessMessage('3D model (.glb/.gltf) uploaded and verified in Bunny.net Storage!');
+          if (onToast) onToast('3D model saved to Bunny.net Storage!');
         } else {
-          throw new Error('Upload server did not return a valid model URL.');
+          throw new Error('Bunny.net Storage did not confirm a permanent 3D model URL.');
         }
       } catch (err: any) {
         const msg = err?.message || '3D model upload failed. Please retry.';
@@ -294,7 +291,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
         onProgress: pct => setUploadProgress(pct),
       });
 
-      if (res?.url) {
+      if (res?.url && res.storageType === 'bunny_storage' && !res.url.startsWith('/uploads/')) {
         lastFailedFileRef.current = null;
         setCanRetryUpload(false);
         onChange(res.url, {
@@ -304,14 +301,10 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
           width: res.width,
           height: res.height,
         });
-        const storageLabel =
-          res.storageType === 'bunny_storage'
-            ? `Bunny Cloud Storage (${category})`
-            : `Cloud Storage (${res.storageType || 'bunny'})`;
-        setSuccessMessage(`Photo uploaded and saved permanently to ${storageLabel}!`);
-        if (onToast) onToast('Photo saved to Bunny Cloud Storage!');
+        setSuccessMessage(`Photo uploaded and verified in Bunny.net Storage (${category})!`);
+        if (onToast) onToast('Photo saved to Bunny.net Storage!');
       } else {
-        throw new Error('Upload server did not return a valid image URL.');
+        throw new Error('Bunny.net Storage did not confirm a permanent image URL.');
       }
     } catch (err: any) {
       const msg = err?.message || 'Device photo upload failed. Click Retry Upload to try again.';
@@ -648,38 +641,40 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
         </div>
 
         {/* Option A / Option B Segmented Switcher */}
-        <div className="inline-flex rounded-lg bg-[#F8F8F6] p-0.5 border border-[#E5E5E5] shrink-0">
-          <button
-            type="button"
-            onClick={() => setSourceMode('device')}
-            disabled={disabled}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
-              sourceMode === 'device'
-                ? 'bg-[#C89211] text-white shadow-xs'
-                : 'text-[#666666] hover:text-[#1A1A1A]'
-            }`}
-          >
-            <Upload className="w-3 h-3" />
-            <span>Option A: Device Upload</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setSourceMode('drive')}
-            disabled={disabled}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
-              sourceMode === 'drive'
-                ? 'bg-[#C89211] text-white shadow-xs'
-                : 'text-[#666666] hover:text-[#1A1A1A]'
-            }`}
-          >
-            <HardDrive className="w-3 h-3" />
-            <span>Option B: Google Drive Link</span>
-          </button>
-        </div>
+        {FEATURE_FLAGS.catalogueMediaImport && (
+          <div className="inline-flex rounded-lg bg-[#F8F8F6] p-0.5 border border-[#E5E5E5] shrink-0">
+            <button
+              type="button"
+              onClick={() => setSourceMode('device')}
+              disabled={disabled}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                sourceMode === 'device'
+                  ? 'bg-[#C89211] text-white shadow-xs'
+                  : 'text-[#666666] hover:text-[#1A1A1A]'
+              }`}
+            >
+              <Upload className="w-3 h-3" />
+              <span>Option A: Device Upload</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSourceMode('drive')}
+              disabled={disabled}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                sourceMode === 'drive'
+                  ? 'bg-[#C89211] text-white shadow-xs'
+                  : 'text-[#666666] hover:text-[#1A1A1A]'
+              }`}
+            >
+              <HardDrive className="w-3 h-3" />
+              <span>Option B: Google Drive Link</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Option A: Upload from Device (Gallery / Files + Camera / Video Capture for Android) */}
-      {sourceMode === 'device' && (
+      {(!FEATURE_FLAGS.catalogueMediaImport || sourceMode === 'device') && (
         <div className="space-y-2 pt-1">
           <div className="flex flex-wrap items-center gap-2">
             <label
@@ -780,7 +775,7 @@ export const GoogleDriveImagePicker: React.FC<GoogleDriveImagePickerProps> = ({
       )}
 
       {/* Option B: Google Drive Link Upload with Paste, Preview & Import */}
-      {sourceMode === 'drive' && (
+      {FEATURE_FLAGS.catalogueMediaImport && sourceMode === 'drive' && (
         <div className="p-3 rounded-xl bg-[#F8F8F6] border border-[#E5E5E5] space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-[#666666]">
             <span className="font-semibold text-[#1A1A1A]">

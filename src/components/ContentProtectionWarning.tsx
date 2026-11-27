@@ -26,7 +26,7 @@ export const ContentProtectionWarning: React.FC<DesignProtectionNoticeProps> = (
   onNavigateLegal,
   className = '',
 }) => {
-  const brandName = settings?.businessName || 'Jai Hanuman Door';
+  const brandName = settings?.businessName || 'WindowCut Pro';
 
   if (variant === 'modal') {
     return (
@@ -207,7 +207,7 @@ export const ContentProtectionWarning: React.FC<DesignProtectionNoticeProps> = (
                 Brand Identity &amp; Trademark
               </h3>
               <p className="text-[10px] sm:text-[11px] text-[#666666] mt-0.5 leading-snug">
-                Jai Hanuman Door trade name, logo badges, verified seal &amp; guarantees.
+                {brandName} trade name, logo badges, verified seal &amp; guarantees.
               </p>
             </div>
 

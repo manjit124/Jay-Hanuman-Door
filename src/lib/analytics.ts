@@ -25,7 +25,7 @@ export function trackPageView(customPath?: string, customTitle?: string): void {
   if (typeof window === 'undefined') return;
 
   const currentPath = customPath || (window.location.pathname + window.location.search);
-  const currentTitle = customTitle || document.title || 'Jai Hanuman Door';
+  const currentTitle = customTitle || document.title || 'WindowCut Pro';
   const currentUrl = window.location.href;
 
   // Deduplication check: Do not re-send if the path hasn't changed

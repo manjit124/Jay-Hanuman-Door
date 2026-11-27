@@ -55,10 +55,10 @@ function buildTimberSpecialistInstruction(verifiedReferences: WoodReferenceSampl
 ` + verifiedReferences.map((r, idx) => `Sample #${idx + 1}: ${r.woodType} - Label: "${r.verifiedLabel}" (Source: ${r.source}). Notes: ${r.notes || 'None'}. Anatomical: ${JSON.stringify(r.anatomicalFeatures || {})}`).join('\n');
   } else {
     verifiedDatasetSection = `\n\n### VERIFIED WORKSHOP REFERENCE SAMPLES STATUS:
-Note: The Jai Hanuman Door verified sample library is currently in initial configuration mode by the workshop administrator. Ground your identification on the detailed botanical anatomical timber criteria below, and clearly inform the user that photo-based inspection cannot provide 100% laboratory certification.`;
+Note: The WindowCut Pro verified sample library is currently in initial configuration mode by the workshop administrator. Ground your identification on the detailed botanical anatomical timber criteria below, and clearly inform the user that photo-based inspection cannot provide 100% laboratory certification.`;
   }
 
-  return `You are the Principal Timber Anatomist & Wood Identification Specialist for "Jai Hanuman Door", Maharashtra, India.
+  return `You are the Principal Timber Anatomist & Wood Identification Specialist for "WindowCut Pro", India.
 Your mission is to perform a rigorous, honest, multi-feature visual timber audit of door photos uploaded by homeowners and carpenters.
 
 =============================================================================
@@ -277,7 +277,7 @@ function parseGeminiJsonResponse(rawText: string): AIWoodAnalysisResult {
       'Dhyan Dein: Golden polish ya carving dekh kar turant Sagwan na maanein. Asli Sagwan mein earlywood pore rings aur natural oiliness hoti hai. Asliyat jaanchne ke liye unpolished edge ya sawmill certified stamp check karein.',
     comparison_notes: parsed.comparison_notes || {},
     disclaimer:
-      'Yeh analysis camera photo par aadharit visual estimate hai. Yeh government laboratory ya botanical scientific test ka replacement nahi hai. Jai Hanuman Door ke sawmill experts se physical guidance ke liye WhatsApp karein.',
+      'Yeh analysis camera photo par aadharit visual estimate hai. Yeh government laboratory ya botanical scientific test ka replacement nahi hai. WindowCut Pro support team se guidance ke liye WhatsApp karein.',
     analyzed_at: new Date().toISOString(),
   };
 }

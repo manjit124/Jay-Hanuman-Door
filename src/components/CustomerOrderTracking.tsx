@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { PublicTrackingView, TrackingStageId, StageStatus } from '../types.ts';
 import { fetchPublicTracking, resolveImageUrl, isGoogleDriveEmbedUrl } from '../lib/api.ts';
-import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 
 interface CustomerOrderTrackingProps {
   initialTrackingId?: string;
@@ -86,15 +85,6 @@ export const CustomerOrderTracking: React.FC<CustomerOrderTrackingProps> = ({
     navigator.clipboard.writeText(id);
     setCopiedId(true);
     setTimeout(() => setCopiedId(false), 2000);
-  };
-
-  // Helper for WhatsApp inquiry
-  const getInquiryWhatsAppUrl = (id?: string) => {
-    const phone = trackingData?.officialWhatsApp || '7887412884';
-    const text = id
-      ? `Hello Jai Hanuman Door, I am inquiring about my order Tracking ID: ${id}. Please provide an update.`
-      : `Hello Jai Hanuman Door, I would like to inquire about my door order progress.`;
-    return getWhatsAppUrl(phone, text);
   };
 
   return (
@@ -291,18 +281,6 @@ export const CustomerOrderTracking: React.FC<CustomerOrderTrackingProps> = ({
                     </button>
                     {copiedId && <span className="text-xs text-emerald-600 font-medium">Copied!</span>}
                   </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <a
-                    href={getInquiryWhatsAppUrl(trackingData.trackingId)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-semibold transition-colors"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    <span>Inquire on WhatsApp</span>
-                  </a>
                 </div>
               </div>
 
@@ -591,24 +569,23 @@ export const CustomerOrderTracking: React.FC<CustomerOrderTrackingProps> = ({
               </div>
             </div>
 
-            {/* Need Help / Contact Card */}
-            <div className="bg-[#FFF7E3] border border-[#C89211]/30 rounded-2xl p-6 text-center shadow-sm">
-              <h3 className="font-serif text-lg font-bold text-[#1A1A1A]">
-                Have questions regarding your custom door order?
+            {/* Need Help / Support Card */}
+            <div className="bg-[#EFF6FF] border border-[#BFDBFE] rounded-2xl p-6 text-center shadow-sm">
+              <h3 className="font-serif text-lg font-bold text-[#0A2540]">
+                Have questions regarding your order?
               </h3>
-              <p className="text-[#666666] text-xs sm:text-sm mt-1 max-w-lg mx-auto">
-                Our factory supervisors and technical team are available to discuss wood seasoning, carving adjustments, and delivery scheduling.
+              <p className="text-[#475569] text-xs sm:text-sm mt-1 max-w-lg mx-auto">
+                Use the in-app Contact Support form to message our team with your Tracking ID ({trackingData.trackingId}).
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-3">
-                <a
-                  href={getInquiryWhatsAppUrl(trackingData.trackingId)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm transition-colors shadow-sm"
+                <button
+                  type="button"
+                  onClick={onNavigateHome}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0B5ED7] hover:bg-[#084298] text-white font-bold text-xs sm:text-sm transition-colors shadow-sm cursor-pointer"
                 >
-                  <MessageCircle className="w-4 h-4" />
-                  <span>Chat on WhatsApp (+91 78874 12884)</span>
-                </a>
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Back to Home</span>
+                </button>
               </div>
             </div>
           </div>

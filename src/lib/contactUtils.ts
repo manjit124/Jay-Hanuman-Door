@@ -1,16 +1,19 @@
 /**
- * Official Contact & Location Utilities for Jai Hanuman Door
+ * Contact Formatting Utilities for WindowCut Pro
+ * Note: Personal owner phone numbers and business location URLs are intentionally
+ * omitted from customer-facing defaults.
  */
 
-export const DEFAULT_WHATSAPP_NUMBER = '7887412884';
-export const OFFICIAL_GOOGLE_MAPS_URL = 'https://maps.app.goo.gl/n2xV9vhz5tpVumc6A?g_st=ac';
+export const DEFAULT_WHATSAPP_NUMBER = '';
+export const OFFICIAL_GOOGLE_MAPS_URL = '';
 
 /**
- * Normalizes any phone string into 12-digit Indian international digits for wa.me links
- * e.g. "7887412884" -> "917887412884"
+ * Normalizes a phone string into 12-digit Indian international digits when provided.
+ * Returns empty string if no phone is supplied.
  */
 export function getCleanWhatsAppDigits(phone?: string): string {
-  const raw = (phone || DEFAULT_WHATSAPP_NUMBER).replace(/[^0-9]/g, '');
+  const raw = (phone || '').replace(/[^0-9]/g, '');
+  if (!raw) return '';
   if (raw.length === 10) {
     return `91${raw}`;
   }
@@ -20,47 +23,49 @@ export function getCleanWhatsAppDigits(phone?: string): string {
   if (raw.length === 12 && raw.startsWith('91')) {
     return raw;
   }
-  return raw || '917887412884';
+  return raw;
 }
 
 /**
- * Formats WhatsApp number for clean customer-facing display
- * e.g. "+91 78874 12884"
+ * Formats a phone/WhatsApp number for display when provided.
+ * Returns empty string if no number is configured.
  */
 export function formatWhatsAppDisplay(phone?: string): string {
-  const clean = (phone || DEFAULT_WHATSAPP_NUMBER).replace(/[^0-9]/g, '');
+  const clean = (phone || '').replace(/[^0-9]/g, '');
+  if (!clean) return '';
   if (clean.length === 10) {
     return `+91 ${clean.slice(0, 5)} ${clean.slice(5)}`;
   }
   if (clean.length === 12 && clean.startsWith('91')) {
     return `+91 ${clean.slice(2, 7)} ${clean.slice(7)}`;
   }
-  return clean ? `+${clean}` : '+91 78874 12884';
+  return `+${clean}`;
 }
 
 /**
- * Builds standard WhatsApp wa.me link with pre-filled message support
+ * Builds standard WhatsApp wa.me share link.
+ * When no recipient phone is passed, opens WhatsApp share picker so users choose their own contact.
  */
 export function getWhatsAppUrl(phone?: string, message?: string): string {
   const cleanPhone = getCleanWhatsAppDigits(phone);
-  const base = `https://wa.me/${cleanPhone}`;
+  const base = cleanPhone ? `https://wa.me/${cleanPhone}` : 'https://wa.me/';
   return message ? `${base}?text=${encodeURIComponent(message)}` : base;
 }
 
 /**
- * Builds standard tel: URL for phone calls
+ * Builds standard tel: URL only when an explicit phone number is provided.
  */
 export function getPhoneTelUrl(phone?: string): string {
-  const digits = (phone || DEFAULT_WHATSAPP_NUMBER).replace(/[^0-9+]/g, '');
-  return `tel:${digits}`;
+  const digits = (phone || '').replace(/[^0-9+]/g, '');
+  return digits ? `tel:${digits}` : '';
 }
 
 /**
- * Returns the official shop location URL on Google Maps
+ * Returns a sanitized Google Maps URL only if explicitly supplied.
  */
 export function getGoogleMapsUrl(customUrl?: string): string {
   if (customUrl && customUrl.trim().length > 0) {
     return customUrl.trim();
   }
-  return OFFICIAL_GOOGLE_MAPS_URL;
+  return '';
 }

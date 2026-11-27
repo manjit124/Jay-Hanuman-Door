@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Calculator, Layers, MessageCircle, Sparkles, CheckCircle2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calculator, Layers, Sparkles, CheckCircle2 } from 'lucide-react';
 import { HomeBanner, BusinessSettings } from '../types.ts';
-import { getWhatsAppUrl } from '../lib/contactUtils.ts';
 
 interface HeroSliderProps {
   banners: HomeBanner[];
@@ -13,8 +12,7 @@ interface HeroSliderProps {
 export const HeroSlider: React.FC<HeroSliderProps> = ({ banners, settings, onNavigate, onBannerAction }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  const resolvedWhatsapp = settings?.whatsappNumber || '7887412884';
-  const resolvedBusinessName = settings?.businessName || 'Jai Hanuman Door';
+  const resolvedBusinessName = settings?.businessName || 'WindowCut Pro';
 
   const activeBanners = banners.length > 0 ? banners : [
     {
@@ -45,7 +43,7 @@ export const HeroSlider: React.FC<HeroSliderProps> = ({ banners, settings, onNav
       return;
     }
     if (action === 'whatsapp') {
-      window.open(getWhatsAppUrl(resolvedWhatsapp, `Hello ${resolvedBusinessName}, I would like to inquire about custom door manufacturing.`), '_blank');
+      if (onNavigate) onNavigate('contact');
     } else if (onNavigate) {
       onNavigate(action || 'calculator');
     }
@@ -109,20 +107,6 @@ export const HeroSlider: React.FC<HeroSliderProps> = ({ banners, settings, onNav
               <Layers className="w-4 h-4 text-[#C89211]" />
               <span>Browse Door Designs</span>
             </button>
-
-            <a
-              id="hero-whatsapp-btn"
-              href={getWhatsAppUrl(
-                resolvedWhatsapp,
-                `Hello ${resolvedBusinessName}, I would like to get a quote for a custom wooden door.`
-              )}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-[#16803A] hover:bg-[#126830] text-white font-semibold text-xs sm:text-sm shadow-sm transition-all cursor-pointer h-10 sm:h-11"
-            >
-              <MessageCircle className="w-4 h-4 text-white" />
-              <span className="hidden sm:inline">WhatsApp Enquiry</span>
-            </a>
           </div>
 
           {/* Trust Highlights */}

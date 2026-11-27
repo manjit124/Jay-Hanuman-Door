@@ -54,7 +54,7 @@ export const ProtectedImage: React.FC<ProtectedImageProps> = ({
   const isProtected = protection.enableImageProtection !== false;
   const isWatermarkActive = isProtected && showWatermark && (protection.enableWatermark !== false);
 
-  const activeText = watermarkText || protection.watermarkText || 'Jai Hanuman Door';
+  const activeText = watermarkText || protection.watermarkText || 'WindowCut Pro';
   const activeOpacity = typeof protection.watermarkOpacity === 'number'
     ? Math.min(0.6, Math.max(0.05, protection.watermarkOpacity))
     : 0.22;
@@ -236,11 +236,11 @@ export const ProtectedImage: React.FC<ProtectedImageProps> = ({
       {/* Print protection notice rendered exclusively during print preview */}
       <div className="hidden protected-print-notice absolute inset-0 bg-white text-[#1A1A1A] border border-[#E5E5E5] flex flex-col items-center justify-center p-4 text-center z-50">
         <ShieldCheck className="w-8 h-8 text-[#C89211] mb-1" />
-        <span className="text-xs font-bold text-[#C89211] uppercase tracking-wider">
-          Jai Hanuman Door • Content Protected
+        <span className="text-xs font-bold text-[#0B5ED7] uppercase tracking-wider">
+          WindowCut Pro • Content Protected
         </span>
         <span className="text-[10px] text-[#666666] mt-0.5">
-          Proprietary handcrafted wood door design. Unauthorized copying or redistribution is strictly prohibited.
+          Proprietary technical content. Unauthorized copying or redistribution is strictly prohibited.
         </span>
       </div>
     </div>

@@ -426,7 +426,7 @@ export interface Quotation extends CalculationResult {
   doorName: string;
   doorImage?: string;
   notes?: string;
-  status: 'new' | 'sent_whatsapp' | 'downloaded';
+  status: 'new' | 'sent_whatsapp' | 'downloaded' | 'paid' | 'converted';
   createdAt: string;
 }
 
@@ -647,12 +647,19 @@ export interface AdMobSettings {
   bannerHome?: boolean;
   bannerCatalog?: boolean;
   bannerCalculator?: boolean;
+  bannerSlidingWindow?: boolean;
+  bannerWoodDetector?: boolean;
   bannerChaukhat?: boolean;
   bannerDetail?: boolean;
   bannerVisualizer?: boolean;
   bannerArticles?: boolean;
   bannerTracking?: boolean;
   bannerSaved?: boolean;
+  // Granular placement interstitial & rewarded toggles
+  interstitialSlidingWindow?: boolean;
+  interstitialWoodDetector?: boolean;
+  interstitialCalculator?: boolean;
+  rewardedWoodDetector?: boolean;
 }
 
 export interface AdminStats {
@@ -1258,3 +1265,725 @@ export interface CustomDoorFittingState {
   doorOpenAngle: number; // 0 to 90 degrees
   lightingIntensity: number; // 0.6 to 2.0
 }
+
+// ============================================================================
+// Sliding Window Fabrication Calculator Types
+// ============================================================================
+
+export type WindowMeasurementUnit = 'inch' | 'feet' | 'mm';
+export type SlidingTrackType = '2-track' | '3-track';
+export type RuleOperator = '+' | '-';
+
+export type FabricationRuleCategory =
+  | '2-track'
+  | '3-track'
+  | 'glass'
+  | 'mosquito-net'
+  | 'handle'
+  | 'interlock'
+  | 'top-track'
+  | 'bottom-track'
+  | 'bearing';
+
+export type FabricationRuleKey =
+  | 'glassWidthDeduction'
+  | 'glassWidthAddition'
+  | 'glassHeightDeduction'
+  | 'mosquitoNetWidthDeduction'
+  | 'mosquitoNetWidthAddition'
+  | 'mosquitoNetHeightDeduction'
+  | 'handleHeightDeduction'
+  | 'interlockHeightDeduction'
+  | 'topTrackAdjustment'
+  | 'bottomTrackAdjustment'
+  | 'bearingWidthDeduction'
+  | 'topBearingAdjustment'
+  | 'bottomBearingAdjustment';
+
+export interface FabricationRuleSetting {
+  key: FabricationRuleKey;
+  name: string;
+  description: string;
+  category: FabricationRuleCategory;
+  value: number;
+  unit: WindowMeasurementUnit;
+  operator: RuleOperator;
+  defaultValue: number;
+  defaultUnit: WindowMeasurementUnit;
+  defaultOperator: RuleOperator;
+  appliesTo: 'all' | '2-track' | '3-track';
+}
+
+export interface PanelArrangementRule {
+  id: string;
+  label: string;
+  panelType: 'glass' | 'mosquito_net';
+  widthDivisor: number;
+  extraWidthAdjustment: number;
+  extraWidthOperator: RuleOperator;
+  extraHeightAdjustment: number;
+  extraHeightOperator: RuleOperator;
+  adjustmentUnit: WindowMeasurementUnit;
+}
+
+export interface FabricationProfile {
+  id: string;
+  ownerId: string;
+  name: string;
+  description?: string;
+  trackType: SlidingTrackType;
+  isDefault: boolean;
+  isSystemSeed?: boolean;
+  glassPanelCount: number;
+  mosquitoNetPanelCount: number;
+  glassWidthDivisor: number;
+  mosquitoNetWidthDivisor: number;
+  bearingDivisor?: number;
+  rules: Record<FabricationRuleKey, FabricationRuleSetting>;
+  panelArrangements: PanelArrangementRule[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SlidingWindowInput {
+  id: string;
+  windowNumber: string;
+  width: number;
+  height: number;
+  unit: WindowMeasurementUnit;
+  trackType: SlidingTrackType;
+  configuration: string;
+  glassThickness: string;
+  mosquitoNetRequired: boolean;
+  profileId?: string;
+  notes?: string;
+}
+
+export interface CalculationFormulaStep {
+  label: string;
+  formula: string;
+  valueInch: number;
+  valueDisplay: number;
+  unit: WindowMeasurementUnit;
+}
+
+export interface CalculatedPanelDimension {
+  id: string;
+  label: string;
+  panelType: 'glass' | 'mosquito_net';
+  widthInch: number;
+  heightInch: number;
+  widthDisplay: number;
+  heightDisplay: number;
+  widthMm: number;
+  heightMm: number;
+  displayUnit: WindowMeasurementUnit;
+  breakdown: CalculationFormulaStep[];
+}
+
+export interface SlidingWindowCalculationResult {
+  windowId: string;
+  windowNumber: string;
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  displayUnit: WindowMeasurementUnit;
+  original: {
+    width: number;
+    height: number;
+    unit: WindowMeasurementUnit;
+    widthInch: number;
+    heightInch: number;
+    widthMm: number;
+    heightMm: number;
+    trackType: SlidingTrackType;
+    configuration: string;
+    glassThickness: string;
+    mosquitoNetRequired: boolean;
+  };
+  profileUsed: {
+    id: string;
+    name: string;
+    trackType: SlidingTrackType;
+  };
+  fabrication: {
+    topTrackInch: number;
+    topTrackDisplay: number;
+    topTrackMm: number;
+    bottomTrackInch: number;
+    bottomTrackDisplay: number;
+    bottomTrackMm: number;
+    handleInch: number;
+    handleDisplay: number;
+    handleMm: number;
+    interlockInch: number;
+    interlockDisplay: number;
+    interlockMm: number;
+    bearingRemainingInch: number;
+    bearingRemainingDisplay: number;
+    bearingRemainingMm: number;
+    topBearingInch: number;
+    topBearingDisplay: number;
+    topBearingMm: number;
+    bottomBearingInch: number;
+    bottomBearingDisplay: number;
+    bottomBearingMm: number;
+  };
+  glassPanels: CalculatedPanelDimension[];
+  mosquitoNetPanels: CalculatedPanelDimension[];
+  breakdown: CalculationFormulaStep[];
+  calculatedAt: string;
+}
+
+export type NotebookScanConfidence = 'High' | 'Review' | 'Unclear';
+
+export interface NotebookExtractedRowSnapshot {
+  windowNumber: string;
+  rawText: string;
+  width: number | null;
+  height: number | null;
+  unit: WindowMeasurementUnit;
+  confidence: NotebookScanConfidence;
+}
+
+export interface NotebookExtractedRow {
+  id: string;
+  pageId: string;
+  pageLabel: string;
+  windowNumber: string;
+  rawText: string;
+  width: number | null;
+  height: number | null;
+  unit: WindowMeasurementUnit;
+  unitAmbiguous?: boolean;
+  confidence: NotebookScanConfidence;
+  flags: string[];
+  notes?: string;
+  confirmed: boolean;
+  originalAiSnapshot: NotebookExtractedRowSnapshot;
+}
+
+export interface NotebookPhotoPageRecord {
+  id: string;
+  pageNumber: number;
+  fileName: string;
+  mimeType: string;
+  photoUrl: string;
+  storageType: 'bunny_storage' | 'inline_preview';
+  uploadedAt: string;
+  detectedProjectName?: string;
+  detectedCustomerName?: string;
+  rawAiSummary?: string;
+  warnings: string[];
+}
+
+export interface NotebookScanProjectRecord {
+  pages: NotebookPhotoPageRecord[];
+  extractedRows: NotebookExtractedRow[];
+  verifiedByUser: boolean;
+  verifiedAt: string;
+  modelUsed: string;
+}
+
+export interface SlidingWindowProject {
+  id: string;
+  ownerId: string;
+  projectName: string;
+  customerName: string;
+  defaultUnit: WindowMeasurementUnit;
+  windows: SlidingWindowInput[];
+  results: SlidingWindowCalculationResult[];
+  profileSnapshots: Record<string, FabricationProfile>;
+  notebookScan?: NotebookScanProjectRecord;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SlidingWindowUserSettings {
+  ownerId: string;
+  defaultUnit: WindowMeasurementUnit;
+  default2TrackProfileId?: string;
+  default3TrackProfileId?: string;
+  defaultGlassThickness: string;
+  showMmReference: boolean;
+  updatedAt: string;
+}
+
+// ==========================================
+// MOBILE OTP AUTHENTICATION & CUSTOMER PROFILE
+// ==========================================
+
+export type SubscriptionPlanTier = 'free' | 'premium';
+
+export interface CustomerAccount {
+  id: string;
+  mobile: string; // Normalized 10-digit Indian mobile number (unique key)
+  countryCode: string; // "+91"
+  name: string;
+  email?: string;
+  city?: string;
+  address?: string;
+  woodScanCredits: number;
+  subscriptionPlan: SubscriptionPlanTier; // Always defaults to 'free'; 'premium' ONLY after verified payment
+  subscriptionStatus: PremiumSubscriptionStatus;
+  subscriptionExpiryDate: string | null;
+  verifiedAt: string;
+  lastLoginAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OtpChallengeRecord {
+  id: string;
+  mobile: string; // Normalized 10-digit Indian mobile number
+  otpHash: string; // scrypt salted hash (plaintext OTP never stored)
+  otpSalt: string;
+  attempts: number;
+  maxAttempts: number;
+  expiresAt: string; // ISO timestamp (+5 minutes)
+  resendAvailableAt: string; // ISO timestamp (+45 seconds)
+  consumed: boolean;
+  consumedAt?: string;
+  provider: 'apitxt';
+  providerRequestId?: string;
+  createdAt: string;
+}
+
+export interface CustomerSessionRecord {
+  id: string;
+  customerId: string;
+  mobile: string;
+  tokenHash: string; // SHA-256 hash of bearer/cookie token
+  expiresAt: string;
+  createdAt: string;
+  lastUsedAt: string;
+  revoked: boolean;
+  userAgent?: string;
+}
+
+// ==========================================
+// RAZORPAY ONLINE PAYMENTS & RECEIPTS
+// ==========================================
+
+export type RazorpayMode = 'test' | 'live';
+
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
+
+export type PaymentItemType =
+  | 'credit_pack'
+  | 'quotation'
+  | 'door_calculation'
+  | 'chaukhat_calculation';
+
+export interface PaymentTransaction {
+  id: string;
+  transactionId: string; // Unique internal transaction ID e.g. JHD-TXN-2026-...
+  receiptNumber?: string; // Issued only after verified payment e.g. JHD-RCPT-2026-0001
+  mode: RazorpayMode;
+  status: PaymentStatus;
+  itemType: PaymentItemType;
+  itemReferenceId?: string; // packId, quoteId, doorId, etc.
+  productName: string;
+  productDescription?: string;
+  amountInr: number; // Authoritative server-calculated INR amount
+  amountPaise: number; // Authoritative server-calculated paise amount
+  currency: 'INR';
+  customerId: string;
+  customerName: string;
+  customerMobile: string;
+  customerEmail?: string;
+  customerCity?: string;
+  razorpayOrderId: string;
+  razorpayPaymentId?: string;
+  razorpaySignatureVerified: boolean;
+  webhookVerified?: boolean;
+  paymentMethod?: string; // upi, card, netbanking, wallet
+  failureReason?: string;
+  failureCode?: string;
+  fulfillmentApplied?: boolean; // Prevents duplicate credit/order fulfillment
+  creditsAwarded?: number;
+  pricingSnapshot?: Record<string, any>;
+  createdAt: string;
+  paidAt?: string;
+  updatedAt: string;
+}
+
+export interface PaymentWebhookEventRecord {
+  id: string;
+  eventId: string; // Deduplication key (x-razorpay-event-id or event+order+payment)
+  eventType: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  mode?: RazorpayMode;
+  processedAt: string;
+}
+
+export interface PaymentGatewaySettings {
+  mode: RazorpayMode; // Defaults to 'test'
+  currency: 'INR';
+  checkoutBrandName: string;
+  checkoutDescription: string;
+  checkoutThemeColor: string;
+  smsProvider: 'apitxt';
+  updatedAt?: string;
+}
+
+// ==========================================
+// GOOGLE PLAY BILLING PREMIUM SUBSCRIPTIONS
+// ==========================================
+
+export type PremiumPlanId = 'JHD_ADFREE_MONTHLY' | 'JHD_ADFREE_YEARLY';
+
+export type PremiumSubscriptionStatus =
+  | 'none'
+  | 'pending'
+  | 'active'
+  | 'cancelled'
+  | 'expired'
+  | 'refunded'
+  | 'revoked';
+
+export interface PremiumPlanDefinition {
+  productId: PremiumPlanId;
+  name: string;
+  priceInr: number;
+  billingCycle: 'monthly' | 'yearly';
+  durationDays: number;
+  billingLabel: string;
+  savingsNote?: string;
+}
+
+export interface PremiumSubscriptionRecord {
+  id: string;
+  customerId: string;
+  customerMobile: string;
+  customerName: string;
+  customerEmail?: string;
+  productId: PremiumPlanId;
+  planName: string;
+  priceInr: number;
+  billingCycle: 'monthly' | 'yearly';
+  platform: 'android_google_play';
+  packageName: string;
+  purchaseTokenHash: string; // SHA-256 hash of Google Play purchaseToken
+  purchaseTokenMasked: string; // Masked preview for admin diagnostics only
+  orderId?: string;
+  status: Exclude<PremiumSubscriptionStatus, 'none'>;
+  autoRenewing: boolean;
+  acknowledged: boolean;
+  startTimeMillis: number;
+  expiryTimeMillis: number;
+  expiryDate: string; // ISO string
+  cancelReason?: string;
+  revokedAt?: string;
+  verificationSource: 'google_play_api' | 'rtdn_webhook';
+  lastVerifiedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PremiumEntitlementSummary {
+  subscriptionPlan: SubscriptionPlanTier;
+  subscriptionStatus: PremiumSubscriptionStatus;
+  subscriptionExpiryDate: string | null;
+  isPremium: boolean;
+  adsRemoved: boolean;
+  status: PremiumSubscriptionStatus;
+  productId: PremiumPlanId | null;
+  planName: string | null;
+  priceInr: number | null;
+  billingCycle: 'monthly' | 'yearly' | null;
+  expiryTimeMillis: number | null;
+  expiryDate: string | null;
+  autoRenewing: boolean;
+  lastVerifiedAt: string | null;
+  source: 'google_play_billing' | 'none';
+  message?: string;
+}
+
+export interface PremiumSubscriptionStats {
+  activePremiumCustomers: number;
+  activeAutoRenewingCount: number;
+  cancelledActiveCount: number;
+  expiredSubscriptions: number;
+  pendingSubscriptions: number;
+  refundedOrRevokedSubscriptions: number;
+  monthlyActiveCount: number;
+  yearlyActiveCount: number;
+  monthlyTotalCount: number;
+  yearlyTotalCount: number;
+  totalRecords: number;
+}
+
+export interface GooglePlayBillingServerStatus {
+  configured: boolean;
+  packageName: string;
+  hasServiceAccount: boolean;
+  hasRtdnToken: boolean;
+  missingEnvVars: string[];
+}
+
+export interface MonetizationPublicConfig {
+  adSettings: AdMobSettings;
+  entitlement: PremiumEntitlementSummary;
+  plans: PremiumPlanDefinition[];
+  googlePlayPackageName: string;
+  googlePlayVerificationConfigured: boolean;
+}
+
+// ==========================================
+// INDIAN ALUMINIUM WINDOW SYSTEMS & CONFIGURABLE CUTTING CALCULATOR
+// ==========================================
+
+export type WindowSystemCategoryId = 'sliding' | 'indian_aluminium' | 'special';
+
+export type WindowIllustrationType =
+  | '2-track'
+  | '3-track'
+  | '4-track'
+  | '18-50'
+  | 'heavy-sliding'
+  | 'dhumal'
+  | 'indian-standard'
+  | 'aluminium-section'
+  | 'local-fabrication'
+  | 'custom-profile'
+  | 'fixed-glass'
+  | 'openable'
+  | 'combination'
+  | 'ventilator'
+  | 'mosquito-net';
+
+export type WindowSectionCategory =
+  | 'top_track'
+  | 'bottom_track'
+  | 'side_frame'
+  | 'interlock'
+  | 'handle'
+  | 'shutter_rail'
+  | 'glass'
+  | 'mosquito_net'
+  | 'bearing'
+  | 'other';
+
+export type WindowRuleBaseDimension =
+  | 'width'
+  | 'height'
+  | 'width_divided_by_shutters'
+  | 'height_minus_handle';
+
+export interface WindowSectionFormulaRule {
+  id: string;
+  name: string;
+  sectionCode?: string;
+  sectionDimensionSpec?: string; // e.g. "27mm x 18mm", optional admin-configured label
+  category: WindowSectionCategory;
+  baseDimension: WindowRuleBaseDimension;
+  divisor: number; // e.g. 1 for full span, 2 or shutterCount for split panels
+  useShutterCountAsDivisor?: boolean;
+  minusDeductionInch: number; // Applied before division (or directly if divisor === 1)
+  plusAdditionInch: number; // Applied after division (e.g. overlap/pocket allowance)
+  piecesPerWindow: number; // Static piece count per window
+  multiplyPiecesByShutters?: boolean; // If true, piecesPerWindow * shutterCount
+  requiresMosquitoNet?: boolean; // Only included when mosquito net is checked
+  notes?: string;
+}
+
+export interface WindowProfileSeriesConfig {
+  id: string;
+  name: string;
+  code: string;
+  sectionDimensions?: string; // e.g. Admin-configured aluminium extrusion specs
+  isConfigured: boolean; // MUST be true only when verified formula rules are explicitly configured
+  topTrackDeductionInch?: number | null;
+  topTrackAdditionInch?: number | null;
+  bottomTrackDeductionInch?: number | null;
+  bottomTrackAdditionInch?: number | null;
+  sideFrameDeductionInch?: number | null;
+  sideFrameAdditionInch?: number | null;
+  interlockDeductionInch?: number | null;
+  interlockAdditionInch?: number | null;
+  handleDeductionInch?: number | null;
+  handleAdditionInch?: number | null;
+  glassWidthDeductionInch?: number | null;
+  glassWidthAdditionInch?: number | null;
+  glassHeightDeductionInch?: number | null;
+  glassHeightAdditionInch?: number | null;
+  mosquitoNetWidthDeductionInch?: number | null;
+  mosquitoNetWidthAdditionInch?: number | null;
+  mosquitoNetHeightDeductionInch?: number | null;
+  mosquitoNetHeightAdditionInch?: number | null;
+  additionalSections: WindowSectionFormulaRule[];
+  updatedAt?: string;
+}
+
+export interface WindowCuttingPreset {
+  id: string;
+  name: string;
+  profileSeriesId: string;
+  trackCount: number;
+  shutterCount: number;
+  includeMosquitoNet: boolean;
+  notes?: string;
+}
+
+export interface WindowSystemDefinition {
+  id: string;
+  slug: string;
+  name: string;
+  categoryId: WindowSystemCategoryId;
+  shortDescription: string;
+  illustrationType: WindowIllustrationType;
+  enabled: boolean;
+  isSystemDefault?: boolean;
+  /**
+   * Only set for the existing verified 2-Track and 3-Track sliding window systems.
+   * Ensures existing verified formulas remain 100% untouched.
+   */
+  usesLegacySlidingEngine?: '2-track' | '3-track';
+  supportsTracks: boolean;
+  defaultTrackCount: number;
+  allowedTrackCounts: number[];
+  defaultShutterCount: number;
+  allowedShutterCounts: number[];
+  supportsMosquitoNet: boolean;
+  defaultMosquitoNet: boolean;
+  formulaConfigured: boolean;
+  profileSeries: WindowProfileSeriesConfig[];
+  presets: WindowCuttingPreset[];
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WindowCustomDeductionsInput {
+  enabled: boolean;
+  topTrackDeductionInch: number;
+  topTrackAdditionInch: number;
+  bottomTrackDeductionInch: number;
+  bottomTrackAdditionInch: number;
+  sideFrameDeductionInch: number;
+  sideFrameAdditionInch: number;
+  interlockDeductionInch: number;
+  interlockAdditionInch: number;
+  handleDeductionInch: number;
+  handleAdditionInch: number;
+  glassWidthDeductionInch: number;
+  glassWidthAdditionInch: number;
+  glassHeightDeductionInch: number;
+  glassHeightAdditionInch: number;
+  mosquitoNetWidthDeductionInch: number;
+  mosquitoNetWidthAdditionInch: number;
+  mosquitoNetHeightDeductionInch: number;
+  mosquitoNetHeightAdditionInch: number;
+}
+
+export interface WindowSystemCalculationInput {
+  systemId: string;
+  profileSeriesId?: string;
+  width: number;
+  height: number;
+  unit: WindowMeasurementUnit;
+  quantity: number;
+  trackCount: number;
+  shutterCount: number;
+  includeMosquitoNet: boolean;
+  glassThickness?: string;
+  windowLabel?: string;
+  customDeductions?: WindowCustomDeductionsInput;
+  /**
+   * Optional legacy FabricationProfile override when calculating 2-track / 3-track
+   * using the existing verified sliding window engine.
+   */
+  legacyProfile?: FabricationProfile | null;
+}
+
+export interface WindowCuttingMeasurementRow {
+  id: string;
+  name: string;
+  category: WindowSectionCategory;
+  sectionSpec?: string;
+  lengthInch: number;
+  lengthDecimalFormatted: string;
+  lengthFractionFormatted: string | null;
+  lengthMm: number;
+  /** For 2D panel cuts (Glass & Mosquito Net), width & height are both populated */
+  isTwoDimensional?: boolean;
+  widthInch?: number;
+  widthDecimalFormatted?: string;
+  widthFractionFormatted?: string | null;
+  widthMm?: number;
+  heightInch?: number;
+  heightDecimalFormatted?: string;
+  heightFractionFormatted?: string | null;
+  heightMm?: number;
+  piecesPerWindow: number;
+  totalPieces: number;
+  formulaSummary: string;
+  notes?: string;
+}
+
+export interface WindowMaterialSummaryItem {
+  id: string;
+  name: string;
+  category: WindowSectionCategory;
+  sectionSpec?: string;
+  cutSizeDisplay: string;
+  totalPieces: number;
+  totalRunningInches?: number;
+  totalRunningFeet?: number;
+  totalAreaSqFt?: number;
+}
+
+export interface WindowSystemCalculationResult {
+  status: 'calculated' | 'setup_required' | 'invalid';
+  setupMessage?: string;
+  errors: string[];
+  warnings: string[];
+  systemId: string;
+  systemName: string;
+  categoryId: WindowSystemCategoryId;
+  profileSeriesName: string;
+  formulaSource: 'verified_legacy_sliding' | 'admin_configured' | 'user_custom_deductions' | 'unconfigured';
+  input: {
+    windowLabel: string;
+    width: number;
+    height: number;
+    unit: WindowMeasurementUnit;
+    widthInch: number;
+    heightInch: number;
+    widthDecimalFormatted: string;
+    widthFractionFormatted: string | null;
+    heightDecimalFormatted: string;
+    heightFractionFormatted: string | null;
+    widthMm: number;
+    heightMm: number;
+    quantity: number;
+    trackCount: number;
+    shutterCount: number;
+    includeMosquitoNet: boolean;
+    glassThickness: string;
+  };
+  aluminiumSections: WindowCuttingMeasurementRow[];
+  glassCutting: WindowCuttingMeasurementRow[];
+  mosquitoNetCutting: WindowCuttingMeasurementRow[];
+  materialSummary: WindowMaterialSummaryItem[];
+  calculatedAt: string;
+}
+
+export interface SavedWindowSystemCalculation {
+  id: string;
+  customerId: string;
+  projectName: string;
+  customerName: string;
+  systemId: string;
+  systemName: string;
+  categoryId: WindowSystemCategoryId;
+  result: WindowSystemCalculationResult;
+  createdAt: string;
+  updatedAt: string;
+}
+
+
+
+

@@ -137,8 +137,15 @@ export const HomepageBannerSlider: React.FC<HomepageBannerSliderProps> = ({
       destination.startsWith('http://') ||
       destination.startsWith('https://') ||
       destination.startsWith('//') ||
-      destination.startsWith('tel:') ||
       destination.startsWith('mailto:');
+
+    if (destination.startsWith('tel:') || destination === 'whatsapp') {
+      if (onNavigate) {
+        onNavigate('contact');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      return;
+    }
 
     if (isExternal) {
       if (banner.openInNewTab !== false) {
@@ -146,17 +153,6 @@ export const HomepageBannerSlider: React.FC<HomepageBannerSliderProps> = ({
       } else {
         window.location.href = destination;
       }
-      return;
-    }
-
-    if (destination === 'whatsapp') {
-      const phone = settings?.whatsappNumber || '7887412884';
-      const bizName = settings?.businessName || 'Jai Hanuman Door';
-      const waUrl = getWhatsAppUrl(
-        phone,
-        `Hello ${bizName}, I am inquiring about the banner: "${banner.title}"`
-      );
-      window.open(waUrl, '_blank', 'noopener,noreferrer');
       return;
     }
 

@@ -121,7 +121,7 @@ export function calculateDeliveryStatusText(order: {
  * Sanitizes order object for public customer-facing view.
  * Removes private admin notes, phone, exact address, audit history, and pricing internals.
  */
-export function sanitizeForPublicView(order: TrackingOrder, officialWhatsApp = '7887412884'): PublicTrackingView {
+export function sanitizeForPublicView(order: TrackingOrder, officialWhatsApp = ''): PublicTrackingView {
   // Mask customer name (e.g. "Rahul Patil" -> "Rahul P.")
   let maskedName = 'Valued Customer';
   if (order.customerName && order.customerName.trim()) {
@@ -206,27 +206,15 @@ export function sanitizeForPublicView(order: TrackingOrder, officialWhatsApp = '
       : undefined,
     estimatedCompletionDate: order.estimatedCompletionDate,
     expectedDispatchDate: order.expectedDispatchDate,
-    officialWhatsApp,
-    officialPhone: '+91 78874 12884',
+    officialWhatsApp: '',
+    officialPhone: '',
   };
 }
 
 // ---------------- Media Upload Config ----------------
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, UPLOAD_DIR);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const cleanExt = ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.webm', '.gif'].includes(ext) ? ext : '.jpg';
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `track-${uniqueSuffix}${cleanExt}`);
-  },
-});
-
 const mediaUpload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB for photo & progress video clip
   fileFilter: (_req, file, cb) => {
     const allowed = /jpeg|jpg|png|webp|gif|heic|heif|mp4|webm|quicktime|3gp|mkv/;
@@ -289,12 +277,11 @@ export function initTrackingRoutes(
 
     if (!order) {
       return res.status(404).json({
-        error: 'No order found with this Tracking ID. Please verify your ID or contact Jai Hanuman Door on WhatsApp.',
+        error: 'No order found with this Tracking ID. Please verify your ID or contact WindowCut Pro support.',
       });
     }
 
-    const whatsappNumber = db.settings?.whatsappNumber || '7887412884';
-    const publicView = sanitizeForPublicView(order, whatsappNumber);
+    const publicView = sanitizeForPublicView(order, '');
     return res.json({ success: true, tracking: publicView });
   });
 
@@ -621,7 +608,6 @@ export function initTrackingRoutes(
       next();
     },
     async (req, res) => {
-      const tempFilePath = req.file?.path;
       try {
         const { id } = req.params;
         const { stageId, caption, isCustomerVisible, mediaUrl: directMediaUrl, mediaType } = req.body;
@@ -642,8 +628,8 @@ export function initTrackingRoutes(
         let mediaUrl = directMediaUrl ? String(directMediaUrl).trim() : '';
         let isVideo = false;
 
-        if (req.file) {
-          const fileBuf = fs.readFileSync(req.file.path);
+        if (req.file && req.file.buffer) {
+          const fileBuf = req.file.buffer;
           const detected = detectMimeType(fileBuf);
           const effectiveMime =
             detected !== 'application/octet-stream'
@@ -652,13 +638,13 @@ export function initTrackingRoutes(
               ? req.file.mimetype
               : 'image/jpeg';
 
-          isVideo = effectiveMime.startsWith('video/') || /\.(mp4|webm|mov|3gp|mkv)$/i.test(req.file.originalname || req.file.filename);
+          isVideo = effectiveMime.startsWith('video/') || /\.(mp4|webm|mov|3gp|mkv)$/i.test(req.file.originalname || '');
 
           const ext = path.extname(req.file.originalname || '') || getExtensionForMimeType(effectiveMime);
           const targetFilename = `track-${order.trackingId}-${Date.now()}${ext !== '.bin' ? ext : isVideo ? '.mp4' : '.jpg'}`;
           const targetFolder = isVideo ? 'videos' : 'tracking';
 
-          // Persist via primary unified storageService (Bunny Storage primary, cloud fallback)
+          // Persist directly to Bunny.net Storage
           const savedResult = await saveMedia(targetFilename, effectiveMime, fileBuf, targetFolder);
           if (!savedResult?.success || !savedResult?.url) {
             return res.status(savedResult?.statusCode || 502).json({
@@ -710,12 +696,6 @@ export function initTrackingRoutes(
       } catch (err: any) {
         console.error('Error uploading tracking media:', err);
         res.status(500).json({ error: err.message || 'Failed to upload media' });
-      } finally {
-        try {
-          if (tempFilePath && fs.existsSync(tempFilePath)) {
-            fs.unlinkSync(tempFilePath);
-          }
-        } catch {}
       }
     }
   );

@@ -66,7 +66,7 @@ function resolveWritableCacheDir(primaryDir: string, tempFallbackDir: string): s
 }
 
 const UPLOAD_DIR = resolveWritableCacheDir(
-  process.env.PERSISTENT_UPLOADS_DIR || path.join(process.cwd(), 'data', 'uploads'),
+  process.env.PERSISTENT_UPLOADS_DIR || path.join(process.cwd(), 'public', 'uploads'),
   '/tmp/jai-hanuman-door/uploads'
 );
 const UPLOAD_BACKUP_DIR = resolveWritableCacheDir(
@@ -374,6 +374,7 @@ export async function saveMedia(
   productId?: string
 ): Promise<{
   success: boolean;
+  bunnyVerified?: boolean;
   url: string;
   downloadUrl?: string;
   proxyUrl?: string;
@@ -389,15 +390,15 @@ export async function saveMedia(
 }> {
   const cleanFilename = String(filename || '').replace(/[^a-zA-Z0-9_.-]/g, '_');
   const size = buffer ? buffer.length : 0;
-  const relativeUrl = `/uploads/${cleanFilename}`;
   const nowIso = new Date().toISOString();
 
   // 1. Validate buffer and file size
   if (!buffer || size === 0) {
     return {
       success: false,
-      url: relativeUrl,
-      storageType: isBunnyStorageConfigured() ? 'bunny_storage' : 'firebase_storage',
+      bunnyVerified: false,
+      url: '',
+      storageType: 'bunny_storage',
       statusCode: 400,
       errorCode: 'EMPTY_FILE',
       error: 'Uploaded file buffer is empty (0 bytes).',
@@ -413,183 +414,76 @@ export async function saveMedia(
   if (size > maxBytes) {
     return {
       success: false,
-      url: relativeUrl,
-      storageType: isBunnyStorageConfigured() ? 'bunny_storage' : 'firebase_storage',
+      bunnyVerified: false,
+      url: '',
+      storageType: 'bunny_storage',
       statusCode: 413,
       errorCode: 'FILE_TOO_LARGE',
       error: `File size (${(size / (1024 * 1024)).toFixed(1)} MB) exceeds maximum allowed limit of ${isVideoOrModel ? 100 : 20} MB.`,
     };
   }
 
-  // 2. Primary Cloud Storage: Bunny.net Storage
-  if (isBunnyStorageConfigured()) {
-    const bunnyRes = await uploadToBunnyStorage(buffer, {
-      filename: cleanFilename,
-      mimeType,
-      category,
-      productId,
-    });
-
-    if (!bunnyRes.success) {
-      return {
-        success: false,
-        url: '',
-        storageType: 'bunny_storage',
-        storageZone: bunnyRes.storageZone,
-        statusCode: bunnyRes.statusCode || 502,
-        errorCode: bunnyRes.errorCode || 'BUNNY_UPLOAD_FAILED',
-        error: bunnyRes.error || 'Failed to upload media to Bunny.net Storage.',
-      };
-    }
-
-    // Mirror to local disk cache using both unique Bunny filename & caller cleanFilename
-    try {
-      fs.writeFileSync(path.join(UPLOAD_DIR, bunnyRes.filename), buffer);
-      fs.writeFileSync(path.join(UPLOAD_BACKUP_DIR, bunnyRes.filename), buffer);
-      if (cleanFilename && cleanFilename !== bunnyRes.filename) {
-        fs.writeFileSync(path.join(UPLOAD_DIR, cleanFilename), buffer);
-      }
-    } catch (diskErr: any) {
-      console.warn('⚠️ [Bunny Storage] Local cache mirror warning:', diskErr.message);
-    }
-
-    const metadata: MediaMetadata = {
-      filename: bunnyRes.filename,
-      mimeType: bunnyRes.mimeType,
-      size: bunnyRes.size,
-      storageType: 'bunny_storage',
-      url: bunnyRes.url,
-      downloadUrl: bunnyRes.cdnUrl || bunnyRes.proxyUrl,
-      proxyUrl: bunnyRes.proxyUrl,
-      ...(bunnyRes.cdnUrl ? { cdnUrl: bunnyRes.cdnUrl } : {}),
-      storagePath: bunnyRes.objectPath,
-      storageZone: bunnyRes.storageZone,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
-
-    try {
-      const db = getFirestoreInstance();
-      if (db) {
-        const docId = bunnyRes.objectPath.replace(/[^a-zA-Z0-9_.-]/g, '__');
-        const metaRef = doc(db, 'uploaded_media', docId);
-        await Promise.race([
-          setDoc(metaRef, metadata, { merge: true }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Metadata write timeout (2500ms)')), 2500)),
-        ]);
-      }
-    } catch (metaErr: any) {
-      console.warn('⚠️ [Bunny Storage] Could not write media metadata to Firestore:', metaErr.message);
-    }
-
+  // 2. Bunny.net Storage is the ONLY permanent upload storage. Never fall back to local disk, /uploads, or Firestore.
+  if (!isBunnyStorageConfigured()) {
+    const summary = getBunnyConfigSummary();
     return {
-      success: true,
-      url: bunnyRes.url,
-      downloadUrl: bunnyRes.cdnUrl || bunnyRes.proxyUrl,
-      proxyUrl: bunnyRes.proxyUrl,
-      ...(bunnyRes.cdnUrl ? { cdnUrl: bunnyRes.cdnUrl } : {}),
+      success: false,
+      bunnyVerified: false,
+      url: '',
       storageType: 'bunny_storage',
-      metadata,
-      storagePath: bunnyRes.objectPath,
-      storageZone: bunnyRes.storageZone,
+      storageZone: summary.zone,
+      statusCode: 503,
+      errorCode: 'BUNNY_NOT_CONFIGURED',
+      error: `Bunny.net Storage is not configured on the server (missing: ${summary.missingVars.join(', ')}). Configure BUNNY_STORAGE_PASSWORD in Cloud Run Secret Manager.`,
     };
   }
 
-  // 3. Mirror to local disk cache immediately for instant cold reads (non-Bunny fallback)
-  try {
-    const localPath = path.join(UPLOAD_DIR, cleanFilename);
-    const backupPath = path.join(UPLOAD_BACKUP_DIR, cleanFilename);
-    fs.writeFileSync(localPath, buffer);
-    fs.writeFileSync(backupPath, buffer);
-  } catch (diskErr: any) {
-    console.warn(`⚠️ [Storage] Local cache mirror warning:`, diskErr.message);
-  }
-
-  const targetStoragePath = buildStoragePath(cleanFilename, category, productId);
-  const storage = getFirebaseStorageInstance();
-  const bucketName = getFirebaseStorageBucketName();
-
-  let uploadedToFirebase = false;
-  let permanentDownloadUrl = '';
-
-  // 4. Attempt direct upload to Firebase Storage (legacy fallback when Bunny is not configured)
-  if (storage) {
-    try {
-      await ensureServerFirebaseAuth();
-      const fileRef = storageRef(storage, targetStoragePath);
-
-      const performUpload = async (): Promise<string> => {
-        const uploadRes = await uploadBytes(fileRef, buffer, {
-          contentType: mimeType || 'image/jpeg',
-          cacheControl: 'public, max-age=31536000, immutable',
-          customMetadata: {
-            originalName: cleanFilename,
-            category,
-            uploadedAt: nowIso,
-            service: 'Jai Hanuman Door',
-          },
-        });
-        return await getDownloadURL(uploadRes.ref);
-      };
-
-      const uploadTimeoutMs = isVideoOrModel ? 90000 : 8000;
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Firebase Storage upload timeout (${uploadTimeoutMs}ms)`)), uploadTimeoutMs)
-      );
-
-      permanentDownloadUrl = await Promise.race([performUpload(), timeoutPromise]);
-      uploadedToFirebase = true;
-      console.log(`✅ [Firebase Storage] Durably saved ${cleanFilename} (${(size / 1024).toFixed(1)} KB) to gs://${bucketName}/${targetStoragePath}`);
-    } catch (firebaseErr: any) {
-      console.warn(`⚠️ [Firebase Storage] Direct bucket upload attempt notice:`, firebaseErr.message);
-    }
-  }
-
-  // 5. Fallback: Save into persistent Firestore chunked cloud store if bucket not yet active
-  if (!uploadedToFirebase) {
-    try {
-      await saveMediaToFirestore(cleanFilename, mimeType, buffer);
-      console.log(`🛡️ [Firestore Fallback] Persisted ${cleanFilename} (${size} bytes) to Firestore chunked media store.`);
-    } catch (firestoreErr: any) {
-      console.warn(`⚠️ [Firestore] Media fallback warning:`, firestoreErr.message);
-    }
-  }
-
-  // 6. Record metadata in Firestore `uploaded_media` collection
-  const metadata: MediaMetadata = {
+  const bunnyRes = await uploadToBunnyStorage(buffer, {
     filename: cleanFilename,
     mimeType,
-    size,
-    storageType: uploadedToFirebase ? 'firebase_storage' : 'firestore',
-    url: relativeUrl,
-    downloadUrl: permanentDownloadUrl || relativeUrl,
-    storagePath: targetStoragePath,
-    firebaseBucket: bucketName,
+    category,
+    productId,
+  });
+
+  if (!bunnyRes.success || !bunnyRes.bunnyVerified || !bunnyRes.url) {
+    return {
+      success: false,
+      bunnyVerified: false,
+      url: '',
+      storageType: 'bunny_storage',
+      storageZone: bunnyRes.storageZone,
+      statusCode: bunnyRes.statusCode || 502,
+      errorCode: bunnyRes.errorCode || 'BUNNY_UPLOAD_FAILED',
+      error: bunnyRes.error || 'Failed to upload and verify media in Bunny.net Storage.',
+    };
+  }
+
+  const metadata: MediaMetadata = {
+    filename: bunnyRes.filename,
+    mimeType: bunnyRes.mimeType,
+    size: bunnyRes.size,
+    storageType: 'bunny_storage',
+    url: bunnyRes.url,
+    downloadUrl: bunnyRes.cdnUrl || bunnyRes.proxyUrl,
+    proxyUrl: bunnyRes.proxyUrl,
+    ...(bunnyRes.cdnUrl ? { cdnUrl: bunnyRes.cdnUrl } : {}),
+    storagePath: bunnyRes.objectPath,
+    storageZone: bunnyRes.storageZone,
     createdAt: nowIso,
     updatedAt: nowIso,
   };
 
-  try {
-    const db = getFirestoreInstance();
-    if (db) {
-      const metaRef = doc(db, 'uploaded_media', cleanFilename);
-      await Promise.race([
-        setDoc(metaRef, metadata, { merge: true }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Metadata write timeout (2500ms)')), 2500))
-      ]);
-    }
-  } catch (metaErr: any) {
-    console.warn(`⚠️ [Storage] Could not write media metadata:`, metaErr.message);
-  }
-
   return {
     success: true,
-    url: relativeUrl,
-    downloadUrl: permanentDownloadUrl || relativeUrl,
-    storageType: uploadedToFirebase ? 'firebase_storage' : 'firestore',
+    bunnyVerified: true,
+    url: bunnyRes.url,
+    downloadUrl: bunnyRes.cdnUrl || bunnyRes.proxyUrl,
+    proxyUrl: bunnyRes.proxyUrl,
+    ...(bunnyRes.cdnUrl ? { cdnUrl: bunnyRes.cdnUrl } : {}),
+    storageType: 'bunny_storage',
     metadata,
-    storagePath: targetStoragePath,
-    firebaseBucket: bucketName,
+    storagePath: bunnyRes.objectPath,
+    storageZone: bunnyRes.storageZone,
   };
 }
 

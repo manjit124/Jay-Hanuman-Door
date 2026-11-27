@@ -775,32 +775,18 @@ export const LiveARCamera: React.FC<LiveARCameraProps> = ({
 
     ctx.fillStyle = '#f59e0b';
     ctx.font = 'bold 20px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText(`JAI HANUMAN DOOR • LIVE AR 3D VISUALIZER • ${door.name}`, 36, canvas.height - 56);
+    ctx.fillText(`WINDOWCUT PRO • LIVE AR VISUALIZER • ${door.name}`, 36, canvas.height - 56);
 
     ctx.fillStyle = '#d6d3d1';
     ctx.font = '13px monospace';
     ctx.fillText(
-      `${fittingState.woodType} • ${customWidth}" × ${customHeight}" • WhatsApp: +91 78874 12884`,
+      `${fittingState.woodType} • ${customWidth}" × ${customHeight}"`,
       36,
       canvas.height - 32
     );
 
     const capturedUrl = canvas.toDataURL('image/jpeg', 0.92);
     onCaptureComposite(capturedUrl);
-  };
-
-  // WhatsApp Enquiry with current AR configuration
-  const handleWhatsAppEnquiry = () => {
-    const text = `Hello Jai Hanuman Door,
-I customized "${door.name}" (ID: ${door.id}) in your Live AR 3D Door Visualizer:
-- Dimensions: ${customWidth}" × ${customHeight}" (Thickness: ${fittingState.thicknessInch}")
-- Wood: ${fittingState.woodType}
-- Current View: ${getAngleLabel(rotateY)} at ${scale}% scale
-- Door Opening: ${doorOpenAngle}°
-- Price Estimate: ₹${door.startingPrice.toLocaleString('en-IN')}
-
-Please share quotation and installation details for my home entrance.`;
-    window.open(getWhatsAppUrl('7887412884', text), '_blank');
   };
 
   return (
@@ -1251,15 +1237,6 @@ Please share quotation and installation details for my home entrance.`;
             >
               <Sparkles className="w-4 h-4 text-white" />
               <span>Capture AR Photo</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleWhatsAppEnquiry}
-              className="p-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow transition cursor-pointer"
-              title="WhatsApp Enquiry with Current AR Configuration"
-            >
-              <MessageCircle className="w-4 h-4" />
             </button>
           </div>
         </div>

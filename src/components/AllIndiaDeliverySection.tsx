@@ -19,7 +19,6 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { IndiaDeliveryState, DeliveryStory, BusinessSettings } from '../types.ts';
-import { getWhatsAppUrl, getPhoneTelUrl } from '../lib/contactUtils.ts';
 
 interface AllIndiaDeliverySectionProps {
   states: IndiaDeliveryState[];
@@ -119,14 +118,6 @@ export const AllIndiaDeliverySection: FC<AllIndiaDeliverySectionProps> = ({
       left: direction === 'left' ? -amount : amount,
       behavior: 'smooth',
     });
-  };
-
-  // WhatsApp Inquiry Generator for selected state
-  const handleStateWhatsApp = (state: IndiaDeliveryState, city?: string) => {
-    const phone = settings?.whatsappNumber || '7887412884';
-    const locText = city ? `${city}, ${state.name}` : state.name;
-    const msg = `Hello Jai Hanuman Door, I want to check delivery charges and timeframe for ${locText}. Please share catalog, freight estimates, and safe wooden crate dispatch schedule.`;
-    window.open(getWhatsAppUrl(phone, msg), '_blank');
   };
 
   if (sortedStates.length === 0) {
@@ -381,9 +372,7 @@ export const AllIndiaDeliverySection: FC<AllIndiaDeliverySectionProps> = ({
                     {selectedState.citiesServed.map((city, cIdx) => (
                       <span
                         key={cIdx}
-                        onClick={() => handleStateWhatsApp(selectedState, city)}
-                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-[#FFF7E3] hover:text-[#C89211] hover:border-[#C89211] border border-[#E5E5E5] text-xs font-medium text-[#1A1A1A] transition cursor-pointer shadow-2xs flex items-center gap-1"
-                        title={`Click to inquire for ${city}`}
+                        className="px-2.5 py-1 rounded-lg bg-white border border-[#E5E5E5] text-xs font-medium text-[#1A1A1A] shadow-2xs flex items-center gap-1"
                       >
                         <span>{city}</span>
                       </span>
@@ -512,26 +501,7 @@ export const AllIndiaDeliverySection: FC<AllIndiaDeliverySectionProps> = ({
             </div>
 
             {/* Modal Footer CTAs */}
-            <div className="p-3.5 sm:p-4 border-t border-[#E5E5E5] bg-white flex flex-col sm:flex-row items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleStateWhatsApp(selectedState)}
-                className="w-full sm:flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>Enquire Delivery to {selectedState.name}</span>
-              </button>
-
-              {settings?.phone && (
-                <a
-                  href={getPhoneTelUrl(settings.phone)}
-                  className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 text-[#1A1A1A] font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-stone-300 transition cursor-pointer"
-                >
-                  <Phone className="w-4 h-4 text-[#C89211]" />
-                  <span>Call Workshop</span>
-                </a>
-              )}
-
+            <div className="p-3.5 sm:p-4 border-t border-[#E5E5E5] bg-white flex flex-col sm:flex-row items-center justify-end gap-2">
               {onOpenCalculator && (
                 <button
                   type="button"
@@ -539,12 +509,19 @@ export const AllIndiaDeliverySection: FC<AllIndiaDeliverySectionProps> = ({
                     setSelectedState(null);
                     onOpenCalculator();
                   }}
-                  className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-[#FFF7E3] hover:bg-[#FFEEC2] text-[#C89211] font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-[#C89211]/40 transition cursor-pointer"
+                  className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-[#0B5ED7] hover:bg-[#084298] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition cursor-pointer"
                 >
                   <Calculator className="w-4 h-4" />
-                  <span>Calculate Door Price</span>
+                  <span>Open Calculator</span>
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setSelectedState(null)}
+                className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#0A2540] font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-slate-300 transition cursor-pointer"
+              >
+                <span>Close</span>
+              </button>
             </div>
           </div>
         </div>
