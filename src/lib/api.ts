@@ -1,6 +1,13 @@
 import { Clipboard } from '@capacitor/clipboard';
 import { FEATURE_FLAGS } from '../config/featureFlags.ts';
 import {
+  BRAND_ASSET_VERSION,
+  BRAND_LOGO_URL,
+  resolveBrandLogoUrl,
+  resolveBrandName,
+  resolveBrandTagline,
+} from '../config/brand.ts';
+import {
   Door,
   Category,
   DoorMaterial,
@@ -286,7 +293,7 @@ export const DEFAULT_HARDWARE: HardwareItem[] = [
 export const DEFAULT_SETTINGS: BusinessSettings = {
   businessName: 'WindowCut Pro',
   tagline: 'Sliding Window Fabrication Calculator',
-  logoUrl: '/assets/aistudio/file_00000000987c8211861f7f4e3ee30de1_a307444c.png',
+  logoUrl: BRAND_LOGO_URL,
   phone: '',
   whatsappNumber: '',
   email: 'support@windowcutpro.com',
@@ -322,7 +329,27 @@ if (typeof window !== 'undefined') {
     if (storedCached && (storedCached.includes('ais-dev-') || storedCached.includes('768916382182') || storedCached.includes('jaihanumandoor.com'))) {
       localStorage.removeItem(CACHED_PROD_URL_KEY);
     }
+    // Safe branding cache refresh: clear only cached catalog settings once per brand asset version
+    // Never touches user login sessions, favorites, or saved calculations
+    const BRAND_CACHE_VER_KEY = 'wcp_brand_cache_version';
+    if (localStorage.getItem(BRAND_CACHE_VER_KEY) !== BRAND_ASSET_VERSION) {
+      localStorage.removeItem(CATALOG_CACHE_KEY);
+      localStorage.setItem(BRAND_CACHE_VER_KEY, BRAND_ASSET_VERSION);
+    }
   } catch {}
+}
+
+function sanitizeBrandingSettings(raw?: BusinessSettings | null): BusinessSettings {
+  const base: BusinessSettings = {
+    ...DEFAULT_SETTINGS,
+    ...(raw || {}),
+  };
+  return {
+    ...base,
+    businessName: resolveBrandName(base.businessName),
+    tagline: resolveBrandTagline(base.tagline),
+    logoUrl: resolveBrandLogoUrl(base.logoUrl),
+  };
 }
 
 /**
@@ -1020,7 +1047,7 @@ export async function fetchCatalog(): Promise<{
           banners: FEATURE_FLAGS.homeBanners && Array.isArray(data.banners) ? data.banners : [],
           articles: FEATURE_FLAGS.articlesBlog && Array.isArray(data.articles) ? data.articles : [],
           teamMembers: Array.isArray(data.teamMembers) ? data.teamMembers : [],
-          settings: data.settings || DEFAULT_SETTINGS,
+          settings: sanitizeBrandingSettings(data.settings),
         };
         try {
           localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(normalized));
@@ -1062,7 +1089,7 @@ export async function fetchCatalog(): Promise<{
           ? (Array.isArray(fsData.articles) && fsData.articles.length > 0 ? fsData.articles : DEFAULT_ARTICLES)
           : [],
         teamMembers: activeTeamMembers,
-        settings: fsData.settings || DEFAULT_SETTINGS,
+        settings: sanitizeBrandingSettings(fsData.settings),
       };
       try {
         localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(catalogData));
@@ -1093,7 +1120,7 @@ export async function fetchCatalog(): Promise<{
           banners: FEATURE_FLAGS.homeBanners ? parsed.banners || [] : [],
           articles: FEATURE_FLAGS.articlesBlog ? parsed.articles || [] : [],
           teamMembers: Array.isArray(parsed.teamMembers) ? parsed.teamMembers : [],
-          settings: parsed.settings || DEFAULT_SETTINGS,
+          settings: sanitizeBrandingSettings(parsed.settings),
         };
       }
     }

@@ -31,7 +31,6 @@ function customerHeaders(includeJson = true): Record<string, string> {
   }
   const token = getCustomerMemoryToken();
   if (token) {
-    headers['X-Customer-Token'] = token;
     headers.Authorization = `Bearer ${token}`;
   }
   return headers;
@@ -52,13 +51,58 @@ function adminHeaders(includeJson = true): Record<string, string> {
   return headers;
 }
 
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = 15000
+): Promise<Response> {
+  if (typeof AbortController === 'undefined') {
+    return fetch(url, options);
+  }
+  const controller = new AbortController();
+  const timerId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error('Request timed out. Please check your mobile internet connection and try again.');
+    }
+    throw new Error('Unable to reach the login server. Please check your internet connection and try again.');
+  } finally {
+    window.clearTimeout(timerId);
+  }
+}
+
 async function parseJsonSafe(res: Response): Promise<any> {
-  const text = await res.text();
+  let text = '';
+  try {
+    text = await res.text();
+  } catch {
+    throw new Error(`Unable to read server response (HTTP ${res.status}).`);
+  }
+  if (!text) {
+    return {};
+  }
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(`Unexpected server response (HTTP ${res.status}).`);
+    throw new Error(`Unexpected server response (HTTP ${res.status}). Please try again shortly.`);
   }
+}
+
+function normalizeHttpError(res: Response, data: any, fallback: string): string {
+  if (res.status === 404) {
+    return 'OTP login service is currently unavailable on the connected server (HTTP 404). Please update or redeploy the backend server and try again.';
+  }
+  if (res.status >= 500) {
+    return (typeof data?.error === 'string' && data.error.trim())
+      ? data.error
+      : `Login server error (HTTP ${res.status}). Please try again in a moment.`;
+  }
+  if (typeof data?.error === 'string' && data.error.trim()) {
+    return data.error;
+  }
+  return fallback;
 }
 
 export interface CustomerOrderSummary {
@@ -91,14 +135,47 @@ export interface SmsProviderStatusResponse {
   hasApiKey: boolean;
   missingEnvVars: string[];
   setupMessage: string;
+  unavailable?: boolean;
+  httpStatus?: number;
 }
 
 export async function fetchSmsProviderStatus(): Promise<SmsProviderStatusResponse> {
-  const res = await fetch(resolveUrl('/api/customer-auth/provider-status'), {
-    credentials: 'include',
-    headers: customerHeaders(false),
-  });
-  return parseJsonSafe(res);
+  const res = await fetchWithTimeout(
+    resolveUrl('/api/customer-auth/provider-status'),
+    {
+      credentials: 'include',
+      headers: customerHeaders(false),
+    },
+    10000
+  );
+  const data = await parseJsonSafe(res);
+  if (!res.ok || typeof data?.configured !== 'boolean') {
+    return {
+      provider: 'apitxt',
+      configured: false,
+      hasApiKey: false,
+      missingEnvVars: [],
+      unavailable: true,
+      httpStatus: res.status,
+      setupMessage: normalizeHttpError(
+        res,
+        data,
+        'Unable to check OTP SMS service status right now.'
+      ),
+    };
+  }
+  return {
+    provider: 'apitxt',
+    configured: Boolean(data.configured),
+    hasApiKey: Boolean(data.hasApiKey),
+    missingEnvVars: Array.isArray(data.missingEnvVars) ? data.missingEnvVars : [],
+    setupMessage:
+      typeof data.setupMessage === 'string' && data.setupMessage.trim()
+        ? data.setupMessage
+        : 'APITXT SMS OTP provider status checked.',
+    unavailable: false,
+    httpStatus: res.status,
+  };
 }
 
 export async function sendCustomerOtp(mobile: string): Promise<{
@@ -112,13 +189,32 @@ export async function sendCustomerOtp(mobile: string): Promise<{
   errorCode?: string;
   missingEnvVars?: string[];
 }> {
-  const res = await fetch(resolveUrl('/api/customer-auth/send-otp'), {
-    method: 'POST',
-    credentials: 'include',
-    headers: customerHeaders(true),
-    body: JSON.stringify({ mobile }),
-  });
-  return parseJsonSafe(res);
+  const res = await fetchWithTimeout(
+    resolveUrl('/api/customer-auth/send-otp'),
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: customerHeaders(true),
+      body: JSON.stringify({ mobile }),
+    },
+    18000
+  );
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.success !== true) {
+    return {
+      success: false,
+      error: normalizeHttpError(res, data, 'Unable to send OTP right now. Please try again.'),
+      errorCode: typeof data?.errorCode === 'string' ? data.errorCode : `HTTP_${res.status}`,
+      missingEnvVars: Array.isArray(data?.missingEnvVars) ? data.missingEnvVars : [],
+      resendAfterSeconds:
+        typeof data?.resendAfterSeconds === 'number' ? data.resendAfterSeconds : undefined,
+    };
+  }
+  return {
+    ...data,
+    success: true,
+    missingEnvVars: Array.isArray(data?.missingEnvVars) ? data.missingEnvVars : [],
+  };
 }
 
 export async function verifyCustomerOtp(params: {
@@ -138,25 +234,48 @@ export async function verifyCustomerOtp(params: {
   errorCode?: string;
   attemptsRemaining?: number;
 }> {
-  const res = await fetch(resolveUrl('/api/customer-auth/verify-otp'), {
-    method: 'POST',
-    credentials: 'include',
-    headers: customerHeaders(true),
-    body: JSON.stringify(params),
-  });
+  const res = await fetchWithTimeout(
+    resolveUrl('/api/customer-auth/verify-otp'),
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: customerHeaders(true),
+      body: JSON.stringify(params),
+    },
+    18000
+  );
   const data = await parseJsonSafe(res);
-  if (data?.success && data?.token) {
+  if (!res.ok || data?.success !== true || !data?.customer) {
+    return {
+      success: false,
+      error: normalizeHttpError(res, data, 'OTP verification failed. Please check the code and try again.'),
+      errorCode: typeof data?.errorCode === 'string' ? data.errorCode : `HTTP_${res.status}`,
+      attemptsRemaining:
+        typeof data?.attemptsRemaining === 'number' ? data.attemptsRemaining : undefined,
+    };
+  }
+  if (data.token) {
     setCustomerMemoryToken(data.token);
   }
-  return data;
+  return {
+    ...data,
+    success: true,
+    payments: Array.isArray(data.payments) ? data.payments : [],
+    quotes: Array.isArray(data.quotes) ? data.quotes : [],
+    orders: Array.isArray(data.orders) ? data.orders : [],
+  };
 }
 
 export async function fetchCurrentCustomerSession(): Promise<CustomerSessionPayload | null> {
   try {
-    const res = await fetch(resolveUrl('/api/customer-auth/me'), {
-      credentials: 'include',
-      headers: customerHeaders(false),
-    });
+    const res = await fetchWithTimeout(
+      resolveUrl('/api/customer-auth/me'),
+      {
+        credentials: 'include',
+        headers: customerHeaders(false),
+      },
+      10000
+    );
     if (!res.ok) return null;
     const data = await parseJsonSafe(res);
     if (!data?.success || !data?.customer) return null;

@@ -108,6 +108,7 @@ import { AdMobBannerSlot } from './components/admob/AdMobBannerSlot.tsx';
 import { FEATURE_FLAGS, isCustomerViewDisabled } from './config/featureFlags.ts';
 import { CustomerOtpLoginModal } from './components/CustomerOtpLoginModal.tsx';
 import { LoginRequiredPopup } from './components/LoginRequiredPopup.tsx';
+import { AppErrorBoundary } from './components/AppErrorBoundary.tsx';
 import { PaymentReceiptModal } from './components/PaymentReceiptModal.tsx';
 import {
   fetchCurrentCustomerSession,
@@ -377,6 +378,9 @@ export const App: React.FC = () => {
           setActiveView('home');
           window.history.replaceState({}, '', '/');
         }
+      } else if (path === '/login' || path === '/signin' || path === '/auth') {
+        setActiveView('home');
+        setShowOtpLoginModal(true);
       } else if (path === '/') {
         setActiveView('home');
       } else if (
@@ -2419,44 +2423,67 @@ export const App: React.FC = () => {
         }}
       />
 
-      {/* MODAL 6: Customer Mobile Number OTP Login */}
-      <CustomerOtpLoginModal
-        isOpen={showOtpLoginModal}
-        onClose={() => {
+      {/* MODAL 6: Customer Mobile Number OTP Login (Protected by Error Boundary) */}
+      <AppErrorBoundary
+        sectionName="Login Screen"
+        compactModal
+        onReset={() => {
           setShowOtpLoginModal(false);
           setPendingPaymentPayload(null);
           setOtpLoginCustomReason(null);
           pendingCalculationActionRef.current = null;
         }}
-        onAuthenticated={async (session) => {
-          applyCustomerSession(session);
-          setShowOtpLoginModal(false);
-          setOtpLoginCustomReason(null);
-          await refreshMonetizationState();
-          if (pendingPaymentPayload) {
-            const payloadToResume = pendingPaymentPayload;
+      >
+        <CustomerOtpLoginModal
+          isOpen={showOtpLoginModal}
+          onClose={() => {
+            setShowOtpLoginModal(false);
             setPendingPaymentPayload(null);
-            await executeOnlinePayment(
-              payloadToResume,
-              payloadToResume.itemType === 'credit_pack' ? payloadToResume.packId : null
-            );
-          }
-          if (pendingCalculationActionRef.current) {
-            const resumeCalc = pendingCalculationActionRef.current;
+            setOtpLoginCustomReason(null);
             pendingCalculationActionRef.current = null;
-            window.setTimeout(() => {
-              void resumeCalc();
-            }, 80);
+          }}
+          onAuthenticated={async (session) => {
+            applyCustomerSession(session);
+            setShowOtpLoginModal(false);
+            setOtpLoginCustomReason(null);
+            try {
+              await refreshMonetizationState();
+            } catch (err) {
+              console.warn('Monetization refresh after login skipped:', err);
+            }
+            if (pendingPaymentPayload) {
+              const payloadToResume = pendingPaymentPayload;
+              setPendingPaymentPayload(null);
+              try {
+                await executeOnlinePayment(
+                  payloadToResume,
+                  payloadToResume.itemType === 'credit_pack' ? payloadToResume.packId : null
+                );
+              } catch (err) {
+                console.warn('Payment resume after login failed:', err);
+              }
+            }
+            if (pendingCalculationActionRef.current) {
+              const resumeCalc = pendingCalculationActionRef.current;
+              pendingCalculationActionRef.current = null;
+              window.setTimeout(() => {
+                try {
+                  void resumeCalc();
+                } catch (err) {
+                  console.warn('Calculation resume after login failed:', err);
+                }
+              }, 80);
+            }
+          }}
+          title={pendingPaymentPayload ? 'Sign In to Complete Payment' : 'Customer Mobile Login'}
+          subtitle={
+            otpLoginCustomReason ||
+            (pendingPaymentPayload
+              ? 'Verify your 10-digit Indian mobile number via OTP so your payment receipt and order history are linked to your account.'
+              : 'Sign in securely with a 6-digit SMS OTP to save your profile, pay online, and access payment receipts.')
           }
-        }}
-        title={pendingPaymentPayload ? 'Sign In to Complete Payment' : 'Customer Mobile Login'}
-        subtitle={
-          otpLoginCustomReason ||
-          (pendingPaymentPayload
-            ? 'Verify your 10-digit Indian mobile number via OTP so your payment receipt and order history are linked to your account.'
-            : 'Sign in securely with a 6-digit SMS OTP to save your profile, pay online, and access payment receipts.')
-        }
-      />
+        />
+      </AppErrorBoundary>
 
       {/* MODAL 7: Verified Payment Outcome & Downloadable PDF Receipt */}
       <PaymentReceiptModal

@@ -332,7 +332,7 @@ export async function sendCampaignNotification(campaign: NotificationCampaign): 
 
   // Deep link action URL
   const actionUrl = campaign.deepLink || '/';
-  const defaultIcon = '/assets/app-icon.svg';
+  const defaultIcon = '/assets/logo-192.png?v=20261128';
 
   // Batch into chunks of 500 for FCM Multicast
   const chunkSize = 500;

@@ -51,12 +51,32 @@ export const CustomerOtpLoginModal: React.FC<CustomerOtpLoginModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
+    let active = true;
     setError(null);
     setInfoMessage(null);
     setMissingEnvVars([]);
+    setProviderStatus(null);
     fetchSmsProviderStatus()
-      .then(setProviderStatus)
-      .catch(() => null);
+      .then((status) => {
+        if (!active) return;
+        setProviderStatus(status);
+      })
+      .catch((err: any) => {
+        if (!active) return;
+        setProviderStatus({
+          provider: 'apitxt',
+          configured: false,
+          hasApiKey: false,
+          missingEnvVars: [],
+          unavailable: true,
+          setupMessage:
+            err?.message ||
+            'Unable to reach the OTP login server. Check your internet connection and try again.',
+        });
+      });
+    return () => {
+      active = false;
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -132,15 +152,17 @@ export const CustomerOtpLoginModal: React.FC<CustomerOtpLoginModalProps> = ({
         return;
       }
 
-      onAuthenticated({
-        authenticated: true,
-        customer: res.customer,
-        entitlement: res.entitlement,
-        payments: res.payments || [],
-        quotes: res.quotes || [],
-        orders: res.orders || [],
-        isNewUser: res.isNewUser,
-      });
+      await Promise.resolve(
+        onAuthenticated({
+          authenticated: true,
+          customer: res.customer,
+          entitlement: res.entitlement,
+          payments: Array.isArray(res.payments) ? res.payments : [],
+          quotes: Array.isArray(res.quotes) ? res.quotes : [],
+          orders: Array.isArray(res.orders) ? res.orders : [],
+          isNewUser: res.isNewUser,
+        })
+      );
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Unable to verify OTP. Please try again.');
@@ -149,15 +171,19 @@ export const CustomerOtpLoginModal: React.FC<CustomerOtpLoginModalProps> = ({
     }
   };
 
+  const providerMissingVars = Array.isArray(providerStatus?.missingEnvVars)
+    ? providerStatus.missingEnvVars
+    : [];
+
   return (
     <div
       id="customer-otp-login-modal"
-      className="fixed inset-0 z-50 bg-[#0A2540]/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-[#0A2540]/65 flex items-center justify-center p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="otp-modal-heading"
     >
-      <div className="relative w-full max-w-md bg-white border border-[#E2E8F0] rounded-2xl shadow-2xl overflow-hidden text-[#0F172A]">
+      <div className="relative w-full max-w-md bg-white border border-[#E2E8F0] rounded-2xl shadow-2xl overflow-hidden text-[#0F172A] my-auto">
         {/* Header with official WindowCut Pro logo */}
         <div className="px-6 py-5 border-b border-[#E2E8F0] bg-[#F8FAFC] flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">
@@ -165,6 +191,9 @@ export const CustomerOtpLoginModal: React.FC<CustomerOtpLoginModalProps> = ({
               <img
                 src={BRAND_LOGO_URL}
                 alt={BRAND_NAME}
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                }}
                 className="w-full h-full object-contain rounded-lg"
               />
             </div>
@@ -188,19 +217,31 @@ export const CustomerOtpLoginModal: React.FC<CustomerOtpLoginModalProps> = ({
         </div>
 
         <div className="p-6 space-y-5">
-          {/* Provider configuration notice */}
+          {/* Provider configuration or connectivity notice (safe against missing fields) */}
           {providerStatus && !providerStatus.configured && (
-            <div className="p-3.5 rounded-xl bg-[#FFF7ED] border border-[#FED7AA] text-xs text-[#9A3412] space-y-1.5">
+            <div
+              role="status"
+              className="p-3.5 rounded-xl bg-[#FFF7ED] border border-[#FED7AA] text-xs text-[#9A3412] space-y-1.5"
+            >
               <div className="font-semibold flex items-center gap-1.5">
                 <AlertCircle className="w-4 h-4 text-[#EA580C] shrink-0" />
-                <span>APITXT SMS OTP Configuration Required</span>
+                <span>
+                  {providerStatus.unavailable
+                    ? 'OTP Login Service Status Notice'
+                    : 'APITXT SMS OTP Configuration Required'}
+                </span>
               </div>
               <p className="leading-relaxed">
-                Real SMS delivery is enforced (no dummy OTPs). Configure this server environment variable to activate live OTP SMS:
+                {providerStatus.unavailable
+                  ? providerStatus.setupMessage ||
+                    'Unable to reach the OTP login service right now. Please check your connection and try again.'
+                  : 'Real SMS delivery is enforced (no dummy OTPs). Configure this server environment variable to activate live OTP SMS:'}
               </p>
-              <div className="font-mono text-[11px] bg-white/90 border border-[#FED7AA] rounded-lg px-2.5 py-1.5 text-[#7C2D12]">
-                {providerStatus.missingEnvVars.join(', ')}
-              </div>
+              {providerMissingVars.length > 0 && (
+                <div className="font-mono text-[11px] bg-white/90 border border-[#FED7AA] rounded-lg px-2.5 py-1.5 text-[#7C2D12]">
+                  {providerMissingVars.join(', ')}
+                </div>
+              )}
             </div>
           )}
 

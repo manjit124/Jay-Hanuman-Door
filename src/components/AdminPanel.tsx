@@ -60,6 +60,7 @@ import { GoogleDriveImagePicker } from './admin/GoogleDriveImagePicker.tsx';
 import { DEFAULT_CONTENT_PROTECTION } from '../lib/contentProtection.ts';
 import { adMobService } from '../lib/admob/admobService.ts';
 import { FEATURE_FLAGS, isAdminTabDisabled } from '../config/featureFlags.ts';
+import { BRAND_LOGO_URL, resolveBrandLogoUrl } from '../config/brand.ts';
 
 // Lazy-loaded sub-tab modules to optimize initial Admin Panel modal open speed
 const AdminNotificationsTab = React.lazy(() => import('./AdminNotificationsTab.tsx').then(m => ({ default: m.AdminNotificationsTab })));
@@ -764,7 +765,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl overflow-hidden border border-[#BFDBFE] shadow-xs bg-white p-0.5 flex items-center justify-center shrink-0">
               <img
-                src="/assets/aistudio/file_00000000987c8211861f7f4e3ee30de1_a307444c.png"
+                src={BRAND_LOGO_URL}
                 alt="WindowCut Pro Logo"
                 className="w-full h-full object-contain"
               />
@@ -886,7 +887,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div className="text-center space-y-2">
                   <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-[#BFDBFE] shadow-lg bg-white p-1 flex items-center justify-center mx-auto mb-2">
                     <img
-                      src="/assets/aistudio/file_00000000987c8211861f7f4e3ee30de1_a307444c.png"
+                      src={BRAND_LOGO_URL}
                       alt="WindowCut Pro Logo"
                       className="w-full h-full object-contain"
                     />
@@ -5679,7 +5680,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <GoogleDriveImagePicker
                             label="Brand Logo (Website, App & Quotations)"
                             sublabel="Upload company logo photo or import link. Stored permanently in Bunny Storage."
-                            value={settings.logoUrl || '/assets/logo.png'}
+                            value={resolveBrandLogoUrl(settings.logoUrl)}
                             category="brand"
                             deviceUploadButtonText="Upload Company Logo"
                             onChange={(url) => {

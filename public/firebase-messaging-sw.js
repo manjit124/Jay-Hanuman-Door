@@ -1,12 +1,25 @@
 /* eslint-disable no-restricted-globals */
-// Firebase Messaging & Web Push Service Worker for WindowCut Pro
+// Firebase Messaging & Web Push Service Worker for WindowCut Pro (asset v20261128)
+const BRAND_ICON_URL = '/assets/logo-192.png?v=20261128';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      try {
+        if ('caches' in self) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+      } catch {
+        // Ignore CacheStorage errors on restricted WebViews
+      }
+      await self.clients.claim();
+    })()
+  );
 });
 
 // Handle incoming background push notifications
@@ -14,8 +27,8 @@ self.addEventListener('push', (event) => {
   let notificationData = {
     title: 'WindowCut Pro Update',
     body: 'New sliding window fabrication calculator updates and saved sheet notifications.',
-    icon: '/assets/logo-192.png',
-    badge: '/assets/logo-192.png',
+    icon: BRAND_ICON_URL,
+    badge: BRAND_ICON_URL,
     image: undefined,
     data: { url: '/' },
   };
@@ -53,11 +66,11 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: notificationData.body,
-    icon: notificationData.icon || '/assets/logo-192.png',
-    badge: notificationData.badge || '/assets/logo-192.png',
+    icon: notificationData.icon || BRAND_ICON_URL,
+    badge: notificationData.badge || BRAND_ICON_URL,
     image: notificationData.image,
     vibrate: [200, 100, 200],
-    tag: notificationData.data.campaignId || 'door-update',
+    tag: notificationData.data.campaignId || 'windowcut-update',
     renotify: true,
     requireInteraction: true,
     data: notificationData.data,
