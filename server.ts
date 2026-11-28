@@ -9,7 +9,6 @@ import crypto from 'crypto';
 import multer from 'multer';
 
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
-import { createServer as createViteServer } from 'vite';
 import {
   getDb,
   saveDb,
@@ -5511,13 +5510,17 @@ async function startServer() {
   );
 
   const distPath = findDistDirectory();
+  const isCloudRun = Boolean(process.env.K_SERVICE || process.env.K_REVISION);
   const isCjsBundle = typeof __filename !== 'undefined' && __filename.endsWith('.cjs');
   const isDevCommand =
-    process.env.npm_lifecycle_event === 'dev' ||
-    process.argv.some(arg => arg.includes('server.ts') || arg.includes('--host') || arg.includes('vite'));
+    !isCloudRun &&
+    (process.env.npm_lifecycle_event === 'dev' ||
+      (process.env.NODE_ENV !== 'production' &&
+        process.argv.some(arg => arg.includes('server.ts') || arg.includes('--host') || arg.includes('vite'))));
 
-  // Production mode is active when running compiled bundle (dist/server.cjs) or when NODE_ENV is production and not in dev
-  const isProduction = isCjsBundle || (process.env.NODE_ENV === 'production' && !isDevCommand);
+  // Production mode is ALWAYS active on Cloud Run, in the compiled dist/server.cjs bundle,
+  // or whenever NODE_ENV=production (never load Vite dev middleware in production).
+  const isProduction = isCloudRun || isCjsBundle || (process.env.NODE_ENV === 'production' && !isDevCommand);
 
   // Dedicated API 404 handler - MUST execute before Vite dev middlewares or SPA fallback!
   app.all(['/api', '/api/*'], (req, res) => {
@@ -5531,6 +5534,9 @@ async function startServer() {
   if (!isProduction) {
     try {
       console.log('⚡ Development mode active. Starting Vite development middleware...');
+      // Dynamic import ensures production dist/server.cjs never requires or loads Vite at startup
+      const viteModuleName = 'vite';
+      const { createServer: createViteServer } = await import(viteModuleName);
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: 'spa',
@@ -5613,13 +5619,13 @@ async function startServer() {
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('----------------------------------------------------');
-    console.log('🚀 Jai Hanuman Door server started successfully');
-    console.log(`📡 Listening on: http://0.0.0.0:${PORT}`);
-    console.log(`🌍 Environment: ${isProduction ? 'production' : 'development'}`);
+    console.log(`🚀 WindowCut Pro server listening on 0.0.0.0:${PORT}`);
+    console.log(`📡 PORT env: ${rawPort || '(unset, default 3000)'} -> bound port ${PORT}`);
+    console.log(`🌍 Environment: ${isProduction ? 'production' : 'development'}${isCloudRun ? ' (Cloud Run)' : ''}`);
     console.log(`📁 Static files directory: ${distPath || 'Vite dev middleware'}`);
     console.log('----------------------------------------------------');
 
-    // Defer heavy background sync tasks so port 3000 binds and accepts Cloud Run startup probes immediately
+    // Defer heavy background sync tasks so the configured PORT binds and accepts Cloud Run startup probes immediately
     setImmediate(() => {
       // Hydrate authoritative database from Firestore cloud store asynchronously without blocking port bind
       initCloudDatabase()
@@ -5654,8 +5660,21 @@ async function startServer() {
   });
 
   server.on('error', (err: any) => {
-    console.error('❌ Server listen error on port ' + PORT + ':', err);
+    console.error(`❌ Server listen error on 0.0.0.0:${PORT}:`, err);
+    if (isProduction) {
+      process.exit(1);
+    }
   });
+
+  const gracefulShutdown = (signal: string) => {
+    console.log(`🛑 Received ${signal}, shutting down HTTP server gracefully...`);
+    server.close(() => {
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(0), 5000).unref();
+  };
+  process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.once('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
 startServer().catch((err) => {

@@ -1,0 +1,133 @@
+name: Deploy Backend to Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: 'Existing Cloud Run service name'
+        required: true
+        default: 'door-price-calculator-door-catalog'
+      region:
+        description: 'Existing Cloud Run region'
+        required: true
+        default: 'asia-southeast1'
+      apitxt_secret_name:
+        description: 'Google Cloud Secret Manager secret name for APITXT_API_KEY'
+        required: true
+        default: 'APITXT_API_KEY'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy-cloud-run:
+    name: Deploy WindowCut Pro Backend to Cloud Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Latest main Branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Verify GCP Deployment Secrets Configured
+        shell: bash
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || vars.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GCP_SA_KEY:-}" ]; then
+            echo "::error::Missing GitHub repository secret GCP_SA_KEY (JSON key for a GCP service account with Cloud Run Admin, Cloud Build Editor, Artifact Registry Writer, Service Account User, and Secret Manager Secret Accessor roles)."
+            exit 1
+          fi
+          if ! printf '%s' "$GCP_SA_KEY" | jq -e '.type == "service_account" and .project_id and .private_key' >/dev/null 2>&1; then
+            echo "::error::GCP_SA_KEY is not a valid Google Cloud service account JSON key."
+            exit 1
+          fi
+          if [ -z "${GCP_PROJECT_ID:-}" ]; then
+            echo "::error::Missing GitHub repository secret/variable GCP_PROJECT_ID."
+            exit 1
+          fi
+          echo "Required GitHub Actions deployment secrets are present and valid."
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID || vars.GCP_PROJECT_ID }}
+
+      - name: Verify Secret Manager Secret Exists
+        shell: bash
+        env:
+          APITXT_SECRET_NAME: ${{ inputs.apitxt_secret_name }}
+        run: |
+          set -euo pipefail
+          if ! gcloud secrets describe "$APITXT_SECRET_NAME" --format='value(name)' >/dev/null 2>&1; then
+            echo "::error::Secret Manager secret '${APITXT_SECRET_NAME}' was not found in this GCP project. Create it in Secret Manager before deploying."
+            exit 1
+          fi
+          echo "Verified Secret Manager secret '${APITXT_SECRET_NAME}' exists (value never printed)."
+
+      - name: Deploy Updated Backend to Existing Cloud Run Service
+        shell: bash
+        env:
+          SERVICE_NAME: ${{ inputs.service_name }}
+          REGION: ${{ inputs.region }}
+          APITXT_SECRET_NAME: ${{ inputs.apitxt_secret_name }}
+        run: |
+          set -euo pipefail
+          # Uses --update-env-vars and --update-secrets (merge mode) so existing
+          # Razorpay, Bunny.net, Firebase, Gemini, and other production config are preserved.
+          gcloud run deploy "$SERVICE_NAME" \
+            --source . \
+            --region "$REGION" \
+            --platform managed \
+            --port 3000 \
+            --allow-unauthenticated \
+            --update-env-vars "NODE_ENV=production" \
+            --update-secrets "APITXT_API_KEY=${APITXT_SECRET_NAME}:latest"
+
+      - name: Verify Live Cloud Run Health & OTP Endpoints
+        shell: bash
+        env:
+          SERVICE_NAME: ${{ inputs.service_name }}
+          REGION: ${{ inputs.region }}
+        run: |
+          set -euo pipefail
+          SERVICE_URL="$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')"
+          LATEST_REV="$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.latestReadyRevisionName)')"
+          echo "Deployed Cloud Run URL: $SERVICE_URL"
+          echo "Latest ready revision: $LATEST_REV"
+
+          echo "Checking /api/health..."
+          HEALTH_CODE="$(curl -sS -o /tmp/health.json -w '%{http_code}' "$SERVICE_URL/api/health")"
+          if [ "$HEALTH_CODE" != "200" ]; then
+            echo "::error::Expected HTTP 200 from /api/health, got HTTP $HEALTH_CODE"
+            exit 1
+          fi
+          jq '{status, service, version, environment, otpAuthEnabled, otpProvider, otpProviderConfigured}' /tmp/health.json
+          grep -q '"otpAuthEnabled":true' /tmp/health.json || {
+            echo "::error::/api/health did not report otpAuthEnabled=true"
+            exit 1
+          }
+
+          echo "Checking /api/customer-auth/provider-status..."
+          STATUS_CODE="$(curl -sS -o /tmp/provider_status.json -w '%{http_code}' "$SERVICE_URL/api/customer-auth/provider-status")"
+          cat /tmp/provider_status.json
+          echo ""
+          if [ "$STATUS_CODE" != "200" ]; then
+            echo "::error::Expected HTTP 200 from /api/customer-auth/provider-status, got HTTP $STATUS_CODE"
+            exit 1
+          fi
+          grep -q '"configured":true' /tmp/provider_status.json || {
+            echo "::error::APITXT_API_KEY is not active on Cloud Run (configured != true). Check Secret Manager secret and Cloud Run service account Secret Manager Secret Accessor IAM role."
+            exit 1
+          }
+          echo "Production Cloud Run revision, /api/health, and /api/customer-auth/provider-status verified!"

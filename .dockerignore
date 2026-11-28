@@ -1,0 +1,30 @@
+node_modules
+dist
+android
+app
+.git
+.github
+
+# Exclude all env files and secrets from Docker build context
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+
+# Exclude signing keys, certificates, and credentials
+**/*.keystore
+**/*.jks
+**/*.pem
+**/*.p12
+**/*service-account*.json
+**/google-services.json
+server/data/drive_credentials.json
+
+# Exclude local logs, APK/AAB builds, and transient backups
+*.log
+*.apk
+*.aab
+data/backups
+data/uploads_backup
+server/data/backups

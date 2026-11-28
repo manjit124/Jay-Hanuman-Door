@@ -4,15 +4,29 @@ dist/
 coverage/
 .DS_Store
 *.log
-.env*
+
+# Environment files & secrets (never commit real keys)
+.env
+.env.*
+**/.env
+**/.env.*
 !.env.example
+
+# Signing keys, certificates & service account credentials
 *.keystore
 *.jks
+*.pem
+*.p12
 release.keystore
+*service-account*.json
+google-services.json
+server/data/drive_credentials.json
+
+# Accidental nested workspace mirror & generated build artifacts
+app/
 android/app/src/main/assets/public/
 data/backups/
 data/uploads/
 data/uploads_backup/
 server/data/backups/
 server/data/uploads/
-

@@ -1,4 +1,7 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+if (!process.env.K_SERVICE && !process.env.K_REVISION) {
+  dotenv.config();
+}
 import { GoogleGenAI } from '@google/genai';
 import type { AIWoodAnalysisResult, WoodReferenceSample } from '../src/types.ts';
 import { WOOD_SPECIES_PROFILES } from './woodAnatomyGuide.ts';

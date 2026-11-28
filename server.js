@@ -3,11 +3,16 @@
  * Strictly loads the compiled production server bundle in dist/server.cjs
  * (never executes server.ts directly in production).
  */
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+
+// Only load local .env outside Cloud Run managed runtimes
+if (!process.env.K_SERVICE && !process.env.K_REVISION) {
+  dotenv.config();
+}
 
 // Ensure production mode is active by default in production hosting environments
 if (process.env.NODE_ENV !== 'test') {
@@ -33,6 +38,10 @@ if (!fs.existsSync(distIndexPath)) {
     `⚠️ Warning: frontend build index not found at "${distIndexPath}". Run "npm run build" to build static assets.`
   );
 }
+
+console.log(
+  `⚙️ Booting WindowCut Pro production server (PORT=${process.env.PORT || '3000 (default)'}, NODE_ENV=${process.env.NODE_ENV})`
+);
 
 const require = createRequire(currentFileUrl || path.join(__dirname, 'package.json'));
 try {
