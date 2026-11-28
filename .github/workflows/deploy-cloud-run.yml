@@ -63,17 +63,17 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID || vars.GCP_PROJECT_ID }}
 
-      - name: Verify Secret Manager Secret Exists
+      - name: Check Secret Manager Metadata (Non-Fatal for Secret Accessor)
         shell: bash
         env:
           APITXT_SECRET_NAME: ${{ inputs.apitxt_secret_name }}
         run: |
           set -euo pipefail
-          if ! gcloud secrets describe "$APITXT_SECRET_NAME" --format='value(name)' >/dev/null 2>&1; then
-            echo "::error::Secret Manager secret '${APITXT_SECRET_NAME}' was not found in this GCP project. Create it in Secret Manager before deploying."
-            exit 1
+          if gcloud secrets describe "$APITXT_SECRET_NAME" --format='value(name)' >/dev/null 2>&1; then
+            echo "Verified Secret Manager secret '${APITXT_SECRET_NAME}' exists (value never printed)."
+          else
+            echo "::notice::Could not read metadata for secret '${APITXT_SECRET_NAME}' (expected if the deployer SA has least-privilege Secret Manager Secret Accessor without Secret Viewer). Cloud Run will validate secret binding during deploy."
           fi
-          echo "Verified Secret Manager secret '${APITXT_SECRET_NAME}' exists (value never printed)."
 
       - name: Deploy Updated Backend to Existing Cloud Run Service
         shell: bash
@@ -91,6 +91,7 @@ jobs:
             --platform managed \
             --port 3000 \
             --allow-unauthenticated \
+            --quiet \
             --update-env-vars "NODE_ENV=production" \
             --update-secrets "APITXT_API_KEY=${APITXT_SECRET_NAME}:latest"
 

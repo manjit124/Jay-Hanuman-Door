@@ -1,7 +1,7 @@
 node_modules
 dist
 android
-app
+/app
 .git
 .github
 

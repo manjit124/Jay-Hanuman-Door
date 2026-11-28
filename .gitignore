@@ -22,8 +22,8 @@ release.keystore
 google-services.json
 server/data/drive_credentials.json
 
-# Accidental nested workspace mirror & generated build artifacts
-app/
+# Accidental nested workspace mirror & generated build artifacts (root-anchored so android/app/ is NEVER ignored)
+/app/
 android/app/src/main/assets/public/
 data/backups/
 data/uploads/
