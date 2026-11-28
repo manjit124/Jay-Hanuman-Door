@@ -74,6 +74,14 @@ function getEnvValue(name: string): string {
     .replace(/^["']|["']$/g, '');
 }
 
+function getApitxtApiKey(): string {
+  return (
+    getEnvValue('APITXT_API_KEY') ||
+    getEnvValue('APITXT_KEY') ||
+    getEnvValue('APITXT_AUTHKEY')
+  );
+}
+
 export function getSmsProviderStatus(): {
   provider: 'apitxt';
   configured: boolean;
@@ -81,7 +89,7 @@ export function getSmsProviderStatus(): {
   missingEnvVars: string[];
   setupMessage: string;
 } {
-  const apiKey = getEnvValue('APITXT_API_KEY');
+  const apiKey = getApitxtApiKey();
   const missingEnvVars: string[] = [];
   if (!apiKey) missingEnvVars.push('APITXT_API_KEY');
 
@@ -187,10 +195,27 @@ export async function sendViaApitxt(params: {
         parsed.error === true);
 
     if (!response.ok || explicitFailure) {
+      const upstreamHint = String(parsed?.code || parsed?.status || '').slice(0, 40);
       console.warn(
-        `[OTP][APITXT] Dispatch failed for ${masked} (HTTP ${response.status})`
+        `[OTP][APITXT] Dispatch failed for ${masked} (HTTP ${response.status}${upstreamHint ? `, status=${upstreamHint}` : ''})`
       );
 
+      if (response.status === 401 || response.status === 403) {
+        return {
+          sent: false,
+          provider: 'apitxt',
+          errorCode: 'APITXT_AUTH_ERROR',
+          error: 'OTP SMS gateway authentication failed on the server. Please check the APITXT_API_KEY configuration.',
+        };
+      }
+      if (response.status === 402) {
+        return {
+          sent: false,
+          provider: 'apitxt',
+          errorCode: 'APITXT_INSUFFICIENT_BALANCE',
+          error: 'OTP SMS service balance is currently exhausted. Please contact support or try again later.',
+        };
+      }
       if (response.status === 422) {
         return {
           sent: false,
@@ -334,7 +359,7 @@ export async function requestMobileOtp(params: {
 
     // Verify APITXT_API_KEY configuration (NO dummy/fake OTP fallback)
     const providerStatus = getSmsProviderStatus();
-    const apiKey = getEnvValue('APITXT_API_KEY');
+    const apiKey = getApitxtApiKey();
 
     if (!params.transport && !providerStatus.configured) {
       return {

@@ -96,6 +96,7 @@ import { analyzeDoorWood, type ImageInputPart } from './server/aiWoodDetector.ts
 import { registerSlidingWindowRoutes } from './server/slidingWindowRoutes.ts';
 import { registerWindowSystemRoutes } from './server/windowSystemRoutes.ts';
 import { registerPaymentAndOtpRoutes, requireCustomerAuth } from './server/paymentAuthRoutes.ts';
+import { getSmsProviderStatus } from './server/otpService.ts';
 import { registerMonetizationRoutes } from './server/monetizationRoutes.ts';
 import { WOOD_SPECIES_PROFILES } from './server/woodAnatomyGuide.ts';
 import { runWoodBenchmarkEvaluation } from './server/woodBenchmark.ts';
@@ -263,15 +264,27 @@ app.get(
       !envAppUrl.includes('768916382182');
     const prodUrl = isSafeProdUrl ? envAppUrl : VERIFIED_PRODUCTION_API_URL;
     const registeredRoutes = getRegisteredRoutes(app);
+    const otpStatus = getSmsProviderStatus();
     return res.status(200).json({
       status: 'ok',
       alive: true,
-      service: 'Jai Hanuman Door',
+      service: 'WindowCut Pro',
       version: SERVER_VERSION,
       uptime: Math.round(process.uptime()),
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'production',
       productionApiUrl: prodUrl,
+      otpAuthEnabled: true,
+      otpProvider: otpStatus.provider,
+      otpProviderConfigured: otpStatus.configured,
+      otpAuthRoutes: [
+        '/api/customer-auth/provider-status',
+        '/api/customer-auth/send-otp',
+        '/api/customer-auth/verify-otp',
+        '/api/customer-auth/me',
+        '/api/customer-auth/profile',
+        '/api/customer-auth/logout',
+      ],
       driveImportRoutes: [
         '/api/admin/drive-image/import',
         '/api/admin/drive-media/import',
